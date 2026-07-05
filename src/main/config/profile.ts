@@ -1,10 +1,8 @@
-import { access, readFile, rm, unlink, writeFile } from 'fs/promises'
+import { access, readFile, rm, writeFile } from 'fs/promises'
 import { constants, existsSync } from 'fs'
-import { exec, execFile } from 'child_process'
+import { execFile } from 'child_process'
 import { isAbsolute, join, relative, resolve } from 'path'
 import { promisify } from 'util'
-import { randomBytes } from 'crypto'
-import { tmpdir } from 'os'
 import { app } from 'electron'
 import i18next from 'i18next'
 import axios, { AxiosResponse } from 'axios'
@@ -17,13 +15,7 @@ import { mihomoCloseAllConnections, mihomoHotReloadConfig } from '../core/mihomo
 import { restartCore } from '../core/manager'
 import { generateProfile } from '../core/factory'
 import { addProfileUpdater, removeProfileUpdater } from '../core/profileUpdater'
-import {
-  mihomoCorePath,
-  mihomoProfileWorkDir,
-  mihomoWorkDir,
-  profileConfigPath,
-  profilePath
-} from '../utils/dirs'
+import { mihomoProfileWorkDir, mihomoWorkDir, profileConfigPath, profilePath } from '../utils/dirs'
 import { createLogger } from '../utils/logger'
 import { getAppConfig } from './app'
 import { getControledMihomoConfig } from './controledMihomo'
@@ -663,38 +655,12 @@ export async function setFileStr(path: string, content: string): Promise<void> {
 }
 
 export async function convertMrsRuleset(filePath: string, behavior: string): Promise<string> {
-  const execAsync = promisify(exec)
-
-  const { core = 'mihomo' } = await getAppConfig()
-  const corePath = mihomoCorePath(core)
-  const { diffWorkDir = false } = await getAppConfig()
-  const { current } = await getProfileConfig()
-  let fullPath: string
-  if (isAbsolutePath(filePath)) {
-    fullPath = filePath
-  } else {
-    fullPath = join(diffWorkDir ? mihomoProfileWorkDir(current) : mihomoWorkDir(), filePath)
-  }
-
-  const tempFileName = `mrs-convert-${randomBytes(8).toString('hex')}.txt`
-  const tempFilePath = join(tmpdir(), tempFileName)
-
-  try {
-    // 使用 mihomo convert-ruleset 命令转换 MRS 文件为 text 格式
-    // 命令格式：mihomo convert-ruleset <behavior> <format> <source>
-    await execAsync(`"${corePath}" convert-ruleset ${behavior} mrs "${fullPath}" "${tempFilePath}"`)
-    const content = await readFile(tempFilePath, 'utf-8')
-    await unlink(tempFilePath)
-
-    return content
-  } catch (error) {
-    try {
-      await unlink(tempFilePath)
-    } catch {
-      // ignore
-    }
-    throw error
-  }
+  // .mrs 是 mihomo 专有二进制格式，sing-box 内核无法转换预览
+  void filePath
+  void behavior
+  throw new Error(
+    'Previewing .mrs rulesets is not supported with the sing-box core (mihomo-only format)'
+  )
 }
 
 // 插件 profile：内容已由 plugin 网关取得，这里只写内容 + 维护 profile item，不走远程 URL 下载

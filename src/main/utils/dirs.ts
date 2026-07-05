@@ -76,15 +76,6 @@ export function mihomoCoreDir(): string {
   return path.join(resourcesDir(), 'sidecar')
 }
 
-export function mihomoCorePath(core: string): string {
-  const isWin = process.platform === 'win32'
-  // 处理 Smart 内核
-  if (core === 'mihomo-smart') {
-    return path.join(mihomoCoreDir(), `mihomo-smart${isWin ? '.exe' : ''}`)
-  }
-  return path.join(mihomoCoreDir(), `${core}${isWin ? '.exe' : ''}`)
-}
-
 export function appConfigPath(): string {
   return path.join(dataDir(), 'config.yaml')
 }
@@ -158,7 +149,7 @@ export function logPath(): string {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
-  const name = `clash-party-${year}-${month}-${day}`
+  const name = `aikobox-${year}-${month}-${day}`
   return path.join(logDir(), `${name}.log`)
 }
 

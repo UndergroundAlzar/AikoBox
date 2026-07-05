@@ -5,7 +5,13 @@ import { mainWindow } from './window'
 import { safeShowErrorBox } from './utils/init'
 
 export async function handleDeepLink(url: string): Promise<void> {
-  if (!url.startsWith('clash://') && !url.startsWith('mihomo://')) return
+  if (
+    !url.startsWith('clash://') &&
+    !url.startsWith('mihomo://') &&
+    !url.startsWith('aikobox://')
+  ) {
+    return
+  }
 
   const urlObj = new URL(url)
   switch (urlObj.host) {

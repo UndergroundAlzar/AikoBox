@@ -96,9 +96,6 @@ const validInvokeChannels = [
   'downloadAndInstallUpdate',
   'getVersion',
   'platform',
-  'fetchMihomoTags',
-  'installSpecificMihomoCore',
-  'clearMihomoVersionCache',
   // Backup
   'webdavBackup',
   'webdavRestore',

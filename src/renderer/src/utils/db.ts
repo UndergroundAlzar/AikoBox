@@ -9,7 +9,7 @@ export interface DataUsageLog {
   download: number
 }
 
-const DB_NAME = 'clashparty_db'
+const DB_NAME = 'aikobox_db'
 const STORE_NAME = 'data_usage_logs'
 const DB_VERSION = 1
 

@@ -1,7 +1,6 @@
-import { copyFile, mkdir, writeFile, readFile, stat } from 'fs/promises'
+import { mkdir, writeFile, readFile } from 'fs/promises'
 import vm from 'vm'
 import { existsSync, writeFileSync } from 'fs'
-import path from 'path'
 import { isIP } from 'net'
 import {
   getControledMihomoConfig,
@@ -25,6 +24,8 @@ import { deepMerge } from '../utils/merge'
 import { createLogger } from '../utils/logger'
 import { decryptAgeContent } from '../utils/age'
 import { DEFAULT_CONTROL_DNS, DEFAULT_CONTROL_SNIFF } from '../../shared/appConfig'
+import { convertClashToSingbox } from './singbox/convert'
+import { setActiveController, singboxWorkConfigPath } from './singbox'
 
 const factoryLogger = createLogger('Factory')
 const SMART_OVERRIDE_ID = 'smart-core-override'
@@ -163,7 +164,7 @@ export async function generateProfile(): Promise<string | undefined> {
   }
   // 确保可以拿到基础日志信息
   // 使用 debug 可以调试内核相关问题 `debug/pprof`
-  if (['info', 'debug'].includes(profile['log-level']) === false) {
+  if (['info', 'debug', 'warning', 'error', 'silent'].includes(profile['log-level']) === false) {
     profile['log-level'] = 'info'
   }
   // 删除空的局域网允许列表，避免局域网访问异常
@@ -175,10 +176,25 @@ export async function generateProfile(): Promise<string | undefined> {
   if (diffWorkDir) {
     await prepareProfileWorkDir(current)
   }
+  const workDir = diffWorkDir ? mihomoProfileWorkDir(current) : mihomoWorkDir()
+  // 保留合并后的 Clash 配置（仪表盘 / 配置查看器 / Gist 上传仍使用 Clash 形态）
   await writeFile(
     diffWorkDir ? mihomoWorkConfigPath(current) : mihomoWorkConfigPath('work'),
     runtimeConfigStr
   )
+  // 转换为 sing-box 配置并写入运行目录
+  const {
+    config: singboxConfig,
+    warnings,
+    controller
+  } = convertClashToSingbox(profile as unknown as Record<string, unknown>, {
+    platform: process.platform
+  })
+  for (const warning of warnings) {
+    factoryLogger.warn(`[singbox-convert] ${warning}`)
+  }
+  setActiveController(controller)
+  await writeFile(singboxWorkConfigPath(workDir), JSON.stringify(singboxConfig, null, 2))
   return current
 }
 
@@ -246,33 +262,6 @@ async function prepareProfileWorkDir(current: string | undefined): Promise<void>
   if (!existsSync(mihomoProfileWorkDir(current))) {
     await mkdir(mihomoProfileWorkDir(current), { recursive: true })
   }
-
-  const isSourceNewer = async (sourcePath: string, targetPath: string): Promise<boolean> => {
-    try {
-      const [sourceStats, targetStats] = await Promise.all([stat(sourcePath), stat(targetPath)])
-      return sourceStats.mtime > targetStats.mtime
-    } catch {
-      return true
-    }
-  }
-
-  const copy = async (file: string): Promise<void> => {
-    const targetPath = path.join(mihomoProfileWorkDir(current), file)
-    const sourcePath = path.join(mihomoWorkDir(), file)
-    if (!existsSync(sourcePath)) return
-    // 复制条件：目标不存在 或 源文件更新
-    const shouldCopy = !existsSync(targetPath) || (await isSourceNewer(sourcePath, targetPath))
-    if (shouldCopy) {
-      await copyFile(sourcePath, targetPath)
-    }
-  }
-  await Promise.all([
-    copy('country.mmdb'),
-    copy('geoip.metadb'),
-    copy('geoip.dat'),
-    copy('geosite.dat'),
-    copy('ASN.mmdb')
-  ])
 }
 
 async function getOrderedOverrideIds(current: string | undefined): Promise<{

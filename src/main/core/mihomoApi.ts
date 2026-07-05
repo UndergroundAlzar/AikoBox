@@ -1,4 +1,3 @@
-import { createConnection } from 'net'
 import axios, { AxiosInstance } from 'axios'
 import WebSocket from 'ws'
 import { getAppConfig, getControledMihomoConfig } from '../config'
@@ -7,14 +6,13 @@ import { tray } from '../resolve/tray'
 import { calcTraffic } from '../utils/calc'
 import { floatingWindow } from '../resolve/floatingWindow'
 import { createLogger } from '../utils/logger'
-import { mihomoWorkConfigPath } from '../utils/dirs'
-import { generateProfile, getRuntimeConfig } from './factory'
-import { getMihomoIpcPath } from './manager'
+import { getRuntimeConfig } from './factory'
+import { getActiveController } from './singbox'
 
 const mihomoApiLogger = createLogger('MihomoApi')
 
 let axiosIns: AxiosInstance | null = null
-let currentIpcPath: string = ''
+let currentControllerKey: string = ''
 
 const MAX_RETRY = 10
 const RECONNECT_INTERVAL_MS = 1000
@@ -146,36 +144,34 @@ function closeErroredStreamSocket(
 
 function createMihomoWebSocket(endpoint: string): {
   ws: WebSocket
-  ipcPath: string
   wsUrl: string
 } {
-  const ipcPath = getMihomoIpcPath()
-  const wsUrl = `ws://localhost${endpoint}`
-
-  // Keep the named pipe path out of ws+unix URLs. URL parsing percent-encodes
-  // non-ASCII Windows usernames, which changes the pipe name before ws connects.
-  const createIpcConnection = (() => createConnection({ path: ipcPath })) as typeof createConnection
+  const { host, port, secret } = getActiveController()
+  const separator = endpoint.includes('?') ? '&' : '?'
+  const wsUrl = `ws://${host}:${port}${endpoint}${separator}token=${encodeURIComponent(secret)}`
 
   return {
-    ws: new WebSocket(wsUrl, { createConnection: createIpcConnection }),
-    ipcPath,
+    ws: new WebSocket(wsUrl, {
+      headers: secret ? { Authorization: `Bearer ${secret}` } : undefined
+    }),
     wsUrl
   }
 }
 
 export const getAxios = async (force: boolean = false): Promise<AxiosInstance> => {
-  const dynamicIpcPath = getMihomoIpcPath()
+  const { host, port, secret } = getActiveController()
+  const controllerKey = `${host}:${port}:${secret}`
 
-  if (axiosIns && !force && currentIpcPath === dynamicIpcPath) {
+  if (axiosIns && !force && currentControllerKey === controllerKey) {
     return axiosIns
   }
 
-  currentIpcPath = dynamicIpcPath
-  mihomoApiLogger.info(`Creating axios instance with path: ${dynamicIpcPath}`)
+  currentControllerKey = controllerKey
+  mihomoApiLogger.info(`Creating axios instance for controller: ${host}:${port}`)
 
   axiosIns = axios.create({
-    baseURL: `http://localhost`,
-    socketPath: dynamicIpcPath,
+    baseURL: `http://${host}:${port}`,
+    headers: secret ? { Authorization: `Bearer ${secret}` } : undefined,
     timeout: 15000
   })
 
@@ -184,10 +180,10 @@ export const getAxios = async (force: boolean = false): Promise<AxiosInstance> =
       return response.data
     },
     (error) => {
-      if (error.code === 'ENOENT') {
-        mihomoApiLogger.debug(`Pipe not ready: ${error.config?.socketPath}`)
+      if (error.code === 'ECONNREFUSED') {
+        mihomoApiLogger.debug(`Controller not ready: ${host}:${port}`)
       } else {
-        mihomoApiLogger.error(`Axios error with path ${dynamicIpcPath}: ${error.message}`)
+        mihomoApiLogger.error(`Axios error with controller ${host}:${port}: ${error.message}`)
       }
 
       if (error.response && error.response.data) {
@@ -200,8 +196,20 @@ export const getAxios = async (force: boolean = false): Promise<AxiosInstance> =
 }
 
 export async function mihomoVersion(): Promise<IMihomoVersion> {
-  const instance = await getAxios()
-  return await instance.get('/version')
+  try {
+    const instance = await getAxios()
+    return await instance.get('/version')
+  } catch (error) {
+    // REST 不可用时兜底：读取 sing-box 命令行版本
+    try {
+      const { getCachedCoreVersion } = await import('./manager')
+      const version = await getCachedCoreVersion()
+      if (version) return { version, meta: true }
+    } catch {
+      // ignore
+    }
+    throw error
+  }
 }
 
 export const patchMihomoConfig = async (patch: Partial<IMihomoConfig>): Promise<void> => {
@@ -225,8 +233,13 @@ export const mihomoRules = async (): Promise<IMihomoRulesInfo> => {
 }
 
 export const mihomoRulesDisable = async (rules: Record<string, boolean>): Promise<void> => {
-  const instance = await getAxios()
-  return await instance.patch('/rules/disable', rules)
+  // sing-box clash_api 不支持 /rules/disable，软失败
+  try {
+    const instance = await getAxios()
+    return await instance.patch('/rules/disable', rules)
+  } catch (error) {
+    mihomoApiLogger.warn('rules/disable is not supported by the sing-box core', error)
+  }
 }
 
 export const mihomoProxies = async (): Promise<IMihomoProxies> => {
@@ -332,23 +345,45 @@ export const mihomoGroups = async (): Promise<IMihomoMixedGroup[]> => {
 }
 
 export const mihomoProxyProviders = async (): Promise<IMihomoProxyProviders> => {
-  const instance = await getAxios()
-  return await instance.get('/providers/proxies')
+  // sing-box 没有 proxy providers，软失败返回空集合
+  try {
+    const instance = await getAxios()
+    const result = (await instance.get('/providers/proxies')) as IMihomoProxyProviders
+    return result && result.providers ? result : { providers: {} }
+  } catch (error) {
+    mihomoApiLogger.debug('providers/proxies unavailable on sing-box core', error)
+    return { providers: {} }
+  }
 }
 
 export const mihomoUpdateProxyProviders = async (name: string): Promise<void> => {
-  const instance = await getAxios()
-  return await instance.put(`/providers/proxies/${encodeURIComponent(name)}`)
+  try {
+    const instance = await getAxios()
+    return await instance.put(`/providers/proxies/${encodeURIComponent(name)}`)
+  } catch (error) {
+    mihomoApiLogger.warn(`update proxy provider "${name}" is not supported`, error)
+  }
 }
 
 export const mihomoRuleProviders = async (): Promise<IMihomoRuleProviders> => {
-  const instance = await getAxios()
-  return await instance.get('/providers/rules')
+  // sing-box 没有 Clash rule providers，软失败返回空集合
+  try {
+    const instance = await getAxios()
+    const result = (await instance.get('/providers/rules')) as IMihomoRuleProviders
+    return result && result.providers ? result : { providers: {} }
+  } catch (error) {
+    mihomoApiLogger.debug('providers/rules unavailable on sing-box core', error)
+    return { providers: {} }
+  }
 }
 
 export const mihomoUpdateRuleProviders = async (name: string): Promise<void> => {
-  const instance = await getAxios()
-  return await instance.put(`/providers/rules/${encodeURIComponent(name)}`)
+  try {
+    const instance = await getAxios()
+    return await instance.put(`/providers/rules/${encodeURIComponent(name)}`)
+  } catch (error) {
+    mihomoApiLogger.warn(`update rule provider "${name}" is not supported`, error)
+  }
 }
 
 export const mihomoChangeProxy = async (group: string, proxy: string): Promise<IMihomoProxy> => {
@@ -357,13 +392,19 @@ export const mihomoChangeProxy = async (group: string, proxy: string): Promise<I
 }
 
 export const mihomoUnfixedProxy = async (group: string): Promise<IMihomoProxy> => {
-  const instance = await getAxios()
-  return await instance.delete(`/proxies/${encodeURIComponent(group)}`)
+  // sing-box 不支持取消固定节点，软失败
+  try {
+    const instance = await getAxios()
+    return await instance.delete(`/proxies/${encodeURIComponent(group)}`)
+  } catch (error) {
+    mihomoApiLogger.warn(`unfixed proxy for group "${group}" is not supported`, error)
+    return {} as IMihomoProxy
+  }
 }
 
 export const mihomoUpgradeGeo = async (): Promise<void> => {
-  const instance = await getAxios()
-  return await instance.post('/configs/geo')
+  // sing-box 使用远程 rule-set，无 geo 数据库可升级；软失败
+  mihomoApiLogger.warn('upgrade geo is not supported with the sing-box core')
 }
 
 export const mihomoProxyDelay = async (
@@ -374,10 +415,11 @@ export const mihomoProxyDelay = async (
   const appConfig = await getAppConfig()
   const { delayTestUrl, delayTestTimeout } = appConfig
   const instance = await getAxios()
-  const path = provider
-    ? `/providers/proxies/${encodeURIComponent(provider)}/${encodeURIComponent(proxy)}/healthcheck`
-    : `/proxies/${encodeURIComponent(proxy)}/delay`
-  return await instance.get(path, {
+  if (provider) {
+    // sing-box 无 provider healthcheck，降级为普通节点延迟测试
+    mihomoApiLogger.debug(`provider healthcheck unsupported, fallback to proxy delay: ${proxy}`)
+  }
+  return await instance.get(`/proxies/${encodeURIComponent(proxy)}/delay`, {
     params: {
       url: delayTestUrl || url || 'https://www.gstatic.com/generate_204',
       timeout: delayTestTimeout || 5000
@@ -398,24 +440,19 @@ export const mihomoGroupDelay = async (group: string, url?: string): Promise<IMi
 }
 
 export const mihomoUpgrade = async (): Promise<void> => {
-  const instance = await getAxios()
-  return await instance.post('/upgrade', undefined, { timeout: 90000 })
+  // 应用内更新内核已停用：内核随应用一起发布
+  throw new Error('In-app core upgrade is disabled: the sing-box core ships with the app')
 }
 
 export const mihomoUpgradeUI = async (): Promise<void> => {
-  const instance = await getAxios()
-  return await instance.post('/upgrade/ui')
+  mihomoApiLogger.warn('upgrade UI is not supported with the sing-box core')
 }
 
 export const mihomoHotReloadConfig = async (): Promise<void> => {
-  mihomoApiLogger.info('mihomoHotReloadConfig called')
-  const current = await generateProfile()
-  const { diffWorkDir = false } = await getAppConfig()
-  const configPath = diffWorkDir ? mihomoWorkConfigPath(current) : mihomoWorkConfigPath('work')
-  mihomoApiLogger.info(`hot reload config path: ${configPath}`)
-  const instance = await getAxios()
-  await instance.put('/configs?force=true', { path: configPath })
-  mihomoApiLogger.info('hot reload config completed')
+  // sing-box clash_api 不支持从文件热重载配置，降级为重新生成配置并重启内核
+  mihomoApiLogger.info('hot reload requested, falling back to core restart for sing-box')
+  const { restartCore } = await import('./manager')
+  await restartCore()
   try {
     const { scheduleRuntimeConfigUpload } = await import('../resolve/gistApi')
     scheduleRuntimeConfigUpload()
@@ -424,21 +461,16 @@ export const mihomoHotReloadConfig = async (): Promise<void> => {
   }
 }
 
-// Smart 内核 API
+// Smart 内核 API（sing-box 无对应能力，软失败）
 export const mihomoSmartGroupWeights = async (
   groupName: string
 ): Promise<Record<string, number>> => {
-  const instance = await getAxios()
-  return await instance.get(`/group/${encodeURIComponent(groupName)}/weights`)
+  mihomoApiLogger.debug(`smart group weights unavailable for "${groupName}"`)
+  return {}
 }
 
 export const mihomoSmartFlushCache = async (configName?: string): Promise<void> => {
-  const instance = await getAxios()
-  if (configName) {
-    return await instance.post(`/cache/smart/flush/${encodeURIComponent(configName)}`)
-  } else {
-    return await instance.post('/cache/smart/flush')
-  }
+  mihomoApiLogger.debug(`smart flush cache unavailable${configName ? ` for "${configName}"` : ''}`)
 }
 
 export const startMihomoTraffic = async (): Promise<void> => {
@@ -454,9 +486,11 @@ const mihomoTraffic = async (): Promise<void> => {
   const generation = beginStreamConnection(trafficStream)
   if (generation === null) return
 
-  const { ws, ipcPath, wsUrl } = createMihomoWebSocket('/traffic')
+  const { ws, wsUrl } = createMihomoWebSocket('/traffic')
 
-  mihomoApiLogger.info(`Creating traffic WebSocket with URL: ${wsUrl}, IPC path: ${ipcPath}`)
+  mihomoApiLogger.info(
+    `Creating traffic WebSocket with URL: ${wsUrl.replace(/token=[^&]*/, 'token=***')}`
+  )
   trafficStream.ws = ws
 
   ws.onmessage = async (e): Promise<void> => {
@@ -546,8 +580,10 @@ const mihomoLogs = async (): Promise<void> => {
   if (generation === null) return
 
   const { 'log-level': logLevel = 'info' } = await getControledMihomoConfig()
+  // sing-box 日志级别不含 silent，映射为 fatal（几乎无输出）
+  const wsLogLevel = logLevel === 'silent' ? 'fatal' : logLevel
 
-  const { ws } = createMihomoWebSocket(`/logs?level=${logLevel}`)
+  const { ws } = createMihomoWebSocket(`/logs?level=${wsLogLevel}`)
   logsStream.ws = ws
 
   ws.onmessage = (e): void => {

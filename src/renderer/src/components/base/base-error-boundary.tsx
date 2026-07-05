@@ -16,18 +16,9 @@ const ErrorFallback = ({ error }: FallbackProps): React.ReactElement => {
         size="sm"
         color="primary"
         variant="flat"
-        onPress={() => open('https://github.com/mihomo-party-org/mihomo-party/issues/new/choose')}
+        onPress={() => open('https://github.com/aikobox/aikobox/issues')}
       >
         GitHub
-      </Button>
-      <Button
-        size="sm"
-        color="primary"
-        variant="flat"
-        className="ml-2"
-        onPress={() => open('https://t.me/mihomo_party_group')}
-      >
-        Telegram
       </Button>
 
       <Button

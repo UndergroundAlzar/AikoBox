@@ -4,15 +4,9 @@ import path from 'path'
 import { promisify } from 'util'
 import { app, dialog, nativeImage, nativeTheme, shell } from 'electron'
 import i18next from 'i18next'
-import {
-  dataDir,
-  exePath,
-  mihomoCorePath,
-  overridePath,
-  profilePath,
-  resourcesDir
-} from '../utils/dirs'
+import { dataDir, exePath, overridePath, profilePath, resourcesDir } from '../utils/dirs'
 import { checkAdminPrivileges } from '../core/admin'
+import { singboxCorePath } from '../core/singbox'
 
 export function getFilePath(
   ext: string[],
@@ -84,10 +78,10 @@ export async function setupFirewall(): Promise<void> {
   const execPromise = promisify(exec)
 
   if (process.platform === 'win32') {
+    // 只管理 AikoBox 自己的防火墙规则，不触碰其他应用（如上游 Mihomo Party）的规则
     const rules = [
-      { name: 'mihomo', program: mihomoCorePath('mihomo') },
-      { name: 'mihomo-alpha', program: mihomoCorePath('mihomo-alpha') },
-      { name: 'Mihomo Party', program: exePath() }
+      { name: 'AikoBox', program: exePath() },
+      { name: 'AikoBox sing-box', program: singboxCorePath() }
     ]
     for (const rule of rules) {
       await execPromise(`netsh advfirewall firewall delete rule name="${rule.name}"`, {

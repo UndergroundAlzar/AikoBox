@@ -12,6 +12,11 @@ import { proxyLogger } from '../utils/logger'
 let triggerSysProxyTimer: NodeJS.Timeout | null = null
 const helperSocketPath = '/tmp/mihomo-party-helper.sock'
 
+// 是否由本应用设置过系统代理。
+// 只有 AikoBox 自己启用过系统代理时才允许清除系统代理，
+// 避免启动/退出时误清其他代理软件（或用户手动）设置的系统代理。
+let sysProxyAppliedByApp = false
+
 const defaultBypass: string[] = (() => {
   switch (process.platform) {
     case 'linux':
@@ -96,6 +101,7 @@ async function enableSysProxy(): Promise<void> {
         )
       )
     }
+    sysProxyAppliedByApp = true
   } else {
     // Windows / Linux 直接使用 sysproxy-rs
     try {
@@ -104,6 +110,7 @@ async function enableSysProxy(): Promise<void> {
       } else {
         triggerManualProxy(true, proxyHost, port, bypass.join(','))
       }
+      sysProxyAppliedByApp = true
     } catch (error) {
       await proxyLogger.error('Failed to enable system proxy', error)
       throw error
@@ -114,13 +121,18 @@ async function enableSysProxy(): Promise<void> {
 async function disableSysProxy(): Promise<void> {
   await stopPacServer()
 
+  // 系统代理不是本应用设置的，绝不主动清除（可能属于其他代理软件）
+  if (!sysProxyAppliedByApp) return
+
   if (process.platform === 'darwin') {
     await helperRequest(() => axios.get('http://localhost/off', { socketPath: helperSocketPath }))
+    sysProxyAppliedByApp = false
   } else {
     // Windows / Linux 直接使用 sysproxy-rs
     try {
       triggerAutoProxy(false, '')
       triggerManualProxy(false, '', 0, '')
+      sysProxyAppliedByApp = false
     } catch (error) {
       await proxyLogger.error('Failed to disable system proxy', error)
       throw error
@@ -130,9 +142,11 @@ async function disableSysProxy(): Promise<void> {
 
 export function disableSysProxySync(): void {
   if (process.platform === 'darwin') return
+  if (!sysProxyAppliedByApp) return
   try {
     triggerAutoProxy(false, '')
     triggerManualProxy(false, '', 0, '')
+    sysProxyAppliedByApp = false
   } catch {
     // ignore errors during sync disable
   }

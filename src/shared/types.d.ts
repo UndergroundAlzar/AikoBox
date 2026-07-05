@@ -265,7 +265,9 @@ interface ICustomTrayIcons {
 }
 
 interface IAppConfig {
-  core: 'mihomo' | 'mihomo-alpha' | 'mihomo-smart' | 'mihomo-specific'
+  // 唯一内核为 sing-box；旧值（mihomo / mihomo-alpha / mihomo-smart / mihomo-specific）
+  // 仍可能存在于历史配置中，运行时一律映射到 sing-box
+  core: 'sing-box' | 'mihomo' | 'mihomo-alpha' | 'mihomo-smart' | 'mihomo-specific'
   specificVersion?: string
   enableSmartCore: boolean
   enableSmartOverride: boolean

@@ -55,7 +55,7 @@ async function getWebDAVClient(): Promise<WebDAVContext> {
     webdavUrl = '',
     webdavUsername = '',
     webdavPassword = '',
-    webdavDir = 'clash-party',
+    webdavDir = 'aikobox',
     webdavMaxBackups = 0,
     webdavIgnoreCert = false
   } = await getAppConfig()
@@ -239,7 +239,7 @@ export async function exportLocalBackup(): Promise<boolean> {
   const zip = createBackupZip()
 
   const date = new Date()
-  const zipFileName = `clash-party-backup-${dayjs(date).format('YYYY-MM-DD_HH-mm-ss')}.zip`
+  const zipFileName = `aikobox-backup-${dayjs(date).format('YYYY-MM-DD_HH-mm-ss')}.zip`
   const result = await dialog.showSaveDialog({
     title: i18next.t('localBackup.export.title'),
     defaultPath: zipFileName,

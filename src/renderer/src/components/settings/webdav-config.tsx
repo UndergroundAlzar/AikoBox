@@ -17,7 +17,7 @@ const WebdavConfig: React.FC = () => {
     webdavUrl,
     webdavUsername,
     webdavPassword,
-    webdavDir = 'clash-party',
+    webdavDir = 'aikobox',
     webdavMaxBackups = 0,
     webdavBackupCron,
     webdavIgnoreCert = false

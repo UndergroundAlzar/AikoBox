@@ -1,6 +1,6 @@
 import { mkdir, writeFile, rm, readdir, cp, stat, rename } from 'fs/promises'
 import { existsSync } from 'fs'
-import { exec, execFile } from 'child_process'
+import { exec } from 'child_process'
 import { promisify } from 'util'
 import path from 'path'
 import { app, dialog } from 'electron'
@@ -146,49 +146,7 @@ async function initConfig(): Promise<void> {
   )
 }
 
-async function killOldMihomoProcesses(): Promise<void> {
-  if (process.platform !== 'win32') return
-
-  try {
-    const execFilePromise = promisify(execFile)
-    const coreNames = new Set(['mihomo.exe', 'mihomo-alpha.exe', 'mihomo-smart.exe'])
-    const { stdout } = await execFilePromise('tasklist', ['/FO', 'CSV', '/NH'], {
-      windowsHide: true,
-      timeout: 3000,
-      maxBuffer: 4 * 1024 * 1024
-    })
-
-    const pids = stdout
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line && !line.includes('INFO:'))
-      .map((line) => {
-        const [, imageName, pid] = line.match(/^"([^"]+)","(\d+)"/) || []
-        if (!imageName || !coreNames.has(imageName.toLowerCase())) return NaN
-        return parseInt(pid, 10)
-      })
-      .filter((pid) => !isNaN(pid) && pid !== process.pid)
-
-    if (pids.length === 0) return
-
-    for (const pid of pids) {
-      try {
-        process.kill(pid, 'SIGTERM')
-        await initLogger.info(`Terminated old mihomo process ${pid}`)
-      } catch {
-        // 进程可能退出
-      }
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 200))
-  } catch {
-    // 忽略错误
-  }
-}
-
 async function initFiles(): Promise<void> {
-  await killOldMihomoProcesses()
-
   const copyFile = async (file: string, targetDirs: string[]): Promise<void> => {
     const sourcePath = path.join(resourcesFilesDir(), file)
     if (!existsSync(sourcePath)) return
@@ -220,26 +178,6 @@ async function initFiles(): Promise<void> {
 
   const files = [
     {
-      name: 'country.mmdb',
-      targetDirs: [mihomoWorkDir(), mihomoTestDir()]
-    },
-    {
-      name: 'geoip.metadb',
-      targetDirs: [mihomoWorkDir(), mihomoTestDir()]
-    },
-    {
-      name: 'geoip.dat',
-      targetDirs: [mihomoWorkDir(), mihomoTestDir()]
-    },
-    {
-      name: 'geosite.dat',
-      targetDirs: [mihomoWorkDir(), mihomoTestDir()]
-    },
-    {
-      name: 'ASN.mmdb',
-      targetDirs: [mihomoWorkDir(), mihomoTestDir()]
-    },
-    {
       name: 'sub-store.bundle.cjs',
       targetDirs: [mihomoWorkDir()]
     },
@@ -248,8 +186,6 @@ async function initFiles(): Promise<void> {
       targetDirs: [mihomoWorkDir()]
     }
   ]
-
-  const criticalFiles = ['country.mmdb', 'geoip.dat', 'geosite.dat']
 
   const results = await Promise.allSettled(
     files.map(({ name, targetDirs }) => copyFile(name, targetDirs))
@@ -260,9 +196,6 @@ async function initFiles(): Promise<void> {
     if (result.status === 'rejected') {
       const file = files[i].name
       await initLogger.error(`Failed to copy ${file}`, result.reason)
-      if (criticalFiles.includes(file)) {
-        throw new Error(`Failed to copy critical file ${file}: ${result.reason}`)
-      }
     }
   }
 }
@@ -401,15 +334,12 @@ async function migration(): Promise<void> {
 }
 
 function initDeeplink(): void {
-  if (process.defaultApp) {
-    if (process.argv.length >= 2) {
-      app.setAsDefaultProtocolClient('clash', process.execPath, [path.resolve(process.argv[1])])
-      app.setAsDefaultProtocolClient('mihomo', process.execPath, [path.resolve(process.argv[1])])
-    }
-  } else {
-    app.setAsDefaultProtocolClient('clash')
-    app.setAsDefaultProtocolClient('mihomo')
-  }
+  // 开发模式不注册 URL scheme：会把系统的 clash:// / mihomo:// 关联改写为
+  // 指向 electron.exe 的临时命令，破坏本机已安装客户端的一键导入。
+  if (!app.isPackaged) return
+  app.setAsDefaultProtocolClient('clash')
+  app.setAsDefaultProtocolClient('mihomo')
+  app.setAsDefaultProtocolClient('aikobox')
 }
 
 export async function initBasic(): Promise<void> {

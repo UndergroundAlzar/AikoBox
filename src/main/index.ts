@@ -200,7 +200,7 @@ const initPromise = (async () => {
 })()
 
 app.whenReady().then(async () => {
-  electronApp.setAppUserModelId('party.mihomo.app')
+  electronApp.setAppUserModelId('com.aikobox.app')
 
   const appConfig = await initPromise
 

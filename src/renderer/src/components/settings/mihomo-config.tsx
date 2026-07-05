@@ -38,7 +38,6 @@ const MihomoConfig: React.FC = () => {
     userAgent,
     subscriptionTimeout = 30000,
     mihomoCpuPriority = 'PRIORITY_NORMAL',
-    coreStartupMode = 'log',
     proxyCols = 'auto'
   } = appConfig || {}
   const [url, setUrl] = useState(delayTestUrl)
@@ -169,7 +168,7 @@ const MihomoConfig: React.FC = () => {
               try {
                 const url = await getGistUrl()
                 if (url !== '') {
-                  await navigator.clipboard.writeText(`${url}/raw/clash-party.yaml`)
+                  await navigator.clipboard.writeText(`${url}/raw/aikobox.yaml`)
                 }
               } catch (e) {
                 toast.error(String(e))
@@ -309,36 +308,6 @@ const MihomoConfig: React.FC = () => {
           </Select>
         </SettingItem>
       )}
-      <SettingItem
-        title={t('mihomo.coreStartupMode.title')}
-        actions={
-          <Tooltip content={t('mihomo.coreStartupMode.tooltip')}>
-            <Button isIconOnly size="sm" variant="light">
-              <IoIosHelpCircle className="text-lg" />
-            </Button>
-          </Tooltip>
-        }
-        divider
-      >
-        <Select
-          classNames={{ trigger: 'data-[hover=true]:bg-default-200' }}
-          className="w-37.5"
-          size="sm"
-          selectedKeys={new Set([coreStartupMode])}
-          disallowEmptySelection={true}
-          onSelectionChange={async (v) => {
-            try {
-              await patchAppConfig({ coreStartupMode: v.currentKey as 'log' | 'post-up' })
-              await restartCore()
-            } catch (e) {
-              toast.error(String(e))
-            }
-          }}
-        >
-          <SelectItem key="log">{t('mihomo.coreStartupMode.log')}</SelectItem>
-          <SelectItem key="post-up">{t('mihomo.coreStartupMode.postUp')}</SelectItem>
-        </Select>
-      </SettingItem>
       <SettingItem
         title={t('mihomo.workDir.title')}
         actions={

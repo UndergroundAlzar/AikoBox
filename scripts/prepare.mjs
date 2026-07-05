@@ -1,7 +1,6 @@
 import fs from 'fs'
 import AdmZip from 'adm-zip'
 import path from 'path'
-import zlib from 'zlib'
 import { extract } from 'tar'
 import { execSync } from 'child_process'
 
@@ -13,243 +12,131 @@ if (process.argv.slice(2).length !== 0) {
   arch = process.argv.slice(2)[0].replace('--', '')
 }
 
-/* ======= mihomo alpha======= */
-const MIHOMO_ALPHA_VERSION_URL =
-  'https://github.com/MetaCubeX/mihomo/releases/download/Prerelease-Alpha/version.txt'
-const MIHOMO_ALPHA_URL_PREFIX = `https://github.com/MetaCubeX/mihomo/releases/download/Prerelease-Alpha`
-let MIHOMO_ALPHA_VERSION
+/* ======= sing-box (stable) ======= */
+// Release assets look like:
+//   sing-box-1.13.14-windows-amd64.zip
+//   sing-box-1.13.14-darwin-arm64.tar.gz
+//   sing-box-1.13.14-linux-amd64.tar.gz
+const SINGBOX_RELEASE_API = 'https://api.github.com/repos/SagerNet/sing-box/releases/latest'
 
-const MIHOMO_ALPHA_MAP = {
-  'win32-x64': 'mihomo-windows-amd64-compatible',
-  'win32-ia32': 'mihomo-windows-386',
-  'win32-arm64': 'mihomo-windows-arm64',
-  'darwin-x64': 'mihomo-darwin-amd64-compatible',
-  'darwin-arm64': 'mihomo-darwin-arm64',
-  'linux-x64': 'mihomo-linux-amd64-compatible',
-  'linux-arm64': 'mihomo-linux-arm64'
-}
-
-// Fetch the latest alpha release version from the version.txt file
-async function getLatestAlphaVersion() {
-  try {
-    const response = await fetch(MIHOMO_ALPHA_VERSION_URL, {
-      method: 'GET'
-    })
-    let v = await response.text()
-    MIHOMO_ALPHA_VERSION = v.trim() // Trim to remove extra whitespaces
-    console.log(`Latest alpha version: ${MIHOMO_ALPHA_VERSION}`)
-  } catch (error) {
-    console.error('Error fetching latest alpha version:', error.message)
-    process.exit(1)
-  }
-}
-
-/* ======= mihomo smart ======= */
-const MIHOMO_SMART_VERSION_URL =
-  'https://github.com/vernesong/mihomo/releases/download/Prerelease-Alpha/version.txt'
-const MIHOMO_SMART_URL_PREFIX = `https://github.com/vernesong/mihomo/releases/download/Prerelease-Alpha`
-let MIHOMO_SMART_VERSION
-
-const MIHOMO_SMART_MAP = {
-  'win32-x64': 'mihomo-windows-amd64-v2-go120',
-  'win32-ia32': 'mihomo-windows-386-go120',
-  'win32-arm64': 'mihomo-windows-arm64',
-  'darwin-x64': 'mihomo-darwin-amd64-v2-go120',
-  'darwin-arm64': 'mihomo-darwin-arm64',
-  'linux-x64': 'mihomo-linux-amd64-v2-go120',
-  'linux-arm64': 'mihomo-linux-arm64'
-}
-
-async function getLatestSmartVersion() {
-  try {
-    const response = await fetch(MIHOMO_SMART_VERSION_URL, {
-      method: 'GET'
-    })
-    let v = await response.text()
-    MIHOMO_SMART_VERSION = v.trim() // Trim to remove extra whitespaces
-    console.log(`Latest smart version: ${MIHOMO_SMART_VERSION}`)
-  } catch (error) {
-    console.error('Error fetching latest smart version:', error.message)
-    process.exit(1)
-  }
-}
-
-/* ======= mihomo release ======= */
-const MIHOMO_VERSION_URL =
-  'https://github.com/MetaCubeX/mihomo/releases/latest/download/version.txt'
-const MIHOMO_URL_PREFIX = `https://github.com/MetaCubeX/mihomo/releases/download`
-let MIHOMO_VERSION
-
-const MIHOMO_MAP = {
-  'win32-x64': 'mihomo-windows-amd64-compatible',
-  'win32-ia32': 'mihomo-windows-386',
-  'win32-arm64': 'mihomo-windows-arm64',
-  'darwin-x64': 'mihomo-darwin-amd64-compatible',
-  'darwin-arm64': 'mihomo-darwin-arm64',
-  'linux-x64': 'mihomo-linux-amd64-compatible',
-  'linux-arm64': 'mihomo-linux-arm64'
-}
-
-// Fetch the latest release version from the version.txt file
-async function getLatestReleaseVersion() {
-  try {
-    const response = await fetch(MIHOMO_VERSION_URL, {
-      method: 'GET'
-    })
-    let v = await response.text()
-    MIHOMO_VERSION = v.trim() // Trim to remove extra whitespaces
-    console.log(`Latest release version: ${MIHOMO_VERSION}`)
-  } catch (error) {
-    console.error('Error fetching latest release version:', error.message)
-    process.exit(1)
-  }
+const SINGBOX_PLATFORM_MAP = {
+  'win32-x64': 'windows-amd64',
+  'win32-ia32': 'windows-386',
+  'win32-arm64': 'windows-arm64',
+  'darwin-x64': 'darwin-amd64',
+  'darwin-arm64': 'darwin-arm64',
+  'linux-x64': 'linux-amd64',
+  'linux-arm64': 'linux-arm64'
 }
 
 /*
  * check available
  */
-if (!MIHOMO_MAP[`${platform}-${arch}`]) {
+if (!SINGBOX_PLATFORM_MAP[`${platform}-${arch}`]) {
   throw new Error(`unsupported platform "${platform}-${arch}"`)
 }
 
-if (!MIHOMO_ALPHA_MAP[`${platform}-${arch}`]) {
-  throw new Error(`unsupported platform "${platform}-${arch}"`)
-}
-
-if (!MIHOMO_SMART_MAP[`${platform}-${arch}`]) {
-  throw new Error(`unsupported platform "${platform}-${arch}"`)
-}
-
-/**
- * core info
- */
-function MihomoAlpha() {
-  const name = MIHOMO_ALPHA_MAP[`${platform}-${arch}`]
-  const isWin = platform === 'win32'
-  const urlExt = isWin ? 'zip' : 'gz'
-  const downloadURL = `${MIHOMO_ALPHA_URL_PREFIX}/${name}-${MIHOMO_ALPHA_VERSION}.${urlExt}`
-  const exeFile = `${name}${isWin ? '.exe' : ''}`
-  const zipFile = `${name}-${MIHOMO_ALPHA_VERSION}.${urlExt}`
-
-  return {
-    name: 'mihomo-alpha',
-    targetFile: `mihomo-alpha${isWin ? '.exe' : ''}`,
-    exeFile,
-    zipFile,
-    downloadURL
+async function fetchLatestSingboxRelease() {
+  const headers = {
+    Accept: 'application/vnd.github+json',
+    'User-Agent': 'aikobox-prepare'
   }
-}
-
-function mihomo() {
-  const name = MIHOMO_MAP[`${platform}-${arch}`]
-  const isWin = platform === 'win32'
-  const urlExt = isWin ? 'zip' : 'gz'
-  const downloadURL = `${MIHOMO_URL_PREFIX}/${MIHOMO_VERSION}/${name}-${MIHOMO_VERSION}.${urlExt}`
-  const exeFile = `${name}${isWin ? '.exe' : ''}`
-  const zipFile = `${name}-${MIHOMO_VERSION}.${urlExt}`
-
-  return {
-    name: 'mihomo',
-    targetFile: `mihomo${isWin ? '.exe' : ''}`,
-    exeFile,
-    zipFile,
-    downloadURL
+  if (process.env.GITHUB_TOKEN) {
+    headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`
   }
-}
-
-function mihomoSmart() {
-  const name = MIHOMO_SMART_MAP[`${platform}-${arch}`]
-  const isWin = platform === 'win32'
-  const urlExt = isWin ? 'zip' : 'gz'
-  const downloadURL = `${MIHOMO_SMART_URL_PREFIX}/${name}-${MIHOMO_SMART_VERSION}.${urlExt}`
-  const exeFile = `${name}${isWin ? '.exe' : ''}`
-  const zipFile = `${name}-${MIHOMO_SMART_VERSION}.${urlExt}`
-
-  return {
-    name: 'mihomo-smart',
-    targetFile: `mihomo-smart${isWin ? '.exe' : ''}`,
-    exeFile,
-    zipFile,
-    downloadURL
+  const response = await fetch(SINGBOX_RELEASE_API, { headers })
+  if (!response.ok) {
+    throw new Error(`GitHub API request failed: ${response.status} ${response.statusText}`)
   }
+  const release = await response.json()
+  if (!release || !Array.isArray(release.assets)) {
+    throw new Error('Unexpected GitHub API response for sing-box latest release')
+  }
+  return release
 }
-/**
- * download sidecar and rename
- */
-async function resolveSidecar(binInfo) {
-  const { name, targetFile, zipFile, exeFile, downloadURL } = binInfo
+
+function pickSingboxAsset(release, platformKey) {
+  // Match `sing-box-<version>-<platform>.zip|.tar.gz` exactly, which excludes
+  // `-legacy-*` / `-musl` / `-glibc` and Android variants.
+  const exact = new RegExp(`^sing-box-\\d[\\w.+]*-${platformKey}(\\.zip|\\.tar\\.gz)$`)
+  const asset = release.assets.find((a) => exact.test(a.name))
+  if (!asset) {
+    throw new Error(
+      `No sing-box asset found for "${platformKey}" in release ${release.tag_name || '?'}`
+    )
+  }
+  return asset
+}
+
+async function findFileRecursive(dir, fileName) {
+  const entries = fs.readdirSync(dir, { withFileTypes: true })
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) {
+      const found = await findFileRecursive(full, fileName)
+      if (found) return found
+    } else if (entry.name === fileName) {
+      return full
+    }
+  }
+  return null
+}
+
+const resolveSingbox = async () => {
+  const platformKey = SINGBOX_PLATFORM_MAP[`${platform}-${arch}`]
+  const isWin = platform === 'win32'
+  const binName = isWin ? 'sing-box.exe' : 'sing-box'
+  const targetFile = binName
+
+  const release = await fetchLatestSingboxRelease()
+  console.log(`[INFO]: sing-box latest stable release: ${release.tag_name}`)
+  const asset = pickSingboxAsset(release, platformKey)
+  console.log(`[INFO]: sing-box asset selected: ${asset.name}`)
 
   const sidecarDir = path.join(cwd, 'extra', 'sidecar')
   const sidecarPath = path.join(sidecarDir, targetFile)
-
   fs.mkdirSync(sidecarDir, { recursive: true })
-  if (fs.existsSync(sidecarPath)) {
-    fs.rmSync(sidecarPath)
-  }
-  const tempDir = path.join(TEMP_DIR, name)
-  const tempZip = path.join(tempDir, zipFile)
-  const tempExe = path.join(tempDir, exeFile)
 
+  const tempDir = path.join(TEMP_DIR, 'sing-box')
+  const tempArchive = path.join(tempDir, asset.name)
   fs.mkdirSync(tempDir, { recursive: true })
+
   try {
-    if (!fs.existsSync(tempZip)) {
-      await downloadFile(downloadURL, tempZip)
+    if (!fs.existsSync(tempArchive)) {
+      await downloadFile(asset.browser_download_url, tempArchive)
     }
 
-    if (zipFile.endsWith('.zip')) {
-      const zip = new AdmZip(tempZip)
-      zip.getEntries().forEach((entry) => {
-        console.log(`[DEBUG]: "${name}" entry name`, entry.entryName)
-      })
-      zip.extractAllTo(tempDir, true)
-      fs.renameSync(tempExe, sidecarPath)
-      console.log(`[INFO]: "${name}" unzip finished`)
-    } else if (zipFile.endsWith('.tgz')) {
-      // tgz
-      fs.mkdirSync(tempDir, { recursive: true })
-      await extract({
-        cwd: tempDir,
-        file: tempZip
-      })
-      const files = fs.readdirSync(tempDir)
-      console.log(`[DEBUG]: "${name}" files in tempDir:`, files)
-      const extractedFile = files.find((file) => file.startsWith('虚空终端-'))
-      if (extractedFile) {
-        const extractedFilePath = path.join(tempDir, extractedFile)
-        fs.renameSync(extractedFilePath, sidecarPath)
-        console.log(`[INFO]: "${name}" file renamed to "${sidecarPath}"`)
-        execSync(`chmod 755 ${sidecarPath}`)
-        console.log(`[INFO]: "${name}" chmod binary finished`)
-      } else {
-        throw new Error(`Expected file not found in ${tempDir}`)
-      }
+    const extractDir = path.join(tempDir, 'extracted')
+    fs.rmSync(extractDir, { recursive: true, force: true })
+    fs.mkdirSync(extractDir, { recursive: true })
+
+    if (asset.name.endsWith('.zip')) {
+      const zip = new AdmZip(tempArchive)
+      zip.extractAllTo(extractDir, true)
     } else {
-      // gz
-      const readStream = fs.createReadStream(tempZip)
-      const writeStream = fs.createWriteStream(sidecarPath)
-      await new Promise((resolve, reject) => {
-        const onError = (error) => {
-          console.error(`[ERROR]: "${name}" gz failed:`, error.message)
-          reject(error)
-        }
-        readStream
-          .pipe(zlib.createGunzip().on('error', onError))
-          .pipe(writeStream)
-          .on('finish', () => {
-            console.log(`[INFO]: "${name}" gunzip finished`)
-            execSync(`chmod 755 ${sidecarPath}`)
-            console.log(`[INFO]: "${name}" chmod binary finished`)
-            resolve()
-          })
-          .on('error', onError)
-      })
+      await extract({ cwd: extractDir, file: tempArchive })
     }
+
+    const extractedBin = await findFileRecursive(extractDir, binName)
+    if (!extractedBin) {
+      throw new Error(`"${binName}" not found in extracted archive ${asset.name}`)
+    }
+
+    if (fs.existsSync(sidecarPath)) {
+      fs.rmSync(sidecarPath)
+    }
+    fs.copyFileSync(extractedBin, sidecarPath)
+    if (!isWin) {
+      execSync(`chmod 755 "${sidecarPath}"`)
+    }
+    console.log(`[INFO]: sing-box installed to "${sidecarPath}"`)
   } catch (err) {
-    // 需要删除文件
-    fs.rmSync(sidecarPath)
+    if (fs.existsSync(sidecarPath)) {
+      fs.rmSync(sidecarPath)
+    }
     throw err
   } finally {
-    fs.rmSync(tempDir, { recursive: true })
+    fs.rmSync(tempDir, { recursive: true, force: true })
   }
 }
 
@@ -286,31 +173,6 @@ async function downloadFile(url, path) {
   console.log(`[INFO]: download finished "${url}"`)
 }
 
-const resolveMmdb = () =>
-  resolveResource({
-    file: 'country.mmdb',
-    downloadURL: `https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country-lite.mmdb`
-  })
-const resolveMetadb = () =>
-  resolveResource({
-    file: 'geoip.metadb',
-    downloadURL: `https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb`
-  })
-const resolveGeosite = () =>
-  resolveResource({
-    file: 'geosite.dat',
-    downloadURL: `https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat`
-  })
-const resolveGeoIP = () =>
-  resolveResource({
-    file: 'geoip.dat',
-    downloadURL: `https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.dat`
-  })
-const resolveASN = () =>
-  resolveResource({
-    file: 'ASN.mmdb',
-    downloadURL: `https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/GeoLite2-ASN.mmdb`
-  })
 const resolveEnableLoopback = () =>
   resolveResource({
     file: 'enableLoopback.exe',
@@ -457,25 +319,10 @@ const resolveFont = async () => {
 
 const tasks = [
   {
-    name: 'mihomo-alpha',
-    func: () => getLatestAlphaVersion().then(() => resolveSidecar(MihomoAlpha())),
+    name: 'sing-box',
+    func: resolveSingbox,
     retry: 5
   },
-  {
-    name: 'mihomo',
-    func: () => getLatestReleaseVersion().then(() => resolveSidecar(mihomo())),
-    retry: 5
-  },
-  {
-    name: 'mihomo-smart',
-    func: () => getLatestSmartVersion().then(() => resolveSidecar(mihomoSmart())),
-    retry: 5
-  },
-  { name: 'mmdb', func: resolveMmdb, retry: 5 },
-  { name: 'metadb', func: resolveMetadb, retry: 5 },
-  { name: 'geosite', func: resolveGeosite, retry: 5 },
-  { name: 'geoip', func: resolveGeoIP, retry: 5 },
-  { name: 'asn', func: resolveASN, retry: 5 },
   {
     name: 'font',
     func: resolveFont,

@@ -20,9 +20,6 @@ fi
 rm -f "$HELPER_PATH"
 
 # 清理可能存在的旧版本文件
-rm -rf "/Applications/Clash Party.app"
-rm -rf "/Applications/Clash\\ Party.app"
-rm -rf "/Applications/Mihomo Party.app"
-rm -rf "/Applications/Mihomo\\ Party.app"
+rm -rf "/Applications/AikoBox.app"
 
 exit 0

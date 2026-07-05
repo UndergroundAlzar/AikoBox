@@ -1,5 +1,5 @@
-appId: party.mihomo.app
-productName: Clash Party
+appId: com.aikobox.app
+productName: AikoBox
 directories:
   buildResources: build
 files:
@@ -19,17 +19,18 @@ extraResources:
   - from: './extra/'
     to: ''
 protocols:
-  name: 'Clash Party URI Scheme'
+  name: 'AikoBox URI Scheme'
   schemes:
     - 'clash'
     - 'mihomo'
+    - 'aikobox'
 win:
   target:
     - nsis
     - 7z
-  artifactName: clash-party-windows-${version}-${arch}-portable.${ext}
+  artifactName: aikobox-windows-${version}-${arch}-portable.${ext}
 nsis:
-  artifactName: clash-party-windows-${version}-${arch}-setup.${ext}
+  artifactName: aikobox-windows-${version}-${arch}-setup.${ext}
   uninstallDisplayName: ${productName}
   allowToChangeInstallationDirectory: true
   oneClick: false
@@ -47,7 +48,7 @@ mac:
     - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
     - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
   notarize: false
-  artifactName: clash-party-macos-${version}-${arch}.${ext}
+  artifactName: aikobox-macos-${version}-${arch}.${ext}
 pkg:
   allowAnywhere: false
   allowCurrentUserHome: false
@@ -56,23 +57,23 @@ pkg:
     alignment: bottomleft
     file: build/background.png
 linux:
-  executableName: mihomo-party
+  executableName: aikobox
   icon: build/icon.png
   desktop:
     entry:
-      Name: Clash Party
+      Name: AikoBox
       GenericName: Proxy Client
-      Comment: A GUI client based on Mihomo
-      MimeType: 'x-scheme-handler/clash;x-scheme-handler/mihomo'
-      Keywords: proxy;clash;mihomo;vpn;
-      StartupWMClass: mihomo-party
-      Icon: mihomo-party
+      Comment: AikoBox Proxy Client
+      MimeType: 'x-scheme-handler/clash;x-scheme-handler/mihomo;x-scheme-handler/aikobox'
+      Keywords: proxy;clash;sing-box;aikobox;vpn;
+      StartupWMClass: aikobox
+      Icon: aikobox
   target:
     - deb
     - rpm
-  maintainer: mihomo-party-org
+  maintainer: aikobox
   category: Utility
-  artifactName: clash-party-linux-${version}-${arch}.${ext}
+  artifactName: aikobox-linux-${version}-${arch}.${ext}
 deb:
   afterInstall: 'build/linux/postinst'
   afterRemove: 'build/linux/postuninst'

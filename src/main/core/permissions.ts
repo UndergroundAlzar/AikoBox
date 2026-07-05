@@ -4,29 +4,24 @@ import { stat } from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { app, dialog, ipcMain } from 'electron'
-import { getAppConfig, getControledMihomoConfig, patchControledMihomoConfig } from '../config'
-import { mihomoCorePath, mihomoCoreDir } from '../utils/dirs'
+import { getControledMihomoConfig, patchControledMihomoConfig } from '../config'
+import { mihomoCoreDir } from '../utils/dirs'
 import { managerLogger } from '../utils/logger'
 import { checkAutoRun, enableAutoRun } from '../sys/autoRun'
 import i18next from '../../shared/i18n'
+import { singboxCorePath } from './singbox'
 import { checkAdminPrivileges } from './admin'
 
 const execPromise = promisify(exec)
 const execFilePromise = promisify(execFile)
 
-// 内核名称白名单
-const ALLOWED_CORES = ['mihomo', 'mihomo-alpha', 'mihomo-smart'] as const
-type AllowedCore = (typeof ALLOWED_CORES)[number]
+// 唯一内核：sing-box（旧的 mihomo/mihomo-alpha/mihomo-smart 配置值一律映射到 sing-box）
 type StopCoreBeforeAdminRestart = (force?: boolean) => Promise<void>
 
 let stopCoreBeforeAdminRestart: StopCoreBeforeAdminRestart | null = null
 
 export function setStopCoreBeforeAdminRestart(stopCore: StopCoreBeforeAdminRestart): void {
   stopCoreBeforeAdminRestart = stopCore
-}
-
-export function isValidCoreName(core: string): core is AllowedCore {
-  return ALLOWED_CORES.includes(core as AllowedCore)
 }
 
 export function validateCorePath(corePath: string): void {
@@ -70,8 +65,7 @@ export function getSessionAdminStatus(): boolean {
 export { checkAdminPrivileges } from './admin'
 
 export async function checkMihomoCorePermissions(): Promise<boolean> {
-  const { core = 'mihomo' } = await getAppConfig()
-  const corePath = mihomoCorePath(core)
+  const corePath = singboxCorePath()
 
   try {
     if (process.platform === 'win32') {
@@ -91,8 +85,7 @@ export async function checkMihomoCorePermissions(): Promise<boolean> {
 
 export async function checkHighPrivilegeCore(): Promise<boolean> {
   try {
-    const { core = 'mihomo' } = await getAppConfig()
-    const corePath = mihomoCorePath(core)
+    const corePath = singboxCorePath()
 
     managerLogger.info(`Checking high privilege core: ${corePath}`)
 
@@ -102,9 +95,9 @@ export async function checkHighPrivilegeCore(): Promise<boolean> {
         return false
       }
 
-      const hasHighPrivilegeProcess = await checkHighPrivilegeMihomoProcess()
+      const hasHighPrivilegeProcess = await checkHighPrivilegeCoreProcess()
       if (hasHighPrivilegeProcess) {
-        managerLogger.info('Found high privilege mihomo process running')
+        managerLogger.info('Found high privilege core process running')
         return true
       }
 
@@ -125,11 +118,8 @@ export async function checkHighPrivilegeCore(): Promise<boolean> {
   return false
 }
 
-async function checkHighPrivilegeMihomoProcess(): Promise<boolean> {
-  const mihomoExecutables =
-    process.platform === 'win32'
-      ? ['mihomo.exe', 'mihomo-alpha.exe', 'mihomo-smart.exe']
-      : ['mihomo', 'mihomo-alpha', 'mihomo-smart']
+async function checkHighPrivilegeCoreProcess(): Promise<boolean> {
+  const coreExecutables = process.platform === 'win32' ? ['sing-box.exe'] : ['sing-box']
 
   try {
     if (process.platform === 'win32') {
@@ -151,17 +141,17 @@ async function checkHighPrivilegeMihomoProcess(): Promise<boolean> {
         const match = line.match(/^"([^"]+)","(\d+)"/)
         if (!match) continue
         const image = match[1].toLowerCase()
-        if (mihomoExecutables.includes(image)) {
+        if (coreExecutables.includes(image)) {
           candidatePids.push({ pid: match[2], image })
         }
       }
 
       if (candidatePids.length === 0) {
-        managerLogger.info('No mihomo processes found running')
+        managerLogger.info('No core processes found running')
         return false
       }
 
-      managerLogger.info(`Found ${candidatePids.length} mihomo processes running`)
+      managerLogger.info(`Found ${candidatePids.length} core processes running`)
 
       const pidArgs = candidatePids.map(({ pid }) => pid).join(',')
       try {
@@ -183,7 +173,7 @@ async function checkHighPrivilegeMihomoProcess(): Promise<boolean> {
           if (
             proc &&
             typeof proc.Name === 'string' &&
-            proc.Name.toLowerCase().includes('mihomo') &&
+            proc.Name.toLowerCase().includes('sing-box') &&
             proc.Path === null
           ) {
             return true
@@ -195,7 +185,7 @@ async function checkHighPrivilegeMihomoProcess(): Promise<boolean> {
     } else {
       let foundProcesses = false
 
-      for (const executable of mihomoExecutables) {
+      for (const executable of coreExecutables) {
         try {
           const { stdout } = await execPromise(`ps aux | grep ${executable} | grep -v grep`)
           const lines = stdout
@@ -224,24 +214,18 @@ async function checkHighPrivilegeMihomoProcess(): Promise<boolean> {
       }
 
       if (!foundProcesses) {
-        managerLogger.info('No mihomo processes found running')
+        managerLogger.info('No core processes found running')
       }
     }
   } catch (error) {
-    managerLogger.error('Failed to check high privilege mihomo process', error)
+    managerLogger.error('Failed to check high privilege core process', error)
   }
 
   return false
 }
 
 export async function grantTunPermissions(): Promise<void> {
-  const { core = 'mihomo' } = await getAppConfig()
-
-  if (!isValidCoreName(core)) {
-    throw new Error(`Invalid core name: ${core}. Allowed values: ${ALLOWED_CORES.join(', ')}`)
-  }
-
-  const corePath = mihomoCorePath(core)
+  const corePath = singboxCorePath()
   validateCorePath(corePath)
 
   if (process.platform === 'darwin') {

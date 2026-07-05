@@ -621,7 +621,7 @@ function createMacIconImage(iconPath: string): Electron.NativeImage | null {
 
   let tempDir = ''
   try {
-    tempDir = mkdtempSync(join(tmpdir(), 'clash-party-tray-icon-'))
+    tempDir = mkdtempSync(join(tmpdir(), 'aikobox-tray-icon-'))
     const pngPath = join(tempDir, 'icon.png')
     execFileSync('sips', ['-s', 'format', 'png', iconPath, '--out', pngPath], {
       stdio: 'ignore',
@@ -738,7 +738,7 @@ async function updateTrayToolTip(
     status.push(t('tray.tooltip.customIcon'))
   }
 
-  tray.setToolTip(['Clash Party', ...status].join('\n'))
+  tray.setToolTip(['AikoBox', ...status].join('\n'))
 }
 
 function setTrayImage(iconPath: string): void {

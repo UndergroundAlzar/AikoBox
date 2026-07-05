@@ -136,7 +136,6 @@ import { get as httpGet } from './chromeRequest'
 import { getIconDataURL } from './icon'
 import { getAppName } from './appName'
 import { logDir, rulePath } from './dirs'
-import { installMihomoCore, getGitHubTags, clearVersionCache } from './github'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AsyncFn = (...args: any[]) => Promise<any>
@@ -166,21 +165,6 @@ function registerHandlers(handlers: Record<string, AsyncFn | SyncFn>, async = tr
       ipcMain.handle(channel, (_e, ...args) => (handler as SyncFn)(...args))
     }
   }
-}
-
-async function fetchMihomoTags(
-  forceRefresh = false
-): Promise<{ name: string; zipball_url: string; tarball_url: string }[]> {
-  return await getGitHubTags('MetaCubeX', 'mihomo', forceRefresh)
-}
-
-async function installSpecificMihomoCore(version: string): Promise<void> {
-  clearVersionCache('MetaCubeX', 'mihomo')
-  return await installMihomoCore(version)
-}
-
-async function clearMihomoVersionCache(): Promise<void> {
-  clearVersionCache('MetaCubeX', 'mihomo')
 }
 
 async function getRuleStr(id: string): Promise<string> {
@@ -313,9 +297,6 @@ const asyncHandlers: Record<string, AsyncFn> = {
   // Update
   checkUpdate,
   downloadAndInstallUpdate,
-  fetchMihomoTags,
-  installSpecificMihomoCore,
-  clearMihomoVersionCache,
   // Backup
   webdavBackup,
   webdavRestore,

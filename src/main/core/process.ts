@@ -1,9 +1,9 @@
 import { exec, execFile } from 'child_process'
+import path from 'path'
 import { promisify } from 'util'
-import { rm } from 'fs/promises'
-import { existsSync } from 'fs'
 import { managerLogger } from '../utils/logger'
 import { getAxios } from './mihomoApi'
+import { singboxCorePath } from './singbox'
 
 const execPromise = promisify(exec)
 const execFilePromise = promisify(execFile)
@@ -12,78 +12,94 @@ const execFilePromise = promisify(execFile)
 const CORE_READY_MAX_RETRIES = 30
 const CORE_READY_RETRY_INTERVAL_MS = 100
 
-export async function cleanupSocketFile(): Promise<void> {
+/**
+ * 清理游离的 sing-box 进程（崩溃残留 / 轻量模式遗留），
+ * 避免端口占用导致新核心启动失败。
+ *
+ * 安全约束：只清理可执行文件路径与本应用自带 sidecar 完全一致的进程，
+ * 绝不按进程名批量杀（避免误杀用户自行运行的其他内核实例）。
+ */
+export async function cleanupStrayCoreProcesses(thorough = false): Promise<void> {
   if (process.platform === 'win32') {
-    await cleanupWindowsNamedPipes()
+    await cleanupWindowsStrayProcesses(thorough)
   } else {
-    await cleanupUnixSockets()
+    await cleanupUnixStrayProcesses()
   }
 }
 
-// thorough=true 走 PowerShell 慢路径，仅在外部控制器监听冲突时使用
-export async function cleanupWindowsNamedPipes(thorough = false): Promise<void> {
-  if (!thorough) {
-    try {
-      const { stdout } = await execFilePromise(
-        'tasklist',
-        ['/FI', 'IMAGENAME eq mihomo*', '/FO', 'CSV', '/NH'],
-        { windowsHide: true, timeout: 1500, maxBuffer: 1 * 1024 * 1024 }
-      )
-
-      const pids: number[] = []
-      for (const line of stdout.split('\n')) {
-        const match = line.match(/^"([^"]+)","(\d+)"/)
-        if (!match) continue
-        const pid = parseInt(match[2], 10)
-        if (!isNaN(pid) && pid !== process.pid) pids.push(pid)
-      }
-
-      if (pids.length === 0) return
-
-      for (const pid of pids) {
-        await terminateProcess(pid)
-      }
-
-      // 给进程留出退出窗口，避免 pipe 占用导致后续启动失败
-      await new Promise((resolve) => setTimeout(resolve, 200))
-    } catch (error) {
-      managerLogger.warn('Lightweight pipe cleanup failed:', error)
-    }
-    return
-  }
-
+function isOwnCorePath(candidate: string | null | undefined, corePath: string): boolean {
+  if (!candidate) return false
   try {
+    const a = path.resolve(candidate)
+    const b = path.resolve(corePath)
+    if (process.platform === 'win32') {
+      return a.toLowerCase() === b.toLowerCase()
+    }
+    return a === b
+  } catch {
+    return false
+  }
+}
+
+async function cleanupWindowsStrayProcesses(thorough = false): Promise<void> {
+  const corePath = singboxCorePath()
+  try {
+    const { stdout } = await execPromise(
+      `powershell -NoProfile -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-Process -Name 'sing-box' -ErrorAction SilentlyContinue | Select-Object Id,Path | ConvertTo-Json"`,
+      { encoding: 'utf8', windowsHide: true, timeout: thorough ? 20000 : 15000 }
+    )
+
+    if (!stdout.trim()) return
+
+    let processArray: { Id?: number; Path?: string | null }[] = []
     try {
-      const { stdout } = await execPromise(
-        `powershell -NoProfile -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-Process | Where-Object {$_.ProcessName -like '*mihomo*'} | Select-Object Id,ProcessName | ConvertTo-Json"`,
-        { encoding: 'utf8' }
-      )
-
-      if (stdout.trim()) {
-        managerLogger.info(`Found potential pipe-blocking processes: ${stdout}`)
-
-        try {
-          const processes = JSON.parse(stdout)
-          const processArray = Array.isArray(processes) ? processes : [processes]
-
-          for (const proc of processArray) {
-            const pid = proc.Id
-            if (pid && pid !== process.pid) {
-              await terminateProcess(pid)
-            }
-          }
-        } catch (parseError) {
-          managerLogger.warn('Failed to parse process list JSON:', parseError)
-          await fallbackTextParsing(stdout)
-        }
-      }
-    } catch (error) {
-      managerLogger.warn('Failed to check mihomo processes:', error)
+      const processes = JSON.parse(stdout)
+      processArray = Array.isArray(processes) ? processes : [processes]
+    } catch (parseError) {
+      managerLogger.warn('Failed to parse process list JSON:', parseError)
+      return
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    let killed = 0
+    for (const proc of processArray) {
+      const pid = proc.Id
+      // Path 为空（无权限读取）的进程一律跳过，宁可漏杀不可误杀
+      if (!pid || pid === process.pid || !isOwnCorePath(proc.Path, corePath)) continue
+      await terminateProcess(pid)
+      killed++
+    }
+
+    if (killed > 0) {
+      // 给进程留出退出窗口，避免端口占用导致后续启动失败
+      await new Promise((resolve) => setTimeout(resolve, thorough ? 1000 : 200))
+    }
   } catch (error) {
-    managerLogger.error('Windows named pipe cleanup failed:', error)
+    managerLogger.warn('Stray core process cleanup failed:', error)
+  }
+}
+
+async function cleanupUnixStrayProcesses(): Promise<void> {
+  const corePath = singboxCorePath()
+  try {
+    const { stdout } = await execPromise('pgrep -x sing-box || true')
+    const pids = stdout
+      .split('\n')
+      .map((line) => parseInt(line.trim()))
+      .filter((pid) => !isNaN(pid) && pid !== process.pid)
+
+    for (const pid of pids) {
+      let argv0 = ''
+      try {
+        const { stdout: args } = await execFilePromise('ps', ['-o', 'args=', '-p', String(pid)])
+        argv0 = args.trim().split(/\s+/)[0] || ''
+      } catch {
+        continue
+      }
+      if (!isOwnCorePath(argv0, corePath)) continue
+      await terminateProcess(pid)
+    }
+  } catch (error) {
+    managerLogger.warn('Unix stray core process cleanup failed:', error)
   }
 }
 
@@ -91,56 +107,11 @@ async function terminateProcess(pid: number): Promise<void> {
   try {
     process.kill(pid, 0)
     process.kill(pid, 'SIGTERM')
-    managerLogger.info(`Terminated process ${pid} to free pipe`)
+    managerLogger.info(`Terminated stray core process ${pid}`)
   } catch (error: unknown) {
     if ((error as { code?: string })?.code !== 'ESRCH') {
       managerLogger.warn(`Failed to terminate process ${pid}:`, error)
     }
-  }
-}
-
-async function fallbackTextParsing(stdout: string): Promise<void> {
-  const lines = stdout.split('\n').filter((line) => line.includes('mihomo'))
-  for (const line of lines) {
-    const match = line.match(/(\d+)/)
-    if (match) {
-      const pid = parseInt(match[1])
-      if (pid !== process.pid) {
-        await terminateProcess(pid)
-      }
-    }
-  }
-}
-
-export async function cleanupUnixSockets(): Promise<void> {
-  try {
-    const socketPaths = [
-      '/tmp/mihomo-party.sock',
-      '/tmp/mihomo-party-admin.sock',
-      `/tmp/mihomo-party-${process.getuid?.() || 'user'}.sock`
-    ]
-
-    for (const socketPath of socketPaths) {
-      try {
-        if (existsSync(socketPath)) {
-          await rm(socketPath)
-          managerLogger.info(`Cleaned up socket file: ${socketPath}`)
-        }
-      } catch (error) {
-        managerLogger.warn(`Failed to cleanup socket file ${socketPath}:`, error)
-      }
-    }
-  } catch (error) {
-    managerLogger.error('Unix socket cleanup failed:', error)
-  }
-}
-
-export async function validateWindowsPipeAccess(pipePath: string): Promise<void> {
-  try {
-    managerLogger.info(`Validating pipe access for: ${pipePath}`)
-    managerLogger.info(`Pipe validation completed for: ${pipePath}`)
-  } catch (error) {
-    managerLogger.error('Windows pipe validation failed:', error)
   }
 }
 

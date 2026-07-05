@@ -1,0 +1,14 @@
+{
+  "name": "aikobox-icon-gen",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "One-shot generator for the AikoBox icon set (build/ + resources/). Standalone tool: has its own deps, never touch the repo root package.json.",
+  "scripts": {
+    "gen": "node gen.mjs"
+  },
+  "dependencies": {
+    "png2icons": "^2.0.1",
+    "sharp": "^0.34.2"
+  }
+}

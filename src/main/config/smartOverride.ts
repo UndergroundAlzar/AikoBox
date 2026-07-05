@@ -399,15 +399,10 @@ export async function removeSmartOverride(): Promise<void> {
 
 /**
  * 根据应用配置管理 Smart 覆写
+ * sing-box 为唯一内核，Smart 内核不再存在：始终移除自动生成的 Smart 覆写
  */
 export async function manageSmartOverride(): Promise<void> {
-  const { enableSmartCore = true, enableSmartOverride = true, core } = await getAppConfig()
-
-  if (enableSmartCore && enableSmartOverride && core === 'mihomo-smart') {
-    await createSmartOverride()
-  } else {
-    await removeSmartOverride()
-  }
+  await removeSmartOverride()
 }
 
 /**
