@@ -1,3 +1,4 @@
+/* eslint-disable import/order -- Vitest mocks must be installed before loading the module under test. */
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -5,7 +6,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
 let TMP = ''
 vi.mock('../utils/dirs', () => ({ pluginConfigPath: () => join(TMP, 'plugin.yaml') }))
-
 import {
   getPluginConfig,
   addPluginItem,

@@ -1,7 +1,8 @@
 import { mkdir, writeFile, readFile } from 'fs/promises'
-import vm from 'vm'
-import { existsSync, writeFileSync } from 'fs'
+import { existsSync } from 'fs'
 import { isIP } from 'net'
+import { createHash, randomBytes } from 'crypto'
+import path from 'path'
 import {
   getControledMihomoConfig,
   getProfileConfig,
@@ -12,26 +13,25 @@ import {
   getOverrideConfig,
   getAppConfig
 } from '../config'
-import {
-  mihomoProfileWorkDir,
-  mihomoWorkConfigPath,
-  mihomoWorkDir,
-  overridePath,
-  rulePath
-} from '../utils/dirs'
+import { mihomoProfileWorkDir, mihomoWorkDir, dataDir, rulePath } from '../utils/dirs'
 import { parse, stringify } from '../utils/yaml'
 import { deepMerge } from '../utils/merge'
 import { createLogger } from '../utils/logger'
 import { decryptAgeContent } from '../utils/age'
 import { DEFAULT_CONTROL_DNS, DEFAULT_CONTROL_SNIFF } from '../../shared/appConfig'
 import { convertClashToSingbox } from './singbox/convert'
-import { setActiveController, singboxWorkConfigPath } from './singbox'
+import { runtimeCandidateProfilePath, singboxCandidateConfigPath } from './singbox'
+import { resolveProxyProviders } from './singbox/providerResolver'
+import { resolveRuleProviders } from './singbox/ruleProviderResolver'
+import { getHealthyProxyEndpoint } from './healthyProxyEndpoint'
 
 const factoryLogger = createLogger('Factory')
 const SMART_OVERRIDE_ID = 'smart-core-override'
 
 let runtimeConfigStr: string = ''
 let runtimeConfig: IMihomoConfig = {} as IMihomoConfig
+let pendingRuntimeConfigStr: string | null = null
+let pendingRuntimeConfig: IMihomoConfig | null = null
 
 // 辅助函数：处理带偏移量的规则
 function processRulesWithOffset(ruleStrings: string[], currentRules: string[], isAppend = false) {
@@ -114,9 +114,11 @@ export async function generateProfile(): Promise<string | undefined> {
     diffWorkDir = false,
     controlDns = DEFAULT_CONTROL_DNS,
     controlSniff = DEFAULT_CONTROL_SNIFF,
-    useNameserverPolicy
+    useNameserverPolicy,
+    userAgent: providerUserAgent
   } = await getAppConfig()
   const currentProfileItem = await getProfileItem(current)
+  const allowLocalProviderFiles = currentProfileItem?.type === 'local'
   const ageSecretKey = currentProfileItem?.ageSecretKey || ''
   const baseProfile = await getProfile(current)
   const overrideIds = await getOrderedOverrideIds(current)
@@ -132,6 +134,21 @@ export async function generateProfile(): Promise<string | undefined> {
     ageSecretKey
   )
   let controledMihomoConfig = await getControledMihomoConfig()
+  const providerProxyPort = getHealthyProxyEndpoint()?.port
+  const workDir = diffWorkDir ? mihomoProfileWorkDir(current) : mihomoWorkDir()
+  await mkdir(workDir, { recursive: true })
+  const providerRequestScope = createHash('sha256')
+    .update(
+      JSON.stringify({
+        version: 1,
+        profileId: current || 'default',
+        url: currentProfileItem?.url || '',
+        authorization: currentProfileItem?.authToken || '',
+        userAgent: currentProfileItem?.userAgent || '',
+        policy: currentProfileItem?.useProxy ? 'proxy-only' : 'direct-fallback'
+      })
+    )
+    .digest('hex')
 
   // 根据开关状态过滤控制配置
   controledMihomoConfig = { ...controledMihomoConfig }
@@ -146,7 +163,45 @@ export async function generateProfile(): Promise<string | undefined> {
     delete controledMihomoConfig?.dns?.['nameserver-policy']
   }
 
-  const profile = deepMerge(currentProfile, controledMihomoConfig)
+  let profile = deepMerge(currentProfile, controledMihomoConfig)
+  const providerResolution = await resolveProxyProviders(
+    profile as unknown as Record<string, unknown>,
+    {
+      baseDir: workDir,
+      allowFileProviders: allowLocalProviderFiles,
+      proxyPort: providerProxyPort,
+      forceProxy: Boolean(currentProfileItem?.useProxy),
+      requestScope: providerRequestScope,
+      userAgent: currentProfileItem?.userAgent || providerUserAgent || 'AikoBox',
+      cacheDir: path.join(dataDir(), 'provider-cache')
+    }
+  )
+  for (const warning of providerResolution.warnings) {
+    factoryLogger.warn(`[proxy-provider] ${warning}`)
+  }
+  if (providerResolution.errors.length > 0) {
+    throw new Error(
+      `Proxy providers cannot be resolved safely:\n${providerResolution.errors.join('\n')}`
+    )
+  }
+  const ruleProviderResolution = await resolveRuleProviders(providerResolution.config, {
+    baseDir: workDir,
+    allowFileProviders: allowLocalProviderFiles,
+    proxyPort: providerProxyPort,
+    forceProxy: Boolean(currentProfileItem?.useProxy),
+    requestScope: providerRequestScope,
+    userAgent: currentProfileItem?.userAgent || providerUserAgent || 'AikoBox',
+    cacheDir: path.join(dataDir(), 'rule-provider-cache')
+  })
+  for (const warning of ruleProviderResolution.warnings) {
+    factoryLogger.warn(`[rule-provider] ${warning}`)
+  }
+  if (ruleProviderResolution.errors.length > 0) {
+    throw new Error(
+      `Rule providers cannot be resolved safely:\n${ruleProviderResolution.errors.join('\n')}`
+    )
+  }
+  profile = ruleProviderResolution.config as unknown as IMihomoConfig
   // 关闭 DNS 覆写时，如果最终配置没有启用的 DNS 配置，清空 dns-hijack 避免请求被劫持但无法处理
   if (!controlDns && profile.tun && !profile.dns?.enable) {
     profile.tun = { ...profile.tun, 'dns-hijack': [] }
@@ -171,31 +226,59 @@ export async function generateProfile(): Promise<string | undefined> {
   if (!profile['lan-allowed-ips']?.length) {
     delete profile['lan-allowed-ips']
   }
-  runtimeConfig = profile
-  runtimeConfigStr = stringify(profile)
   if (diffWorkDir) {
     await prepareProfileWorkDir(current)
   }
-  const workDir = diffWorkDir ? mihomoProfileWorkDir(current) : mihomoWorkDir()
-  // 保留合并后的 Clash 配置（仪表盘 / 配置查看器 / Gist 上传仍使用 Clash 形态）
-  await writeFile(
-    diffWorkDir ? mihomoWorkConfigPath(current) : mihomoWorkConfigPath('work'),
-    runtimeConfigStr
-  )
-  // 转换为 sing-box 配置并写入运行目录
   const {
     config: singboxConfig,
     warnings,
-    controller
+    errors
   } = convertClashToSingbox(profile as unknown as Record<string, unknown>, {
-    platform: process.platform
+    platform: process.platform,
+    controllerSecret: randomBytes(32).toString('base64url')
   })
   for (const warning of warnings) {
     factoryLogger.warn(`[singbox-convert] ${warning}`)
   }
-  setActiveController(controller)
-  await writeFile(singboxWorkConfigPath(workDir), JSON.stringify(singboxConfig, null, 2))
+  if (errors.length > 0) {
+    for (const error of errors) {
+      factoryLogger.error(`[singbox-convert] ${error}`)
+    }
+    throw new Error(`Configuration cannot be converted safely:\n${errors.join('\n')}`)
+  }
+
+  // Keep UI/API runtime state pending until the candidate has passed both
+  // `sing-box check` and the real process health gate.
+  pendingRuntimeConfig = profile
+  pendingRuntimeConfigStr = stringify(profile)
+  await writeFile(runtimeCandidateProfilePath(workDir), pendingRuntimeConfigStr)
+  await writeFile(singboxCandidateConfigPath(workDir), JSON.stringify(singboxConfig, null, 2))
   return current
+}
+
+export function promotePendingRuntimeConfig(): void {
+  if (!pendingRuntimeConfig || pendingRuntimeConfigStr === null) return
+  runtimeConfig = pendingRuntimeConfig
+  runtimeConfigStr = pendingRuntimeConfigStr
+  pendingRuntimeConfig = null
+  pendingRuntimeConfigStr = null
+}
+
+export function restoreRuntimeConfig(runtimeProfile: string | undefined): void {
+  pendingRuntimeConfig = null
+  pendingRuntimeConfigStr = null
+  if (!runtimeProfile) return
+  runtimeConfig = parse(runtimeProfile) as IMihomoConfig
+  runtimeConfigStr = runtimeProfile
+}
+
+export function discardPendingRuntimeConfig(): void {
+  pendingRuntimeConfig = null
+  pendingRuntimeConfigStr = null
+}
+
+export function getPendingRuntimeConfig(): IMihomoConfig | null {
+  return pendingRuntimeConfig
 }
 
 async function applyRuleOverride(
@@ -289,8 +372,9 @@ async function applyOverrides(
     const content = await getOverride(ov, item?.ext || 'js')
     switch (item?.ext) {
       case 'js':
-        profile = runOverrideScript(profile, content, item)
-        break
+        throw new Error(
+          `JavaScript override "${item.name || ov}" is disabled on Windows because it is not a security boundary; convert it to a declarative YAML override`
+        )
       case 'yaml': {
         const decryptedContent = await decryptAgeContent(content, ageSecretKey, `override "${ov}"`)
         let patch = parse(decryptedContent) || {}
@@ -301,49 +385,6 @@ async function applyOverrides(
     }
   }
   return profile
-}
-
-function runOverrideScript(
-  profile: IMihomoConfig,
-  script: string,
-  item: IOverrideItem
-): IMihomoConfig {
-  const log = (type: string, data: string, flag = 'a'): void => {
-    writeFileSync(overridePath(item.id, 'log'), `[${type}] ${data}\n`, {
-      encoding: 'utf-8',
-      flag
-    })
-  }
-  try {
-    const ctx = {
-      console: Object.freeze({
-        log(data: never) {
-          log('log', JSON.stringify(data))
-        },
-        info(data: never) {
-          log('info', JSON.stringify(data))
-        },
-        error(data: never) {
-          log('error', JSON.stringify(data))
-        },
-        debug(data: never) {
-          log('debug', JSON.stringify(data))
-        }
-      })
-    }
-    vm.createContext(ctx)
-    const code = `${script} main(${JSON.stringify(profile)})`
-    log('info', '开始执行脚本', 'w')
-    const newProfile = vm.runInContext(code, ctx)
-    if (typeof newProfile !== 'object') {
-      throw new Error('脚本返回值必须是对象')
-    }
-    log('info', '脚本执行成功')
-    return newProfile
-  } catch (e) {
-    log('exception', `脚本执行失败：${e}`)
-    return profile
-  }
 }
 
 export async function getRuntimeConfigStr(): Promise<string> {

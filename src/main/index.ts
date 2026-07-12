@@ -4,7 +4,7 @@ import { app, dialog } from 'electron'
 import i18next from 'i18next'
 import { initI18n } from '../shared/i18n'
 import { registerIpcMainHandlers } from './utils/ipc'
-import { getAppConfig, patchAppConfig } from './config'
+import { getAppConfig, patchAppConfig, patchControledMihomoConfig } from './config'
 import {
   startCore,
   checkAdminRestartForTun,
@@ -37,6 +37,11 @@ import {
   getSystemLanguage
 } from './lifecycle'
 import { configurePortableUserData } from './utils/dirs'
+import {
+  getStaleSystemProxyCoreEndpoint,
+  recoverStaleSystemProxy,
+  triggerSysProxy
+} from './sys/sysproxy'
 
 function getWindowsPowerShellMajorVersion(): number | null {
   // 仅 PS 3.0+ 写入 \3\ 键（\1\ 键恒为 2.0，不可用）。
@@ -59,6 +64,29 @@ function getWindowsPowerShellMajorVersion(): number | null {
     const err = error as { killed?: boolean; status?: number | null }
     return !err.killed && err.status === 1 ? 2 : null
   }
+}
+
+async function waitForPreviousAikoBoxInstance(): Promise<void> {
+  const raw = process.argv
+    .find((arg) => arg.startsWith('--wait-for-aikobox-pid='))
+    ?.split('=', 2)[1]
+  if (!raw) return
+
+  const pid = Number(raw)
+  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) {
+    throw new Error('Invalid AikoBox handoff PID')
+  }
+
+  const deadline = Date.now() + 30000
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0)
+    } catch {
+      return
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  throw new Error(`Previous AikoBox process ${pid} did not exit during administrator handoff`)
 }
 
 // PowerShell 版本过低必须在 app 启动前提示并退出，因此保持同步执行
@@ -119,6 +147,9 @@ async function initHardwareAcceleration(): Promise<void> {
 initHardwareAcceleration()
 setupAppLifecycle()
 
+let proxySafetyReady = true
+let staleProxyCoreEndpoint: { host: string; port: number } | null = null
+
 app.on('second-instance', async (_event, commandline) => {
   showMainWindow()
   const url = commandline.pop()
@@ -133,7 +164,24 @@ app.on('open-url', async (_event, url) => {
 })
 
 const initPromise = (async () => {
+  try {
+    await waitForPreviousAikoBoxInstance()
+  } catch (error) {
+    safeShowErrorBox('common.error.initFailed', `${error}`)
+    app.quit()
+    throw error
+  }
+
   await initBasic()
+
+  try {
+    await recoverStaleSystemProxy()
+  } catch (error) {
+    proxySafetyReady = false
+    staleProxyCoreEndpoint = getStaleSystemProxyCoreEndpoint()
+    mainLogger.error('System proxy recovery failed; automatic proxy activation is disabled', error)
+    safeShowErrorBox('common.error.initFailed', `${error}`)
+  }
 
   const adminPromise: Promise<boolean> =
     process.platform === 'win32' ? checkAdminPrivileges().catch(() => false) : Promise.resolve(true)
@@ -219,21 +267,39 @@ app.whenReady().then(async () => {
   const coreStartPromise = (async (): Promise<void> => {
     try {
       initCoreWatcher()
-      const startPromises = await startCore()
+      // Resolve persisted/elevated TUN intent before any core process starts.
+      // This prevents a guaranteed permission failure from racing config writes.
+      await checkAdminRestartForTun()
+      if (staleProxyCoreEndpoint) {
+        // Raw WinINET CAS says we must not overwrite external changes, yet it
+        // still depends on our old endpoint. Bind the recovered core to that
+        // exact port before any generated candidate is allowed to start.
+        await patchControledMihomoConfig({ 'mixed-port': staleProxyCoreEndpoint.port })
+      }
+      const startPromises = await startCore(
+        false,
+        false,
+        false,
+        staleProxyCoreEndpoint ?? undefined
+      )
       if (startPromises.length > 0) {
         startPromises[0].then(async () => {
           await Promise.allSettled([
             initProfileUpdater().catch((e) => mainLogger.warn('Failed to init profile updater', e)),
             initWebdavBackupScheduler().catch((e) =>
               mainLogger.warn('Failed to init webdav backup scheduler', e)
-            ),
-            checkAdminRestartForTun().catch((e) =>
-              mainLogger.warn('Failed admin-restart-for-tun follow-up', e)
             )
           ])
         })
       }
       coreStarted = true
+
+      const { sysProxy } = await getAppConfig()
+      if (!staleProxyCoreEndpoint && sysProxy.enable) {
+        if (!proxySafetyReady)
+          throw new Error('System proxy safety recovery failed; refusing to change WinINET')
+        await triggerSysProxy(true)
+      }
     } catch (e) {
       safeShowErrorBox('mihomo.error.coreStartFailed', `${e}`)
     }

@@ -1,6 +1,7 @@
 import http from 'http'
 import { randomBytes, createHash } from 'crypto'
 import { shell } from 'electron'
+import { normalizeExternalHttpUrl } from '../../utils/electronSecurity'
 
 export const CLIENT_ID = 'mihomo-party'
 const CALLBACK_TIMEOUT_MS = 5 * 60 * 1000
@@ -28,9 +29,24 @@ export interface BrowserLoginOpts {
 }
 
 export function browserLogin(loginUrl: string, opts: BrowserLoginOpts = {}): Promise<OAuthResult> {
+  const normalizedLoginUrl = normalizeExternalHttpUrl(loginUrl)
+  if (!normalizedLoginUrl) {
+    const rejected = Promise.reject<OAuthResult>(
+      new Error('OAuth login URL must be a valid HTTP or HTTPS URL')
+    )
+    rejected.catch(() => {})
+    return rejected
+  }
+
   const { verifier, challenge } = generatePkce()
   const state = randomBytes(16).toString('base64url')
-  const open = opts.open ?? ((u: string): Promise<void> => shell.openExternal(u))
+  const open =
+    opts.open ??
+    ((value: string): Promise<void> => {
+      const url = normalizeExternalHttpUrl(value)
+      if (!url) return Promise.reject(new Error('Blocked unsafe external URL'))
+      return shell.openExternal(url)
+    })
   const timeoutMs = opts.timeoutMs ?? CALLBACK_TIMEOUT_MS
 
   const p = new Promise<OAuthResult>((resolve, reject) => {
@@ -70,7 +86,7 @@ export function browserLogin(loginUrl: string, opts: BrowserLoginOpts = {}): Pro
       const addr = server.address()
       const port = typeof addr === 'object' && addr ? addr.port : 0
       const redirectUri = `http://127.0.0.1:${port}/callback`
-      const authorize = new URL(loginUrl)
+      const authorize = new URL(normalizedLoginUrl)
       authorize.searchParams.set('response_type', 'code')
       authorize.searchParams.set('client_id', CLIENT_ID)
       authorize.searchParams.set('redirect_uri', redirectUri)

@@ -2,12 +2,53 @@ import { spawn, exec, execFileSync } from 'child_process'
 import { promisify } from 'util'
 import { stat } from 'fs/promises'
 import { existsSync } from 'fs'
-import { app, powerMonitor } from 'electron'
+import { app, dialog, powerMonitor, type WindowSessionEndEvent } from 'electron'
 import { stopCore, cleanupCoreWatcher } from './core/manager'
 import { primeAdminPrivilegesCache } from './core/admin'
-import { triggerSysProxy, disableSysProxySync } from './sys/sysproxy'
+import {
+  beginSystemProxyShutdown,
+  cancelSystemProxyShutdown,
+  disableSysProxySync,
+  triggerSysProxy
+} from './sys/sysproxy'
 import { exePath } from './utils/dirs'
-import { saveMainWindowState } from './window'
+
+interface ExitCleanupAttempt {
+  /** Whether the synchronous emergency restore proved WinINET safe. */
+  proxyRestoredSynchronously: boolean
+  completion: Promise<boolean>
+}
+
+let startExitCleanup: (() => ExitCleanupAttempt) | null = null
+let saveWindowStateBeforeExit: () => void = () => {}
+let finishBlockedWindowsSessionEnd: ((attempt: ExitCleanupAttempt) => void) | null = null
+
+/**
+ * Avoid a lifecycle -> window -> lifecycle import cycle while still keeping
+ * all proxy/core shutdown authority in this module.
+ */
+export function setLifecycleWindowStateSaver(saver: () => void): void {
+  saveWindowStateBeforeExit = saver
+}
+
+export function handleWindowsQuerySessionEnd(event: WindowSessionEndEvent): void {
+  if (process.platform !== 'win32' || !startExitCleanup) return
+
+  const attempt = startExitCleanup()
+  if (!attempt.proxyRestoredSynchronously) {
+    // Returning from WM_QUERYENDSESSION while WinINET still targets AikoBox
+    // lets Windows terminate the core and strand the user's network.
+    event.preventDefault()
+    finishBlockedWindowsSessionEnd?.(attempt)
+  }
+}
+
+export function handleWindowsSessionEnd(): void {
+  if (process.platform !== 'win32' || !startExitCleanup) return
+  // session-end cannot be cancelled. Starting the same transaction still
+  // performs the synchronous emergency restore before this handler returns.
+  startExitCleanup()
+}
 
 export function customRelaunch(): void {
   const script = `while kill -0 ${process.pid} 2>/dev/null; do
@@ -78,16 +119,19 @@ function isWindowsElevatedSync(): boolean {
 
 export function setupAppLifecycle(): void {
   let sysProxyDisabled = false
-  let isQuitting = false
+  let exitApproved = false
+  let activeCleanup: ExitCleanupAttempt | null = null
+  let blockedSessionContinuation: ExitCleanupAttempt | null = null
+  let beforeQuitContinuationPending = false
 
-  const withTimeout = async (promise: Promise<void>, timeout: number): Promise<void> => {
+  const withTimeout = async (promise: Promise<void>, timeout: number): Promise<boolean> => {
     let timeoutId: NodeJS.Timeout | null = null
 
     try {
-      await Promise.race([
-        promise,
-        new Promise<void>((resolve) => {
-          timeoutId = setTimeout(resolve, timeout)
+      return await Promise.race([
+        promise.then(() => true).catch(() => false),
+        new Promise<boolean>((resolve) => {
+          timeoutId = setTimeout(() => resolve(false), timeout)
         })
       ])
     } finally {
@@ -95,28 +139,50 @@ export function setupAppLifecycle(): void {
     }
   }
 
-  const cleanupBeforeExit = async (): Promise<void> => {
-    if (isQuitting) return
-    isQuitting = true
+  startExitCleanup = (): ExitCleanupAttempt => {
+    if (activeCleanup) return activeCleanup
 
-    saveMainWindowState() // 硬退出补一次落盘
+    saveWindowStateBeforeExit() // 硬退出补一次落盘
+    beginSystemProxyShutdown()
 
-    cleanupCoreWatcher()
+    // This call is deliberately before the first Promise/await. Windows
+    // session-end may give us no asynchronous grace period at all.
+    const proxyRestoredSynchronously = process.platform !== 'darwin' && disableSysProxySync()
+    sysProxyDisabled = proxyRestoredSynchronously
 
-    if (process.platform !== 'darwin') {
-      disableSysProxySync()
-      sysProxyDisabled = true
-    }
+    const attempt = {} as ExitCleanupAttempt
+    attempt.proxyRestoredSynchronously = proxyRestoredSynchronously
+    attempt.completion = (async (): Promise<boolean> => {
+      // Always enqueue a serialized disable behind any already-running enable.
+      // A successful synchronous restore alone cannot close that queue race.
+      const asyncRestoreSucceeded = await withTimeout(triggerSysProxy(false), 1200)
+      sysProxyDisabled = sysProxyDisabled || asyncRestoreSucceeded
 
-    await withTimeout(
-      Promise.allSettled([
-        triggerSysProxy(false).then(() => {
-          sysProxyDisabled = true
-        }),
-        stopCore()
-      ]).then(() => {}),
-      1200
-    )
+      // Never stop the core/watchdog while WinINET may still point at it.
+      if (!sysProxyDisabled) return false
+
+      cleanupCoreWatcher()
+      await withTimeout(stopCore(), 1200)
+      return true
+    })().finally(() => {
+      if (activeCleanup === attempt && !sysProxyDisabled) {
+        activeCleanup = null
+        cancelSystemProxyShutdown()
+      }
+    })
+    activeCleanup = attempt
+    return attempt
+  }
+
+  finishBlockedWindowsSessionEnd = (attempt): void => {
+    if (blockedSessionContinuation === attempt) return
+    blockedSessionContinuation = attempt
+    void attempt.completion.then((safeToExit) => {
+      if (blockedSessionContinuation === attempt) blockedSessionContinuation = null
+      if (!safeToExit) return
+      exitApproved = true
+      app.quit()
+    })
   }
 
   app.on('window-all-closed', () => {
@@ -124,19 +190,41 @@ export function setupAppLifecycle(): void {
   })
 
   app.on('before-quit', async (e) => {
+    if (exitApproved) return
     e.preventDefault()
-    await cleanupBeforeExit()
-    app.exit()
+    if (beforeQuitContinuationPending) return
+    if (!startExitCleanup) return
+    beforeQuitContinuationPending = true
+    const safeToExit = await startExitCleanup().completion
+    if (safeToExit) {
+      exitApproved = true
+      app.quit()
+      return
+    }
+    beforeQuitContinuationPending = false
+
+    // Keep the guardian alive rather than leaving WinINET pointing to a core
+    // that is about to disappear. The ownership journal remains for retry.
+    dialog.showErrorBox(
+      'AikoBox could not restore the system proxy',
+      'AikoBox is staying open to protect your network connection. Check the system proxy settings, then try exiting again.'
+    )
   })
 
   powerMonitor.on('shutdown', async () => {
-    await cleanupBeforeExit()
-    app.exit()
+    // Keep one shutdown authority. Do not force-exit while WinINET may still
+    // reference our core; the OS can terminate us later if shutdown proceeds.
+    if (!startExitCleanup) return
+    const safeToExit = await startExitCleanup().completion
+    if (safeToExit) {
+      exitApproved = true
+      app.exit()
+    }
   })
 
   app.on('will-quit', () => {
     if (!sysProxyDisabled) {
-      disableSysProxySync()
+      sysProxyDisabled = disableSysProxySync()
     }
   })
 }

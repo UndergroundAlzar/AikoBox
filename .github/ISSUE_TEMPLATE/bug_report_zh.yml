@@ -1,50 +1,104 @@
 name: 错误反馈
-description: '提交 AikoBox 漏洞'
+description: 报告可重复的 AikoBox Windows 客户端问题
 title: '[Bug] '
+labels:
+  - bug
 body:
-  - type: checkboxes
-    id: ensure
+  - type: markdown
     attributes:
-      label: Verify steps
-      description: 在提交之前，请勾选以下所有选项以证明您已经阅读并理解了以下要求，否则该 issue 将被关闭。
+      value: |
+        感谢反馈。请勿上传订阅链接、节点凭据、控制器密钥或未脱敏日志。安全漏洞请按 SECURITY.md 私密报告。
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前确认
       options:
-        - label: 我已在标题简短的描述了我所遇到的问题
-        - label: 我已在 [Issue Tracker](./?q=is%3Aissue) 中寻找过我要提出的问题，但未找到相同的问题
-        - label: 这是 GUI 程序的问题，而不是内核程序的问题
-        - label: 我已经关闭所有杀毒软件/代理软件后测试过，问题依旧存在
-        - label: 我已经使用最新的测试版本测试过，问题依旧存在
+        - label: 我已搜索现有 Issue，未找到相同问题。
+          required: true
+        - label: 我确认这是 AikoBox 界面、转换或集成问题，而不是单独的 sing-box 使用问题。
+          required: true
+        - label: 我没有为复现问题关闭安全软件，也没有中断当前维持联网的代理。
+          required: true
+        - label: 我已从配置、截图和日志中删除订阅、密码、令牌及个人信息。
+          required: true
 
   - type: dropdown
+    id: windows_version
     attributes:
-      label: 操作系统
-      description: 请提供操作系统类型
-      multiple: true
+      label: Windows 版本
       options:
-        - MacOS
-        - Windows
-        - Linux
+        - Windows 11
+        - Windows 10
+        - 其他或不确定（请在补充信息中说明）
     validations:
       required: true
+
+  - type: dropdown
+    id: distribution
+    attributes:
+      label: 分发方式
+      options:
+        - 安装版（setup）
+        - 便携版（portable）
+        - 本地开发构建
+    validations:
+      required: true
+
   - type: input
+    id: version
     attributes:
-      label: 系统版本
-      description: 请提供出现问题的操作系统版本
+      label: AikoBox 版本
+      placeholder: 例如 0.1.0
     validations:
       required: true
-  - type: input
+
+  - type: dropdown
+    id: network_mode
     attributes:
-      label: 发生问题 AikoBox 版本
+      label: 问题发生时的模式
+      options:
+        - 未启用系统代理或 TUN
+        - 系统代理
+        - TUN
+        - 不确定
     validations:
       required: true
+
   - type: textarea
+    id: actual
     attributes:
-      label: 描述
-      description: 请提供错误的详细描述。
+      label: 实际表现
+      description: 请说明发生了什么，并附上已脱敏的错误文本。
     validations:
       required: true
+
   - type: textarea
+    id: expected
     attributes:
-      label: 重现方式
-      description: 请提供重现错误的步骤
+      label: 预期表现
     validations:
       required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 最小重现步骤
+      description: 请从应用未运行或已知状态开始描述，不要粘贴完整订阅。
+      placeholder: |
+        1. …
+        2. …
+        3. …
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 已脱敏诊断信息
+      description: 可选。粘贴相关日志片段、截图或配置结构；请再次检查其中没有秘密信息。
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: 补充信息

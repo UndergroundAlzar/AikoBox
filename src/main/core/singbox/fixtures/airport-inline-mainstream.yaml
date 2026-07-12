@@ -1,0 +1,41 @@
+mixed-port: 17890
+socks-port: 17891
+port: 17892
+external-controller: 127.0.0.1:19090
+ipv6: true
+mode: rule
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  nameserver:
+    - 1.1.1.1
+  fake-ip-filter:
+    - '+.lan'
+proxies:
+  - name: HK-01
+    type: ss
+    server: 192.0.2.10
+    port: 443
+    cipher: aes-128-gcm
+    password: fixture-password
+  - name: SG-01
+    type: trojan
+    server: 192.0.2.20
+    port: 443
+    password: fixture-password
+    sni: example.com
+    skip-cert-verify: true
+proxy-groups:
+  - name: Hong Kong
+    type: select
+    include-all: true
+    filter: '(?i)hk|香港'
+  - name: Proxy
+    type: select
+    proxies:
+      - Hong Kong
+      - SG-01
+rules:
+  - DOMAIN-SUFFIX,example.com,Proxy
+  - MATCH,Proxy

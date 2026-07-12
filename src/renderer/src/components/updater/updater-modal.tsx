@@ -55,7 +55,7 @@ const UpdaterModal: React.FC<Props> = (props) => {
             size="sm"
             className="flex app-nodrag"
             onPress={() => {
-              open(`https://github.com/aikobox/aikobox/releases/tag/v${version}`)
+              open(`https://github.com/UndergroundAlzar/AikoBox/releases/tag/v${version}`)
             }}
           >
             {t('common.updater.goToDownload')}

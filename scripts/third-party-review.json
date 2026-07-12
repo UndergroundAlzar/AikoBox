@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "reviewedProductionLicenseExpressions": [
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "GPL-3.0",
+    "ISC",
+    "MIT",
+    "Python-2.0",
+    "Unlicense"
+  ],
+  "productionPackagesWithoutLicenseFiles": [
+    "@electron-internal/extract-zip@1.0.3",
+    "@nodable/entities@2.2.0",
+    "agent-base@6.0.2",
+    "base-64@1.0.0",
+    "byte-length@1.0.2",
+    "data-uri-to-buffer@4.0.1",
+    "https-proxy-agent@5.0.1",
+    "sysproxy-rs@0.4.0",
+    "xml-naming@0.1.0"
+  ],
+  "resources": {
+    "singBox": {
+      "status": "blocked",
+      "project": "https://github.com/SagerNet/sing-box",
+      "blocker": "The packaged sing-box binary has no component copyright notice, exact license declaration, complete license text tied to this binary, or corresponding-source offer in the release payload."
+    },
+    "notoColorEmoji": {
+      "status": "blocked",
+      "project": "https://github.com/googlefonts/noto-emoji",
+      "blocker": "The packaged font has no accompanying upstream license text, copyright notice, or Reserved Font Name information in the release payload."
+    },
+    "enableLoopback": {
+      "status": "blocked",
+      "project": "https://github.com/Kuingsmile/uwp-tool",
+      "blocker": "The binary identifies Progress Software Corporation rather than the distribution repository. No local license grant proves that this exact Fiddler-derived binary may be redistributed."
+    },
+    "sysproxy": {
+      "status": "blocked",
+      "project": "https://github.com/mihomo-party-org/sysproxy-rs-opti",
+      "blocker": "The local JavaScript shim declares MIT, but no license/copyright file or source revision tied to the packaged native .node binary is present."
+    },
+    "trafficMonitor": {
+      "status": "blocked",
+      "project": "https://github.com/mihomo-party-org/mihomo-party-run",
+      "blocker": "The archive contains TrafficMonitor.exe and MihomoParty.dll but no license, copyright notice file, source revisions, or corresponding-source information for either binary."
+    },
+    "subStoreBackend": {
+      "status": "blocked",
+      "project": "https://github.com/sub-store-org/Sub-Store",
+      "blocker": "The generated bundle preserves some dependency comments but no locally verifiable top-level license grant, full required license set, copyright inventory, or corresponding source record is shipped."
+    },
+    "subStoreFrontend": {
+      "status": "blocked",
+      "project": "https://github.com/sub-store-org/Sub-Store-Front-End",
+      "blocker": "The extracted frontend directory has no top-level license, dependency notices, copyright inventory, or source revision tied to the locked release archive."
+    },
+    "sevenZip": {
+      "status": "blocked",
+      "project": "https://www.7-zip.org/",
+      "blocker": "7zip-bin's MIT file licenses the npm wrapper, not 7za.exe. The exact upstream 7-Zip license text and the unRAR restriction applicable to this binary are absent from the release payload."
+    }
+  }
+}

@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'fs/promises'
+import { readFile } from 'fs/promises'
 import { existsSync } from 'fs'
 import { controledMihomoConfigPath } from '../utils/dirs'
 import { parse, stringify } from '../utils/yaml'
@@ -9,6 +9,7 @@ import { deepMerge } from '../utils/merge'
 import { createLogger } from '../utils/logger'
 import { DEFAULT_CONTROL_DNS, DEFAULT_CONTROL_SNIFF } from '../../shared/appConfig'
 import { getAppConfig, patchAppConfig } from './app'
+import { writeFileAtomically } from './remoteResource'
 
 const controledMihomoLogger = createLogger('ControledMihomo')
 
@@ -27,7 +28,7 @@ export async function getControledMihomoConfig(force = false): Promise<Partial<I
     } else {
       controledMihomoConfig = cloneDefaultControledMihomoConfig()
       try {
-        await writeFile(controledMihomoConfigPath(), stringify(controledMihomoConfig), 'utf-8')
+        await writeFileAtomically(controledMihomoConfigPath(), stringify(controledMihomoConfig))
       } catch (error) {
         controledMihomoLogger.error('Failed to create mihomo.yaml file', error)
       }
@@ -53,88 +54,108 @@ export async function getControledMihomoConfig(force = false): Promise<Partial<I
 }
 
 export async function patchControledMihomoConfig(patch: Partial<IMihomoConfig>): Promise<void> {
-  controledMihomoWriteQueue = controledMihomoWriteQueue.then(async () => {
-    const appConfig = await getAppConfig()
-    const {
-      controlDns = DEFAULT_CONTROL_DNS,
-      controlSniff = DEFAULT_CONTROL_SNIFF,
-      controlDnsBeforePause
-    } = appConfig
+  controledMihomoWriteQueue = controledMihomoWriteQueue
+    .catch(() => {})
+    .then(async () => {
+      const safePatch = structuredClone(patch)
+      if (!controledMihomoConfig) await getControledMihomoConfig()
+      const appConfig = await getAppConfig()
+      const {
+        controlDns = DEFAULT_CONTROL_DNS,
+        controlSniff = DEFAULT_CONTROL_SNIFF,
+        controlDnsBeforePause
+      } = appConfig
 
-    // 当模式从 direct 切换到 rule/global 时，恢复之前保存的 DNS 状态
-    const currentMode = controledMihomoConfig?.mode
-    const newMode = patch.mode
-    if (
-      currentMode === 'direct' &&
-      newMode &&
-      newMode !== 'direct' &&
-      controlDnsBeforePause !== undefined
-    ) {
-      // 恢复 DNS 状态并清除保存的状态
-      await patchAppConfig({ controlDns: controlDnsBeforePause, controlDnsBeforePause: undefined })
-    }
-
-    // 过滤端口字段中的 NaN 值，防止写入无效配置
-    const portFields = ['mixed-port', 'socks-port', 'port', 'redir-port', 'tproxy-port'] as const
-    for (const field of portFields) {
-      if (field in patch && (typeof patch[field] !== 'number' || Number.isNaN(patch[field]))) {
-        delete patch[field]
+      // 当模式从 direct 切换到 rule/global 时，恢复之前保存的 DNS 状态
+      const currentMode = controledMihomoConfig?.mode
+      const newMode = safePatch.mode
+      if (
+        currentMode === 'direct' &&
+        newMode &&
+        newMode !== 'direct' &&
+        controlDnsBeforePause !== undefined
+      ) {
+        // 恢复 DNS 状态并清除保存的状态
+        await patchAppConfig({
+          controlDns: controlDnsBeforePause,
+          controlDnsBeforePause: undefined
+        })
       }
-    }
 
-    if (patch.hosts) {
-      controledMihomoConfig.hosts = patch.hosts
-    }
-    const replaceNameserverPolicy = Object.prototype.hasOwnProperty.call(
-      patch.dns || {},
-      'nameserver-policy'
-    )
-    controledMihomoConfig = deepMerge(controledMihomoConfig, patch)
-    if (replaceNameserverPolicy) {
-      controledMihomoConfig.dns = controledMihomoConfig.dns || {}
-      controledMihomoConfig.dns['nameserver-policy'] = patch.dns?.['nameserver-policy'] ?? {}
-    }
+      // 过滤端口字段中的 NaN 值，防止写入无效配置
+      const portFields = ['mixed-port', 'socks-port', 'port', 'redir-port', 'tproxy-port'] as const
+      for (const field of portFields) {
+        if (
+          field in safePatch &&
+          (typeof safePatch[field] !== 'number' || Number.isNaN(safePatch[field]))
+        ) {
+          delete safePatch[field]
+        }
+      }
 
-    // 从不接管状态恢复
-    if (controlDns) {
-      // 确保 DNS 配置包含所有必要的默认字段，特别是新增的 fallback 等
-      controledMihomoConfig.dns = deepMerge(
-        cloneDefaultControledMihomoConfig().dns || {},
-        controledMihomoConfig.dns || {}
+      const previousConfig = controledMihomoConfig
+      let nextConfig = structuredClone(previousConfig)
+      if (safePatch.hosts) {
+        nextConfig.hosts = safePatch.hosts
+      }
+      const replaceNameserverPolicy = Object.prototype.hasOwnProperty.call(
+        safePatch.dns || {},
+        'nameserver-policy'
       )
-    }
-    if (controlSniff && !controledMihomoConfig.sniffer) {
-      controledMihomoConfig.sniffer = cloneDefaultControledMihomoConfig().sniffer
-    }
+      nextConfig = deepMerge(nextConfig, safePatch)
+      if (replaceNameserverPolicy) {
+        nextConfig.dns = nextConfig.dns || {}
+        nextConfig.dns['nameserver-policy'] = safePatch.dns?.['nameserver-policy'] ?? {}
+      }
 
-    await generateProfile()
-    await writeFile(controledMihomoConfigPath(), stringify(controledMihomoConfig), 'utf-8')
+      // 从不接管状态恢复
+      if (controlDns) {
+        // 确保 DNS 配置包含所有必要的默认字段，特别是新增的 fallback 等
+        nextConfig.dns = deepMerge(
+          cloneDefaultControledMihomoConfig().dns || {},
+          nextConfig.dns || {}
+        )
+      }
+      if (controlSniff && !nextConfig.sniffer) {
+        nextConfig.sniffer = cloneDefaultControledMihomoConfig().sniffer
+      }
 
-    // 优先对运行中内核进行热更新，避免无意义重启
-    try {
-      await patchMihomoConfig(patch)
-    } catch (error) {
-      controledMihomoLogger.warn(
-        'Hot patch /configs failed, changes will apply on next restart',
-        error
-      )
-    }
-
-    // log-level 改变时重连日志 WebSocket，使新等级立刻生效
-    if (patch['log-level']) {
+      // generateProfile reads through this module. Expose the candidate only for
+      // validation, and roll memory back if either generation or persistence fails.
+      controledMihomoConfig = nextConfig
       try {
-        await startMihomoLogs()
+        await generateProfile()
+        await writeFileAtomically(controledMihomoConfigPath(), stringify(nextConfig))
       } catch (error) {
-        controledMihomoLogger.warn('Failed to restart log stream after log-level change', error)
+        controledMihomoConfig = previousConfig
+        throw error
       }
-    }
 
-    try {
-      const { scheduleRuntimeConfigUpload } = await import('../resolve/gistApi')
-      scheduleRuntimeConfigUpload()
-    } catch (error) {
-      controledMihomoLogger.warn('Failed to schedule runtime config Gist sync', error)
-    }
-  })
+      // 优先对运行中内核进行热更新，避免无意义重启
+      try {
+        await patchMihomoConfig(safePatch)
+      } catch (error) {
+        controledMihomoLogger.warn(
+          'Hot patch /configs failed, changes will apply on next restart',
+          error
+        )
+      }
+
+      // log-level 改变时重连日志 WebSocket，使新等级立刻生效
+      if (safePatch['log-level']) {
+        try {
+          await startMihomoLogs()
+        } catch (error) {
+          controledMihomoLogger.warn('Failed to restart log stream after log-level change', error)
+        }
+      }
+
+      try {
+        const { scheduleRuntimeConfigUpload } = await import('../resolve/gistApi')
+        scheduleRuntimeConfigUpload()
+      } catch (error) {
+        controledMihomoLogger.warn('Failed to schedule runtime config Gist sync', error)
+      }
+    })
   await controledMihomoWriteQueue
 }

@@ -88,6 +88,14 @@ describe('browserLogin', () => {
     await expect(p).rejects.toThrow()
   })
 
+  it('rejects non-browser login URL schemes before opening a handler', async () => {
+    const open = vi.fn()
+    await expect(browserLogin('file:///C:/Windows/System32/calc.exe', { open })).rejects.toThrow(
+      /HTTP or HTTPS/
+    )
+    expect(open).not.toHaveBeenCalled()
+  })
+
   it('does not use an embedded webview', () => {
     const src = readFileSync(join(__dirname, 'oauth.ts'), 'utf-8')
     expect(src).not.toMatch(/BrowserWindow|webContents|webview|loadURL/)

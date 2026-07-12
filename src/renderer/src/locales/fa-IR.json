@@ -759,7 +759,7 @@
   "guide.dns.title": "DNS",
   "guide.dns.description": "نرم‌افزار به‌طور پیش‌فرض از تنظیمات DNS برنامه برای بازنویسی پیکربندی اشتراک استفاده می‌کند. اگر نیاز به استفاده از تنظیمات DNS موجود در پیکربندی اشتراک دارید، لطفاً این قابلیت را غیرفعال کنید. همین موضوع برای شناسایی دامنه نیز صدق می‌کند.",
   "guide.end.title": "پایان آموزش",
-  "guide.end.description": "اکنون که با استفاده اساسی از نرم‌افزار آشنا شدید، اشتراک خود را وارد کنید و از آن استفاده کنید. لذت ببرید!\nهمچنین می‌توانید برای آخرین اخبار به <a href=\"https://github.com/aikobox/aikobox\" target=\"_blank\">مخزن GitHub</a> ما سر بزنید.",
+  "guide.end.description": "اکنون که با استفاده اساسی از نرم‌افزار آشنا شدید، اشتراک خود را وارد کنید و از آن استفاده کنید. لذت ببرید!\nهمچنین می‌توانید برای آخرین اخبار به <a href=\"https://github.com/UndergroundAlzar/AikoBox\" target=\"_blank\">مخزن GitHub</a> ما سر بزنید.",
   "network.topology.title": "توپولوژی شبکه",
   "network.topology.clients": "کلاینت",
   "network.topology.rules": "قوانین",

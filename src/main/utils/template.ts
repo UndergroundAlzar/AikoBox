@@ -45,7 +45,8 @@ export const defaultConfig: IAppConfig = {
   autoQuitWithoutCoreMode: 'core',
   proxyDisplayMode: 'simple',
   proxyDisplayOrder: 'default',
-  autoCheckUpdate: true,
+  // 应用更新尚未接入受校验的发布源；不要显示或执行伪自动检查。
+  autoCheckUpdate: false,
   autoCloseConnection: true,
   subscriptionTimeout: 30000,
   gistAgeEncrypt: false,

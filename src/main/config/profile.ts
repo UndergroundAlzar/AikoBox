@@ -1,6 +1,7 @@
-import { access, readFile, rm, writeFile } from 'fs/promises'
+import { access, readFile, realpath, rm, writeFile } from 'fs/promises'
 import { constants, existsSync } from 'fs'
 import { execFile } from 'child_process'
+import { createHash } from 'crypto'
 import { isAbsolute, join, relative, resolve } from 'path'
 import { promisify } from 'util'
 import { app } from 'electron'
@@ -9,16 +10,25 @@ import axios, { AxiosResponse } from 'axios'
 import { parse, stringify } from '../utils/yaml'
 import { defaultProfile } from '../utils/template'
 import { decryptAgeContent } from '../utils/age'
-import { DEFAULT_MIHOMO_PORTS } from '../../shared/appConfig'
-import { subStorePort } from '../resolve/server'
+import { subStoreBackendPrefix, subStorePort } from '../resolve/server'
 import { mihomoCloseAllConnections, mihomoHotReloadConfig } from '../core/mihomoApi'
 import { restartCore } from '../core/manager'
+import { getHealthyProxyEndpoint } from '../core/healthyProxyEndpoint'
 import { generateProfile } from '../core/factory'
 import { addProfileUpdater, removeProfileUpdater } from '../core/profileUpdater'
 import { mihomoProfileWorkDir, mihomoWorkDir, profileConfigPath, profilePath } from '../utils/dirs'
 import { createLogger } from '../utils/logger'
 import { getAppConfig } from './app'
-import { getControledMihomoConfig } from './controledMihomo'
+import {
+  assertHttpUrl,
+  assertSafeHttpRedirect,
+  assertRemoteText,
+  conditionalRequestHeaders,
+  readHttpCacheMetadata,
+  writeFileAtomically,
+  writeHttpCacheMetadata
+} from './remoteResource'
+import { normalizeSubscriptionPayload } from './subscriptionPayload'
 
 const profileLogger = createLogger('Profile')
 const execFilePromise = promisify(execFile)
@@ -26,8 +36,24 @@ const execFilePromise = promisify(execFile)
 let profileConfig: IProfileConfig
 let profileConfigWriteQueue: Promise<void> = Promise.resolve()
 let changeProfileQueue: Promise<void> = Promise.resolve()
-// 并发去重
-const inflightRemoteFetches = new Map<string, Promise<IProfileItem>>()
+// Complete request identities deduplicate equivalent updates; different credentials,
+// headers or routing policies serialize so an older response cannot win a race.
+const inflightRemoteFetches = new Map<
+  string,
+  { requestIdentity: string; promise: Promise<IProfileItem> }
+>()
+const profileContentWriteQueues = new Map<string, Promise<void>>()
+
+function assertSafeProfileId(id: string): void {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(id) || id === '.' || id === '..') {
+    throw new Error('Invalid profile id')
+  }
+}
+
+function profileHttpMetadataPath(id: string): string {
+  assertSafeProfileId(id)
+  return `${profilePath(id)}.http.json`
+}
 
 function isPermissionError(error: unknown): boolean {
   const code = (error as NodeJS.ErrnoException)?.code
@@ -59,6 +85,7 @@ async function removeProfileWorkDirWithPkexec(workDir: string): Promise<void> {
 }
 
 async function removeProfileWorkDir(id: string): Promise<void> {
+  assertSafeProfileId(id)
   const workDir = mihomoProfileWorkDir(id)
   if (!existsSync(workDir)) return
   assertInsideWorkDir(workDir)
@@ -90,10 +117,13 @@ export async function getProfileConfig(force = false): Promise<IProfileConfig> {
 }
 
 export async function setProfileConfig(config: IProfileConfig): Promise<void> {
-  profileConfigWriteQueue = profileConfigWriteQueue.then(async () => {
-    profileConfig = config
-    await writeFile(profileConfigPath(), stringify(config), 'utf-8')
-  })
+  profileConfigWriteQueue = profileConfigWriteQueue
+    .catch(() => {})
+    .then(async () => {
+      const next = JSON.parse(JSON.stringify(config)) as IProfileConfig
+      await writeFileAtomically(profileConfigPath(), stringify(next))
+      profileConfig = next
+    })
   await profileConfigWriteQueue
 }
 
@@ -101,15 +131,18 @@ export async function updateProfileConfig(
   updater: (config: IProfileConfig) => IProfileConfig | Promise<IProfileConfig>
 ): Promise<IProfileConfig> {
   let result: IProfileConfig | undefined
-  profileConfigWriteQueue = profileConfigWriteQueue.then(async () => {
-    const data = await readFile(profileConfigPath(), 'utf-8')
-    profileConfig = parse(data) || { items: [] }
-    if (typeof profileConfig !== 'object') profileConfig = { items: [] }
-    if (!Array.isArray(profileConfig.items)) profileConfig.items = []
-    profileConfig = await updater(JSON.parse(JSON.stringify(profileConfig)))
-    result = profileConfig
-    await writeFile(profileConfigPath(), stringify(profileConfig), 'utf-8')
-  })
+  profileConfigWriteQueue = profileConfigWriteQueue
+    .catch(() => {})
+    .then(async () => {
+      const data = await readFile(profileConfigPath(), 'utf-8')
+      profileConfig = parse(data) || { items: [] }
+      if (typeof profileConfig !== 'object') profileConfig = { items: [] }
+      if (!Array.isArray(profileConfig.items)) profileConfig.items = []
+      const next = await updater(JSON.parse(JSON.stringify(profileConfig)))
+      await writeFileAtomically(profileConfigPath(), stringify(next))
+      profileConfig = next
+      result = next
+    })
   await profileConfigWriteQueue
   return JSON.parse(JSON.stringify(result ?? profileConfig))
 }
@@ -155,6 +188,14 @@ export async function changeCurrentProfile(id: string): Promise<void> {
           config.current = current
           return config
         })
+        try {
+          await restartCore()
+        } catch (rollbackError) {
+          profileLogger.error(
+            'Failed to restart the previous profile after rollback',
+            rollbackError
+          )
+        }
         taskError = e
       }
     })
@@ -213,6 +254,7 @@ export async function addProfileItem(item: Partial<IProfileItem>): Promise<void>
 }
 
 export async function removeProfileItem(id: string): Promise<void> {
+  assertSafeProfileId(id)
   await removeProfileUpdater(id)
 
   let shouldRestart = false
@@ -230,6 +272,7 @@ export async function removeProfileItem(id: string): Promise<void> {
   if (existsSync(profilePath(id))) {
     await rm(profilePath(id))
   }
+  await rm(profileHttpMetadataPath(id), { force: true })
   if (shouldRestart) {
     await restartCore()
   }
@@ -268,15 +311,58 @@ interface FetchOptions {
   authToken?: string
   timeout: number
   substore: boolean
+  conditionalHeaders?: Record<string, string>
 }
 
 interface FetchResult {
   data: string
   headers: Record<string, string>
+  notModified: boolean
+  usedProxy: boolean
 }
 
 const MAX_TIMER_DELAY_MS = 2_147_483_647
 const MAX_PROFILE_INTERVAL_MINUTES = Math.floor(MAX_TIMER_DELAY_MS / (60 * 1000))
+const DEFAULT_SUBSCRIPTION_TIMEOUT_MS = 30000
+const MAX_SUBSCRIPTION_TIMEOUT_MS = 5 * 60 * 1000
+
+function boundedSubscriptionTimeout(value: unknown, fallback: number): number {
+  const timeout = Number(value)
+  if (!Number.isFinite(timeout) || timeout <= 0) return fallback
+  return Math.min(Math.max(Math.round(timeout), 1000), MAX_SUBSCRIPTION_TIMEOUT_MS)
+}
+
+function isValidProxyPort(value: unknown): value is number {
+  return Number.isInteger(value) && Number(value) > 0 && Number(value) <= 65535
+}
+
+function subscriptionRequestIdentity(options: {
+  profileId: string
+  url: string
+  authToken?: string
+  userAgent: string
+  useProxy: boolean
+  substore: boolean
+  ageSecretKey?: string
+}): string {
+  const secretHash = (value: string | undefined): string | undefined =>
+    value
+      ? createHash('sha256').update('aikobox-subscription-secret\0').update(value).digest('hex')
+      : undefined
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        version: 1,
+        profileId: options.profileId,
+        url: options.url,
+        authorization: secretHash(options.authToken),
+        userAgent: options.userAgent,
+        policy: options.substore ? 'substore' : options.useProxy ? 'proxy-only' : 'direct-fallback',
+        ageSecretKey: secretHash(options.ageSecretKey)
+      })
+    )
+    .digest('hex')
+}
 
 function redactSubscriptionUrl(url: string): string {
   try {
@@ -328,9 +414,15 @@ async function fetchAndValidateSubscription(options: FetchOptions): Promise<Fetc
 
   const headers: Record<string, string> = {
     'User-Agent': userAgent,
-    'Accept-Encoding': 'identity'
+    'Accept-Encoding': 'identity',
+    ...options.conditionalHeaders
   }
   if (authToken) headers['Authorization'] = authToken
+  for (const [name, value] of Object.entries(headers)) {
+    if (/[^\x20-\x7E]/.test(value) || value.length > 8192) {
+      throw new Error(`Subscription request header "${name}" is invalid`)
+    }
+  }
 
   await profileLogger.info(
     `Fetching remote profile url=${redactedUrl} mode=${fetchMode} timeout=${timeout}ms auth=${authToken ? 'yes' : 'no'}`
@@ -345,16 +437,32 @@ async function fetchAndValidateSubscription(options: FetchOptions): Promise<Fetc
       }
     | false = false
 
+  if (useProxy && !isValidProxyPort(mixedPort)) {
+    throw new Error('Subscription proxy-only mode requires a valid local mixed proxy port')
+  }
+
   if (substore) {
-    const urlObj = new URL(`http://127.0.0.1:${subStorePort}${url}`)
+    if (!url.startsWith('/') || url.startsWith('//')) {
+      throw new Error('Sub-Store subscription path must be an absolute local path')
+    }
+    const requested = new URL(url, `http://127.0.0.1:${subStorePort}`)
+    if (!requested.pathname.startsWith('/download/')) {
+      throw new Error('Sub-Store subscription path must use the /download/ endpoint')
+    }
+    const urlObj = new URL(
+      `http://127.0.0.1:${subStorePort}${subStoreBackendPrefix || ''}${requested.pathname}${requested.search}`
+    )
     urlObj.searchParams.set('target', 'ClashMeta')
     urlObj.searchParams.set('noCache', 'true')
-    if (useProxy && mixedPort !== 0) {
+    if (useProxy) {
       urlObj.searchParams.set('proxy', `http://127.0.0.1:${mixedPort}`)
     }
     requestUrl = urlObj.toString()
-  } else if (useProxy && mixedPort !== 0) {
+  } else if (useProxy) {
+    assertHttpUrl(url, 'Subscription URL')
     proxy = { protocol: 'http', host: '127.0.0.1', port: mixedPort }
+  } else {
+    assertHttpUrl(url, 'Subscription URL')
   }
 
   let res: AxiosResponse<string>
@@ -363,7 +471,14 @@ async function fetchAndValidateSubscription(options: FetchOptions): Promise<Fetc
       headers,
       responseType: 'text',
       timeout,
+      signal: AbortSignal.timeout(timeout),
       proxy,
+      maxRedirects: 5,
+      maxContentLength: 32 * 1024 * 1024,
+      maxBodyLength: 32 * 1024 * 1024,
+      beforeRedirect: (redirectOptions) => {
+        assertSafeHttpRedirect(requestUrl, redirectOptions, 'Subscription', Boolean(authToken))
+      },
       validateStatus: () => true,
       transformResponse: [(data) => data]
     })
@@ -384,6 +499,9 @@ async function fetchAndValidateSubscription(options: FetchOptions): Promise<Fetc
     )} bytes=${Buffer.byteLength(data, 'utf8')}`
   )
 
+  if (res.status === 304) {
+    return { data: '', headers: responseHeaders, notModified: true, usedProxy: useProxy }
+  }
   if (res.status < 200 || res.status >= 300) {
     await profileLogger.warn(
       `Remote profile request rejected url=${redactedUrl} mode=${fetchMode} status=${res.status}`
@@ -391,31 +509,51 @@ async function fetchAndValidateSubscription(options: FetchOptions): Promise<Fetc
     throw new Error(`Subscription failed: Request status code ${res.status}`)
   }
 
+  assertRemoteText(data, responseHeaders['content-type'], 'Subscription')
   const decryptedData = await decryptAgeContent(data, options.ageSecretKey, 'subscription')
-  const parsed = parse(decryptedData) as Record<string, unknown> | null
-  if (typeof parsed !== 'object' || parsed === null) {
+  let normalized: ReturnType<typeof normalizeSubscriptionPayload>
+  try {
+    normalized = normalizeSubscriptionPayload(decryptedData)
+  } catch (error) {
     await profileLogger.warn(
-      `Remote profile parse failed url=${redactedUrl} mode=${fetchMode} parsedType=${typeof parsed}`
+      `Remote profile parse failed url=${redactedUrl} mode=${fetchMode}`,
+      error
     )
-    throw new Error('Subscription failed: Profile is not a valid YAML')
+    throw new Error(
+      `Subscription failed: ${error instanceof Error ? error.message : String(error)}`
+    )
   }
+  if (options.ageSecretKey && normalized.format !== 'clash-yaml') {
+    throw new Error('Subscription failed: encrypted URI-list subscriptions are not supported')
+  }
+  const parsed = parse(normalized.content) as Record<string, unknown>
   await profileLogger.info(
-    `Remote profile parsed url=${redactedUrl} mode=${fetchMode} summary=${parsedProfileSummary(parsed)}`
+    `Remote profile parsed url=${redactedUrl} mode=${fetchMode} format=${normalized.format} summary=${parsedProfileSummary(parsed)}`
   )
-  if (!parsed['proxies'] && !parsed['proxy-providers']) {
-    await profileLogger.warn(
-      `Remote profile validation failed url=${redactedUrl} mode=${fetchMode} reason=missing-proxies-or-providers summary=${parsedProfileSummary(
-        parsed
-      )}`
-    )
-    throw new Error('Subscription failed: Profile missing proxies or providers')
-  }
 
-  return { data, headers: responseHeaders }
+  return {
+    data: options.ageSecretKey ? data : normalized.content,
+    headers: responseHeaders,
+    notModified: false,
+    usedProxy: useProxy
+  }
+}
+
+async function hasValidCachedSubscription(id: string, ageSecretKey?: string): Promise<boolean> {
+  try {
+    const content = await readFile(profilePath(id), 'utf8')
+    assertRemoteText(content, undefined, 'Cached subscription')
+    const decrypted = await decryptAgeContent(content, ageSecretKey, 'cached subscription')
+    const normalized = normalizeSubscriptionPayload(decrypted)
+    return !ageSecretKey || normalized.format === 'clash-yaml'
+  } catch {
+    return false
+  }
 }
 
 export async function createProfile(item: Partial<IProfileItem>): Promise<IProfileItem> {
   const id = item.id || new Date().getTime().toString(16)
+  assertSafeProfileId(id)
   const newItem: IProfileItem = {
     id,
     name: item.name || (item.type === 'remote' ? 'Remote File' : 'Local File'),
@@ -430,6 +568,8 @@ export async function createProfile(item: Partial<IProfileItem>): Promise<IProfi
     authToken: item.authToken,
     userAgent: item.userAgent,
     ageSecretKey: item.ageSecretKey,
+    home: item.home,
+    extra: item.extra,
     updated: new Date().getTime(),
     updateTimeout: item.updateTimeout
   }
@@ -444,36 +584,63 @@ export async function createProfile(item: Partial<IProfileItem>): Promise<IProfi
   if (!item.url) throw new Error('Empty URL')
 
   const profileUrl = item.url
+  const { userAgent, subscriptionTimeout = 30000 } = await getAppConfig()
+  const mixedPort = getHealthyProxyEndpoint()?.port ?? 0
+  const effectiveUserAgent =
+    item.userAgent || userAgent || `mihomo.party/v${app.getVersion()} (clash.meta)`
+  const requestIdentity = subscriptionRequestIdentity({
+    profileId: id,
+    url: profileUrl,
+    authToken: newItem.authToken,
+    userAgent: effectiveUserAgent,
+    useProxy: Boolean(newItem.useProxy),
+    substore: Boolean(newItem.substore),
+    ageSecretKey: newItem.ageSecretKey
+  })
   await profileLogger.info(
     `Creating/updating remote profile id=${id} name=${newItem.name} url=${redactSubscriptionUrl(
       profileUrl
     )} useProxy=${newItem.useProxy} substore=${newItem.substore}`
   )
-  const dedupKey = `${id}::${profileUrl}`
-  const existing = inflightRemoteFetches.get(dedupKey)
+  const existing = inflightRemoteFetches.get(id)
   if (existing) {
-    await profileLogger.info(
-      `Remote profile fetch deduplicated id=${id} url=${redactSubscriptionUrl(profileUrl)}`
-    )
-    return existing
+    if (existing.requestIdentity === requestIdentity) {
+      await profileLogger.info(
+        `Remote profile fetch deduplicated id=${id} url=${redactSubscriptionUrl(profileUrl)}`
+      )
+      return existing.promise
+    }
+    await profileLogger.info(`Remote profile fetch queued behind another update id=${id}`)
+    try {
+      await existing.promise
+    } catch {
+      // A newer URL must still get its own attempt after an older update failed.
+    }
+    if (inflightRemoteFetches.get(id) === existing) inflightRemoteFetches.delete(id)
+    return createProfile(item)
   }
 
   const promise = (async (): Promise<IProfileItem> => {
-    const { userAgent, subscriptionTimeout = 30000 } = await getAppConfig()
-    const { 'mixed-port': mixedPort = DEFAULT_MIHOMO_PORTS.mixed } =
-      await getControledMihomoConfig()
+    const defaultTimeoutMs = boundedSubscriptionTimeout(
+      subscriptionTimeout,
+      DEFAULT_SUBSCRIPTION_TIMEOUT_MS
+    )
     const userItemTimeoutMs =
       typeof newItem.updateTimeout === 'number' && newItem.updateTimeout > 0
-        ? newItem.updateTimeout * 1000
-        : subscriptionTimeout
+        ? boundedSubscriptionTimeout(newItem.updateTimeout * 1000, defaultTimeoutMs)
+        : defaultTimeoutMs
 
+    const cachedMetadata = newItem.substore
+      ? undefined
+      : await readHttpCacheMetadata(profileHttpMetadataPath(id), requestIdentity)
     const baseOptions: Omit<FetchOptions, 'useProxy' | 'timeout'> = {
       url: profileUrl,
       mixedPort,
-      userAgent: item.userAgent || userAgent || `mihomo.party/v${app.getVersion()} (clash.meta)`,
+      userAgent: effectiveUserAgent,
       ageSecretKey: newItem.ageSecretKey,
       authToken: item.authToken,
-      substore: newItem.substore || false
+      substore: newItem.substore || false,
+      conditionalHeaders: newItem.substore ? undefined : conditionalRequestHeaders(cachedMetadata)
     }
 
     const fetchSub = (useProxy: boolean, timeout: number): Promise<FetchResult> =>
@@ -494,10 +661,22 @@ export async function createProfile(item: Partial<IProfileItem>): Promise<IProfi
         )
         try {
           // smart fallback
-          result = await fetchSub(true, subscriptionTimeout)
+          result = await fetchSub(true, defaultTimeoutMs)
         } catch {
           throw directError
         }
+      }
+    }
+
+    if (result.notModified && !(await hasValidCachedSubscription(id, newItem.ageSecretKey))) {
+      result = await fetchAndValidateSubscription({
+        ...baseOptions,
+        conditionalHeaders: undefined,
+        useProxy: result.usedProxy,
+        timeout: userItemTimeoutMs
+      })
+      if (result.notModified) {
+        throw new Error('Subscription returned 304 but no cached profile exists')
       }
     }
 
@@ -519,50 +698,100 @@ export async function createProfile(item: Partial<IProfileItem>): Promise<IProfi
       newItem.extra = parseSubinfo(headers['subscription-userinfo'])
     }
 
-    await setProfileStr(id, data)
-    await profileLogger.info(
-      `Remote profile saved id=${id} name=${newItem.name} path=${profilePath(
-        id
-      )} bytes=${Buffer.byteLength(data || '', 'utf8')}`
-    )
+    if (!result.notModified) {
+      await setProfileStr(id, data)
+      await profileLogger.info(
+        `Remote profile saved id=${id} name=${newItem.name} path=${profilePath(
+          id
+        )} bytes=${Buffer.byteLength(data || '', 'utf8')}`
+      )
+    } else {
+      await profileLogger.info(`Remote profile unchanged id=${id} (HTTP 304)`)
+    }
+    if (!newItem.substore) {
+      try {
+        await writeHttpCacheMetadata(profileHttpMetadataPath(id), {
+          // The metadata binds validators to the complete request context without
+          // persisting a subscription URL, token, or other credential.
+          url: requestIdentity,
+          etag: headers.etag || cachedMetadata?.etag,
+          lastModified: headers['last-modified'] || cachedMetadata?.lastModified,
+          fetchedAt: Date.now()
+        })
+      } catch (error) {
+        await profileLogger.warn(`Failed to save HTTP cache metadata for profile id=${id}`, error)
+      }
+    }
     return newItem
   })()
 
-  inflightRemoteFetches.set(dedupKey, promise)
+  const inflight = { requestIdentity, promise }
+  inflightRemoteFetches.set(id, inflight)
   try {
     return await promise
   } finally {
-    inflightRemoteFetches.delete(dedupKey)
+    if (inflightRemoteFetches.get(id) === inflight) inflightRemoteFetches.delete(id)
   }
 }
 
 export async function getProfileStr(id: string | undefined): Promise<string> {
-  if (existsSync(profilePath(id || 'default'))) {
-    return await readFile(profilePath(id || 'default'), 'utf-8')
+  const safeId = id || 'default'
+  assertSafeProfileId(safeId)
+  if (existsSync(profilePath(safeId))) {
+    return await readFile(profilePath(safeId), 'utf-8')
   } else {
     return stringify(defaultProfile)
   }
 }
 
 export async function setProfileStr(id: string, content: string): Promise<void> {
-  // 读取最新的配置
-  const { current } = await getProfileConfig(true)
-  await writeFile(profilePath(id), content, 'utf-8')
-  if (current === id) {
-    try {
-      await mihomoHotReloadConfig()
-      profileLogger.info('Config reloaded successfully')
-    } catch (error) {
-      profileLogger.error('Failed to reload config', error)
-      try {
-        profileLogger.info('Falling back to restart core')
-        await restartCore()
-        profileLogger.info('Core restarted successfully')
-      } catch (restartError) {
-        profileLogger.error('Failed to restart core', restartError)
-        throw restartError
+  assertSafeProfileId(id)
+  const prior = profileContentWriteQueues.get(id) || Promise.resolve()
+  const queued = prior
+    .catch(() => {})
+    .then(async () => {
+      // 读取最新的配置
+      const { current } = await getProfileConfig(true)
+      const target = profilePath(id)
+      const previous = await readFile(target, 'utf8').catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return null
+        throw error
+      })
+      await writeFileAtomically(target, content)
+      if (current === id) {
+        try {
+          await mihomoHotReloadConfig()
+          profileLogger.info('Config reloaded successfully')
+        } catch (error) {
+          profileLogger.error('Failed to reload config', error)
+          try {
+            profileLogger.info('Falling back to restart core')
+            await restartCore()
+            profileLogger.info('Core restarted successfully')
+          } catch (restartError) {
+            profileLogger.error('Failed to restart core', restartError)
+            // Keep the subscription and the running configuration in sync. A
+            // rejected update must not destroy the last usable profile.
+            if (previous !== null) {
+              await writeFileAtomically(target, previous)
+              try {
+                await restartCore()
+              } catch (rollbackError) {
+                profileLogger.error('Failed to restart restored subscription', rollbackError)
+              }
+            } else {
+              await rm(target, { force: true })
+            }
+            throw restartError
+          }
+        }
       }
-    }
+    })
+  profileContentWriteQueues.set(id, queued)
+  try {
+    await queued
+  } finally {
+    if (profileContentWriteQueues.get(id) === queued) profileContentWriteQueues.delete(id)
   }
 }
 
@@ -623,35 +852,24 @@ function parseSubinfo(str: string): ISubscriptionUserInfo {
   return obj
 }
 
-function isAbsolutePath(path: string): boolean {
-  return path.startsWith('/') || /^[a-zA-Z]:\\/.test(path)
-}
-
-export async function getFileStr(path: string): Promise<string> {
+async function resolveRuntimeWorkspaceFile(filePath: string): Promise<string> {
   const { diffWorkDir = false } = await getAppConfig()
   const { current } = await getProfileConfig()
-  if (isAbsolutePath(path)) {
-    return await readFile(path, 'utf-8')
-  } else {
-    return await readFile(
-      join(diffWorkDir ? mihomoProfileWorkDir(current) : mihomoWorkDir(), path),
-      'utf-8'
-    )
+  const root = await realpath(diffWorkDir ? mihomoProfileWorkDir(current) : mihomoWorkDir())
+  const candidate = await realpath(isAbsolute(filePath) ? filePath : join(root, filePath))
+  const relativePath = relative(root, candidate)
+  if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
+    throw new Error('Runtime resource path escapes the active profile workspace')
   }
+  return candidate
 }
 
-export async function setFileStr(path: string, content: string): Promise<void> {
-  const { diffWorkDir = false } = await getAppConfig()
-  const { current } = await getProfileConfig()
-  if (isAbsolutePath(path)) {
-    await writeFile(path, content, 'utf-8')
-  } else {
-    await writeFile(
-      join(diffWorkDir ? mihomoProfileWorkDir(current) : mihomoWorkDir(), path),
-      content,
-      'utf-8'
-    )
-  }
+export async function getFileStr(filePath: string): Promise<string> {
+  return await readFile(await resolveRuntimeWorkspaceFile(filePath), 'utf-8')
+}
+
+export async function setFileStr(filePath: string, content: string): Promise<void> {
+  await writeFile(await resolveRuntimeWorkspaceFile(filePath), content, 'utf-8')
 }
 
 export async function convertMrsRuleset(filePath: string, behavior: string): Promise<string> {

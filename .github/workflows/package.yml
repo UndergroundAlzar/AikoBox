@@ -1,0 +1,56 @@
+name: Windows package proof
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.27.0
+          run_install: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Fetch and verify every locked runtime resource
+        run: node scripts/prepare.mjs --x64
+      - name: Test the locked resource verifier itself
+        run: node --test scripts/prepare.test.mjs
+      - name: Test the fail-closed third-party license audit
+        run: pnpm run test:licenses
+      - name: Require complete third-party redistribution evidence before packaging
+        run: pnpm run audit:licenses
+      - name: Rebuild native dependencies for Electron
+        run: pnpm exec electron-builder install-app-deps
+      - name: Run all tests including real sing-box config checks
+        run: pnpm run test
+      - name: Compile and package both Windows targets
+        run: pnpm run build:win
+      - name: Verify the exact release artifact set and checksums
+        run: pnpm run verify:release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: aikobox-windows-x64-${{ github.sha }}
+          path: |
+            dist/*-setup.exe
+            dist/*-portable.exe
+            dist/*.sha256
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14

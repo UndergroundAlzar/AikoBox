@@ -1,10 +1,12 @@
 import * as chromeRequest from '../utils/chromeRequest'
-import { subStorePort } from '../resolve/server'
+import { subStoreBackendPrefix, subStorePort } from '../resolve/server'
 import { getAppConfig } from '../config'
 
 export async function subStoreSubs(): Promise<ISubStoreSub[]> {
   const { useCustomSubStore = false, customSubStoreUrl = '' } = await getAppConfig()
-  const baseUrl = useCustomSubStore ? customSubStoreUrl : `http://127.0.0.1:${subStorePort}`
+  const baseUrl = useCustomSubStore
+    ? customSubStoreUrl
+    : `http://127.0.0.1:${subStorePort}${subStoreBackendPrefix}`
   const res = await chromeRequest.get<{ data: ISubStoreSub[] }>(`${baseUrl}/api/subs`, {
     responseType: 'json'
   })
@@ -13,7 +15,9 @@ export async function subStoreSubs(): Promise<ISubStoreSub[]> {
 
 export async function subStoreCollections(): Promise<ISubStoreSub[]> {
   const { useCustomSubStore = false, customSubStoreUrl = '' } = await getAppConfig()
-  const baseUrl = useCustomSubStore ? customSubStoreUrl : `http://127.0.0.1:${subStorePort}`
+  const baseUrl = useCustomSubStore
+    ? customSubStoreUrl
+    : `http://127.0.0.1:${subStorePort}${subStoreBackendPrefix}`
   const res = await chromeRequest.get<{ data: ISubStoreSub[] }>(`${baseUrl}/api/collections`, {
     responseType: 'json'
   })

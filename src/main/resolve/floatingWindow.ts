@@ -1,13 +1,19 @@
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
-import { BrowserWindow, ipcMain } from 'electron'
+import { BrowserWindow, ipcMain, shell } from 'electron'
 import windowStateKeeper from 'electron-window-state'
 import { getAppConfig, patchAppConfig } from '../config'
 import { floatingWindowLogger } from '../utils/logger'
+import {
+  isTrustedIpcSender,
+  isTrustedRendererUrl,
+  normalizeExternalHttpUrl
+} from '../utils/electronSecurity'
 import { applyTheme } from './theme'
 import { buildContextMenu, showTrayIcon } from './tray'
 
 export let floatingWindow: BrowserWindow | null = null
+const rendererRoot = join(__dirname, '../renderer')
 
 function logError(message: string, error?: unknown): void {
   floatingWindowLogger.log(`FloatingWindow Error: ${message}`, error).catch(() => {})
@@ -41,9 +47,13 @@ async function createFloatingWindow(): Promise<void> {
       webPreferences: {
         preload: join(__dirname, '../preload/index.cjs'),
         spellcheck: false,
-        sandbox: false,
+        sandbox: true,
         nodeIntegration: false,
-        contextIsolation: true
+        contextIsolation: true,
+        devTools: is.dev,
+        webSecurity: true,
+        webviewTag: false,
+        navigateOnDragDrop: false
       }
     }
 
@@ -56,6 +66,40 @@ async function createFloatingWindow(): Promise<void> {
 
     floatingWindow = new BrowserWindow(windowOptions)
     floatingWindowState.manage(floatingWindow)
+
+    floatingWindow.webContents.setWindowOpenHandler(({ url }) => {
+      const browserUrl = normalizeExternalHttpUrl(url)
+      if (browserUrl) {
+        void shell.openExternal(browserUrl).catch((error) => {
+          logError('Failed to open external URL', error)
+        })
+      } else {
+        logError('Blocked unsafe external URL')
+      }
+      return { action: 'deny' }
+    })
+
+    floatingWindow.webContents.on('will-navigate', (event, url) => {
+      if (isTrustedRendererUrl(url, rendererRoot, undefined, is.dev)) return
+      event.preventDefault()
+      const browserUrl = normalizeExternalHttpUrl(url)
+      if (browserUrl) {
+        void shell.openExternal(browserUrl).catch((error) => {
+          logError('Failed to open external URL', error)
+        })
+      }
+    })
+
+    floatingWindow.webContents.on('will-redirect', (event, url) => {
+      if (isTrustedRendererUrl(url, rendererRoot, undefined, is.dev)) return
+      event.preventDefault()
+      const browserUrl = normalizeExternalHttpUrl(url)
+      if (browserUrl) {
+        void shell.openExternal(browserUrl).catch((error) => {
+          logError('Failed to open external URL', error)
+        })
+      }
+    })
 
     // 事件监听器
     floatingWindow.webContents.on('render-process-gone', (_, details) => {
@@ -77,7 +121,11 @@ async function createFloatingWindow(): Promise<void> {
 
     // IPC 监听器
     ipcMain.removeAllListeners('updateFloatingWindow')
-    ipcMain.on('updateFloatingWindow', () => {
+    ipcMain.on('updateFloatingWindow', (event) => {
+      if (!isTrustedIpcSender(event, rendererRoot, undefined, is.dev)) {
+        logError('Blocked update request from an untrusted renderer')
+        return
+      }
       if (floatingWindow) {
         floatingWindow.webContents.send('controledMihomoConfigUpdated')
         floatingWindow.webContents.send('appConfigUpdated')

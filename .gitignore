@@ -8,6 +8,14 @@ out
 *.log*
 .idea
 *.ttf
+.env
+.env.*
+!.env.example
+!**/.env.example
+*.pfx
+*.p12
+*.pem
+*.key
 party.md
 CLAUDE.md
 agent.md

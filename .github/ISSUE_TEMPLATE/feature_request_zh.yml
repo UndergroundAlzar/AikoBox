@@ -1,32 +1,43 @@
 name: 功能请求
-description: '请求 AikoBox 功能'
+description: 为 AikoBox Windows 客户端提出功能建议
 title: '[Feature] '
+labels:
+  - enhancement
 body:
   - type: checkboxes
-    id: ensure
+    id: checks
     attributes:
-      label: Verify steps
-      description: 在提交之前，请勾选以下所有选项以证明您已经阅读并理解了以下要求，否则该 issue 将被关闭。
+      label: 提交前确认
       options:
-        - label: 我已在标题简短的描述了我所需的功能
-        - label: 我已在 [Issue Tracker](./?q=is%3Aissue) 中寻找过，但未找到我所需的功能
-        - label: 这是向 GUI 程序提出的功能请求，而不是内核程序
-        - label: 我未在最新的测试版本找到我所需的功能
+        - label: 我已搜索现有 Issue 和路线讨论，未找到相同建议。
+          required: true
+        - label: 该建议适用于 Windows x64 客户端，而不是请求 macOS、Linux 或移动端移植。
+          required: true
+        - label: 内容不包含订阅链接、账号、令牌或其他秘密信息。
+          required: true
 
-  - type: dropdown
-    attributes:
-      label: 操作系统
-      description: 请提供操作系统类型
-      multiple: true
-      options:
-        - MacOS
-        - Windows
-        - Linux
-    validations:
-      required: true
   - type: textarea
+    id: problem
     attributes:
-      label: 描述
-      description: 请提供所需功能的详细描述
+      label: 要解决的问题
+      description: 请描述当前工作流中的具体困难，而不只是功能名称。
     validations:
       required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议方案
+      description: 请说明期望的交互、默认行为，以及对系统代理或 TUN 安全性的影响。
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 考虑过的替代方案
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: 补充信息

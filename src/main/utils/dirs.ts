@@ -2,15 +2,23 @@ import { existsSync, mkdirSync } from 'fs'
 import path from 'path'
 import { is } from '@electron-toolkit/utils'
 import { app } from 'electron'
+import { portableRootFromEnvironment } from './portable'
+import { assertManagedOverrideExtension, assertSafeManagedConfigId } from './managedConfigId'
 
 export const homeDir = app.getPath('home')
 
+function portableRootDir(): string {
+  return portableRootFromEnvironment(process.env) ?? exeDir()
+}
+
 export function isPortable(): boolean {
-  return existsSync(path.join(exeDir(), 'PORTABLE'))
+  return (
+    portableRootFromEnvironment(process.env) !== null || existsSync(path.join(exeDir(), 'PORTABLE'))
+  )
 }
 
 function portableDataDir(): string {
-  return path.join(exeDir(), 'data')
+  return path.join(portableRootDir(), 'data')
 }
 
 export function configurePortableUserData(): void {
@@ -93,6 +101,7 @@ export function profilesDir(): string {
 }
 
 export function profilePath(id: string): string {
+  assertSafeManagedConfigId(id, 'profile')
   return path.join(profilesDir(), `${id}.yaml`)
 }
 
@@ -117,6 +126,8 @@ export function overrideConfigPath(): string {
 }
 
 export function overridePath(id: string, ext: 'js' | 'yaml' | 'log'): string {
+  assertSafeManagedConfigId(id, 'override')
+  assertManagedOverrideExtension(ext)
   return path.join(overrideDir(), `${id}.${ext}`)
 }
 
@@ -125,7 +136,9 @@ export function mihomoWorkDir(): string {
 }
 
 export function mihomoProfileWorkDir(id: string | undefined): string {
-  return path.join(mihomoWorkDir(), id || 'default')
+  const profileId = id || 'default'
+  assertSafeManagedConfigId(profileId, 'profile')
+  return path.join(mihomoWorkDir(), profileId)
 }
 
 export function mihomoTestDir(): string {
@@ -176,5 +189,6 @@ export function rulesDir(): string {
 }
 
 export function rulePath(id: string): string {
+  assertSafeManagedConfigId(id, 'rule')
   return path.join(rulesDir(), `${id}.yaml`)
 }

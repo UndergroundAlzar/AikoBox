@@ -3,21 +3,16 @@ productName: AikoBox
 directories:
   buildResources: build
 files:
-  - '!**/.vscode/*'
-  - '!src/*'
-  - '!aur/*'
-  - '!images/*'
-  - '!scripts/*'
-  - '!extra/*'
-  - '!tailwind.config.js'
-  - '!postcss.config.js'
-  - '!electron.vite.config.{js,ts,mjs,cjs}'
-  - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
-  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
-  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - 'out/**/*'
+  - 'resources/**/*'
+  - 'LICENSE'
+  - 'THIRD_PARTY_NOTICES.md'
 extraResources:
   - from: './extra/'
     to: ''
+    filter:
+      - 'files/**/*'
+      - 'sidecar/**/*'
 protocols:
   name: 'AikoBox URI Scheme'
   schemes:
@@ -26,62 +21,21 @@ protocols:
     - 'aikobox'
 win:
   target:
-    - nsis
-    - 7z
-  artifactName: aikobox-windows-${version}-${arch}-portable.${ext}
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
 nsis:
   artifactName: aikobox-windows-${version}-${arch}-setup.${ext}
   uninstallDisplayName: ${productName}
-  allowToChangeInstallationDirectory: true
+  allowToChangeInstallationDirectory: false
   oneClick: false
   perMachine: true
   createDesktopShortcut: always
-mac:
-  target:
-    - pkg
-  entitlementsInherit: build/entitlements.mac.plist
-  hardenedRuntime: true
-  gatekeeperAssess: false
-  extendInfo:
-    - NSCameraUsageDescription: Application requests access to the device's camera.
-    - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
-    - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
-    - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
-  notarize: false
-  artifactName: aikobox-macos-${version}-${arch}.${ext}
-pkg:
-  allowAnywhere: false
-  allowCurrentUserHome: false
-  isRelocatable: false
-  background:
-    alignment: bottomleft
-    file: build/background.png
-linux:
-  executableName: aikobox
-  icon: build/icon.png
-  desktop:
-    entry:
-      Name: AikoBox
-      GenericName: Proxy Client
-      Comment: AikoBox Proxy Client
-      MimeType: 'x-scheme-handler/clash;x-scheme-handler/mihomo;x-scheme-handler/aikobox'
-      Keywords: proxy;clash;sing-box;aikobox;vpn;
-      StartupWMClass: aikobox
-      Icon: aikobox
-  target:
-    - deb
-    - rpm
-  maintainer: aikobox
-  category: Utility
-  artifactName: aikobox-linux-${version}-${arch}.${ext}
-deb:
-  afterInstall: 'build/linux/postinst'
-  afterRemove: 'build/linux/postuninst'
-rpm:
-  afterInstall: 'build/linux/postinst'
-  afterRemove: 'build/linux/postuninst'
-  fpm:
-    - '--rpm-rpmbuild-define'
-    - '_build_id_links none'
+portable:
+  artifactName: aikobox-windows-${version}-${arch}-portable.${ext}
+  requestExecutionLevel: user
 npmRebuild: true
 publish: []

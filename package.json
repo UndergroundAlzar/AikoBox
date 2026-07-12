@@ -1,13 +1,29 @@
 {
   "name": "aikobox",
   "version": "0.1.0",
-  "description": "AikoBox",
+  "description": "Windows proxy client powered by sing-box with Clash YAML compatibility",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "homepage": "https://github.com/UndergroundAlzar/AikoBox#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/UndergroundAlzar/AikoBox.git"
+  },
+  "bugs": {
+    "url": "https://github.com/UndergroundAlzar/AikoBox/issues"
+  },
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
   "type": "module",
   "main": "./out/main/index.js",
-  "author": "AikoBox",
-  "homepage": "https://github.com/aikobox",
+  "author": "UndergroundAlzar",
   "scripts": {
     "test": "vitest run",
+    "test:ci": "vitest run --exclude src/main/core/singbox/realConfig.test.ts",
     "test:watch": "vitest",
     "format": "prettier --write .",
     "format:check": "prettier --list-different .",
@@ -21,14 +37,15 @@
     "prepare": "pnpm run hooks:install && node scripts/prepare.mjs",
     "prepare:dev": "pnpm run hooks:install && node scripts/update-version.mjs && node scripts/prepare.mjs",
     "checksum": "node scripts/checksum.mjs",
+    "verify:release": "node scripts/verify-release.mjs",
+    "audit:licenses": "node scripts/audit-licenses.mjs",
+    "test:licenses": "node --test scripts/audit-licenses.test.mjs",
     "dev": "electron-vite dev",
     "postinstall": "electron-builder install-app-deps",
-    "build:win": "electron-vite build && electron-builder --publish never --win",
-    "build:win:dev": "pnpm run prepare:dev && electron-vite build && electron-builder --publish never --win",
-    "build:mac": "electron-vite build && electron-builder --publish never --mac",
-    "build:mac:dev": "pnpm run prepare:dev && electron-vite build && electron-builder --publish never --mac",
-    "build:linux": "electron-vite build && electron-builder --publish never --linux",
-    "build:linux:dev": "pnpm run prepare:dev && electron-vite build && electron-builder --publish never --linux"
+    "build": "electron-vite build",
+    "package:win": "electron-builder --publish never --win --x64",
+    "build:win": "pnpm run build && pnpm run package:win && pnpm run checksum",
+    "build:win:dev": "pnpm run prepare:dev && pnpm run build:win"
   },
   "dependencies": {
     "@electron-toolkit/utils": "^4.0.0",
@@ -59,6 +76,7 @@
     "yaml": "^2.9.0"
   },
   "devDependencies": {
+    "@electron/asar": "3.4.1",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
@@ -122,6 +140,9 @@
     "vitest": "^3.2.6"
   },
   "packageManager": "pnpm@10.27.0",
+  "engines": {
+    "node": ">=22"
+  },
   "pnpm": {
     "onlyBuiltDependencies": [
       "electron"

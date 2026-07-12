@@ -27,7 +27,7 @@ const Settings: React.FC = () => {
             title={t('settings.links.docs')}
             className="app-nodrag"
             onPress={() => {
-              window.open('https://github.com/aikobox')
+              window.open('https://github.com/UndergroundAlzar/AikoBox#readme')
             }}
           >
             <CgWebsite className="text-lg" />
@@ -39,7 +39,7 @@ const Settings: React.FC = () => {
             className="app-nodrag"
             title={t('settings.links.github')}
             onPress={() => {
-              window.open('https://github.com/aikobox/aikobox')
+              window.open('https://github.com/UndergroundAlzar/AikoBox')
             }}
           >
             <IoLogoGithub className="text-lg" />

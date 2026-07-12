@@ -537,6 +537,22 @@ interface IProfileConfig {
   items: IProfileItem[]
 }
 
+interface ICoreReleaseInfo {
+  currentVersion: string
+  latestVersion: string
+  updateAvailable: boolean
+  releaseUrl: string
+  publishedAt?: string
+  canRollback: boolean
+}
+
+interface ICoreUpdateResult {
+  version: string
+  previousVersion: string
+  rolledBack: boolean
+  canRollback: boolean
+}
+
 interface IOverrideItem {
   id: string
   type: 'remote' | 'local'

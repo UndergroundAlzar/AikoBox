@@ -22,7 +22,6 @@ const SubStoreConfig: React.FC = () => {
     useSubStore = DEFAULT_USE_SUB_STORE,
     useCustomSubStore = false,
     useProxyInSubStore = false,
-    subStoreHost = '127.0.0.1',
     customSubStoreUrl,
     subStoreBackendSyncCron,
     subStoreBackendDownloadCron,
@@ -64,25 +63,6 @@ const SubStoreConfig: React.FC = () => {
       </SettingItem>
       {useSubStore && (
         <>
-          <SettingItem title={t('substore.allowLan')} divider>
-            <Switch
-              size="sm"
-              isSelected={subStoreHost === '0.0.0.0'}
-              onValueChange={async (v) => {
-                try {
-                  if (v) {
-                    await patchAppConfig({ subStoreHost: '0.0.0.0' })
-                  } else {
-                    await patchAppConfig({ subStoreHost: '127.0.0.1' })
-                  }
-                  await startSubStoreFrontendServer()
-                  await startSubStoreBackendServer()
-                } catch (e) {
-                  toast.error(String(e))
-                }
-              }}
-            />
-          </SettingItem>
           <SettingItem title={t('substore.useCustomBackend')} divider>
             <Switch
               size="sm"

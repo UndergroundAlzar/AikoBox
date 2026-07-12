@@ -1,21 +1,321 @@
 import { promisify } from 'util'
 import { exec } from 'child_process'
-import fs from 'fs'
-import { triggerAutoProxy, triggerManualProxy } from 'sysproxy-rs'
+import fs, {
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync
+} from 'fs'
+import path from 'path'
+import {
+  getAutoProxy,
+  getSystemProxy,
+  setAutoProxy,
+  setSystemProxy,
+  triggerAutoProxy,
+  triggerManualProxy
+} from 'sysproxy-rs'
 import { net } from 'electron'
 import axios from 'axios'
-import { getAppConfig, getControledMihomoConfig } from '../config'
-import { DEFAULT_MIHOMO_PORTS } from '../../shared/appConfig'
+import { getAppConfig } from '../config'
 import { pacPort, startPacServer, stopPacServer } from '../resolve/server'
 import { proxyLogger } from '../utils/logger'
+import { dataDir } from '../utils/dirs'
+import {
+  getHealthyProxyEndpoint,
+  setHealthyProxyEndpoint,
+  setHealthyProxyReady
+} from '../core/healthyProxyEndpoint'
+import {
+  createOwnedSystemProxyRecord,
+  isOwnedSystemProxyRecord,
+  normalizeSystemProxyState,
+  sameSystemProxyState,
+  type OwnedSystemProxyRecord,
+  type SystemProxyState
+} from './systemProxyOwnership'
+import {
+  captureWindowsProxyRegistry,
+  restoreWindowsProxyRegistry,
+  sameWindowsProxyRegistrySnapshot
+} from './windowsProxyRegistry'
 
 let triggerSysProxyTimer: NodeJS.Timeout | null = null
+let proxyOperation: Promise<void> = Promise.resolve()
+let systemProxyShutdown = false
 const helperSocketPath = '/tmp/mihomo-party-helper.sock'
 
 // 是否由本应用设置过系统代理。
 // 只有 AikoBox 自己启用过系统代理时才允许清除系统代理，
 // 避免启动/退出时误清其他代理软件（或用户手动）设置的系统代理。
 let sysProxyAppliedByApp = false
+let ownedSystemProxy: OwnedSystemProxyRecord | null = null
+
+function legacyOwnershipStatePath(): string {
+  return path.join(dataDir(), 'system-proxy-owner.json')
+}
+
+function ownershipStatePaths(): string[] {
+  const directory = dataDir()
+  let names: string[] = []
+  try {
+    names = readdirSync(directory)
+  } catch {
+    // The data directory need not exist before the first transaction.
+  }
+  return [
+    legacyOwnershipStatePath(),
+    ...names
+      .filter((name) => /^system-proxy-owner\.[^.]+\.[^.]+\.json$/.test(name))
+      .map((name) => path.join(directory, name))
+  ]
+}
+
+function readWindowsProxyState(): SystemProxyState {
+  return normalizeSystemProxyState({
+    manual: getSystemProxy(),
+    auto: getAutoProxy()
+  })
+}
+
+function applyWindowsProxyState(state: SystemProxyState): void {
+  const normalized = normalizeSystemProxyState(state)
+  setSystemProxy(normalized.manual)
+  setAutoProxy(normalized.auto)
+  const actual = readWindowsProxyState()
+  if (!sameSystemProxyState(actual, normalized)) {
+    throw new Error('Windows did not accept the requested system proxy state')
+  }
+}
+
+function readOwnershipRecord(): OwnedSystemProxyRecord | null {
+  const candidates: { record: OwnedSystemProxyRecord; mtimeMs: number }[] = []
+  for (const candidate of ownershipStatePaths()) {
+    try {
+      const parsed = JSON.parse(readFileSync(candidate, 'utf8')) as unknown
+      if (isOwnedSystemProxyRecord(parsed)) {
+        candidates.push({ record: parsed, mtimeMs: statSync(candidate).mtimeMs })
+      }
+    } catch {
+      // Ignore missing, incomplete, or corrupt generations.
+    }
+  }
+  candidates.sort(
+    (left, right) =>
+      (right.record.revision ?? 0) - (left.record.revision ?? 0) || right.mtimeMs - left.mtimeMs
+  )
+  return candidates[0]?.record ?? null
+}
+
+function persistOwnershipRecord(record: OwnedSystemProxyRecord): void {
+  const directory = dataDir()
+  mkdirSync(directory, { recursive: true })
+  record.revision = (record.revision ?? 0) + 1
+  const nonce = `${Date.now()}-${Math.random().toString(16).slice(2)}`
+  const target = path.join(directory, `system-proxy-owner.${record.revision}.${nonce}.json`)
+  const temporary = `${target}.tmp`
+  writeFileSync(temporary, JSON.stringify(record), { encoding: 'utf8', mode: 0o600 })
+  try {
+    renameSync(temporary, target)
+  } catch (error) {
+    try {
+      unlinkSync(temporary)
+    } catch {
+      // Ignore temporary cleanup failure.
+    }
+    throw error
+  }
+
+  // The new immutable generation is durable before older generations are
+  // removed, so a crash can never create an unlink-before-rename journal gap.
+  for (const candidate of ownershipStatePaths()) {
+    if (candidate === target) continue
+    try {
+      unlinkSync(candidate)
+    } catch {
+      // Multiple valid generations are safe; recovery selects the newest.
+    }
+  }
+}
+
+function clearOwnershipRecord(): void {
+  ownedSystemProxy = null
+  for (const candidate of ownershipStatePaths()) {
+    try {
+      unlinkSync(candidate)
+    } catch {
+      // Missing state is already clean.
+    }
+  }
+}
+
+type RestoreOwnedProxyResult = 'restored' | 'external-independent' | 'still-dependent'
+
+function restoreOwnedWindowsProxy(record: OwnedSystemProxyRecord): RestoreOwnedProxyResult {
+  const current = readWindowsProxyState()
+  const currentRegistry = record.previousRegistry ? captureWindowsProxyRegistry() : undefined
+  const exactPrevious =
+    record.previousRegistry &&
+    currentRegistry &&
+    sameWindowsProxyRegistrySnapshot(currentRegistry, record.previousRegistry)
+  if (
+    exactPrevious ||
+    (!record.previousRegistry && sameSystemProxyState(current, record.previous))
+  ) {
+    clearOwnershipRecord()
+    sysProxyAppliedByApp = false
+    return 'restored'
+  }
+
+  const exactApplied =
+    record.appliedRegistry &&
+    currentRegistry &&
+    sameWindowsProxyRegistrySnapshot(currentRegistry, record.appliedRegistry)
+  const simplifiedOwned = record.ownedStates.some((state) => sameSystemProxyState(current, state))
+  // Once the complete applied registry image is known, a raw mismatch means a
+  // newer actor changed WinINET even if the simplified host/port still looks
+  // identical. Preserve that newer state.
+  const fullyOwned = record.appliedRegistry ? Boolean(exactApplied) : simplifiedOwned
+  const manualOwned =
+    !record.appliedRegistry &&
+    sameSystemProxyState({ manual: current.manual, auto: record.applied.auto }, record.applied)
+  const autoOwned =
+    !record.appliedRegistry &&
+    sameSystemProxyState({ manual: record.applied.manual, auto: current.auto }, record.applied)
+
+  if (!fullyOwned && !manualOwned && !autoOwned) {
+    const stillUsesOwnedManual =
+      record.applied.manual.enable &&
+      current.manual.enable &&
+      current.manual.host === record.applied.manual.host &&
+      current.manual.port === record.applied.manual.port
+    const stillUsesOwnedPac =
+      record.applied.auto.enable &&
+      current.auto.enable &&
+      current.auto.url === record.applied.auto.url
+    if (stillUsesOwnedManual || stillUsesOwnedPac) {
+      void proxyLogger.error(
+        'WinINET changed outside AikoBox but still points at AikoBox; keeping the core and ownership journal alive'
+      )
+      return 'still-dependent'
+    }
+    void proxyLogger.warn(
+      'System proxy changed after AikoBox applied it; preserving the newer external state'
+    )
+    clearOwnershipRecord()
+    sysProxyAppliedByApp = false
+    return 'external-independent'
+  }
+
+  record.phase = 'restoring'
+  persistOwnershipRecord(record)
+
+  if (fullyOwned && record.previousRegistry) {
+    restoreWindowsProxyRegistry(record.previousRegistry)
+    const restoredRegistry = captureWindowsProxyRegistry()
+    if (!sameWindowsProxyRegistrySnapshot(restoredRegistry, record.previousRegistry)) {
+      throw new Error('Windows did not restore the complete WinINET registry state')
+    }
+  } else if (fullyOwned) {
+    applyWindowsProxyState(record.previous)
+  } else {
+    const restored: SystemProxyState = {
+      manual: manualOwned ? record.previous.manual : current.manual,
+      auto: autoOwned ? record.previous.auto : current.auto
+    }
+    applyWindowsProxyState(restored)
+  }
+  clearOwnershipRecord()
+  sysProxyAppliedByApp = false
+  return 'restored'
+}
+
+/**
+ * Recover a proxy transaction left behind by a crash. Restoration only happens
+ * when the current Windows proxy still exactly matches what AikoBox applied;
+ * a newer proxy owned by another application is never overwritten.
+ */
+export async function recoverStaleSystemProxy(): Promise<void> {
+  if (process.platform !== 'win32') return
+  const record = readOwnershipRecord()
+  if (!record) return
+
+  try {
+    const result = restoreOwnedWindowsProxy(record)
+    if (result === 'restored') {
+      await proxyLogger.info('Recovered the system proxy state left by a previous AikoBox run')
+    } else if (result === 'still-dependent') {
+      throw new Error('WinINET still depends on the previous AikoBox core endpoint')
+    }
+  } catch (error) {
+    await proxyLogger.error('Failed to recover the previous system proxy state', error)
+    throw error
+  }
+}
+
+export function getStaleSystemProxyCoreEndpoint(): { host: string; port: number } | null {
+  if (process.platform !== 'win32') return null
+  const record = readOwnershipRecord()
+  if (!record) return null
+  if (record.coreEndpoint) return { ...record.coreEndpoint }
+  if (
+    record.applied.manual.enable &&
+    record.applied.manual.host &&
+    record.applied.manual.port > 0
+  ) {
+    return { host: record.applied.manual.host, port: record.applied.manual.port }
+  }
+  return null
+}
+
+/**
+ * Keep a crash journal's exact loopback dependency alive without rewriting
+ * WinINET. This is used only when raw CAS says another actor changed registry
+ * details while the simplified proxy still points at AikoBox.
+ */
+export async function resumeStaleSystemProxyDependency(): Promise<void> {
+  if (process.platform !== 'win32') return
+  const record = readOwnershipRecord()
+  const expected = getStaleSystemProxyCoreEndpoint()
+  const healthy = getHealthyProxyEndpoint()
+  if (!record || !expected || !healthy) {
+    throw new Error('Cannot resume an unverified stale system proxy dependency')
+  }
+  if (healthy.host !== expected.host || healthy.port !== expected.port) {
+    throw new Error(
+      `Healthy core endpoint ${healthy.host}:${healthy.port} does not match stale WinINET endpoint ${expected.host}:${expected.port}`
+    )
+  }
+  if (record.applied.auto.enable) await startPacServer(healthy.port)
+  ownedSystemProxy = record
+  sysProxyAppliedByApp = true
+  await proxyLogger.warn(
+    'Resumed the stale AikoBox proxy endpoint without overwriting externally changed WinINET data'
+  )
+}
+
+export function setSystemProxyCoreReady(ready: boolean): void {
+  setHealthyProxyReady(ready)
+}
+
+export function setSystemProxyCoreEndpoint(host: string, port: number): void {
+  setHealthyProxyEndpoint(host, port)
+}
+
+export function beginSystemProxyShutdown(): void {
+  systemProxyShutdown = true
+  if (triggerSysProxyTimer) {
+    clearTimeout(triggerSysProxyTimer)
+    triggerSysProxyTimer = null
+  }
+}
+
+export function cancelSystemProxyShutdown(): void {
+  systemProxyShutdown = false
+}
 
 const defaultBypass: string[] = (() => {
   switch (process.platform) {
@@ -61,34 +361,129 @@ const defaultBypass: string[] = (() => {
   }
 })()
 
-export async function triggerSysProxy(enable: boolean): Promise<void> {
-  if (net.isOnline()) {
-    if (enable) {
-      await disableSysProxy()
-      await enableSysProxy()
-    } else {
-      await disableSysProxy()
+async function triggerSysProxyInternal(enable: boolean): Promise<void> {
+  if (enable && systemProxyShutdown) {
+    throw new Error('Refusing to enable the system proxy while AikoBox is exiting')
+  }
+  if (!enable) {
+    if (triggerSysProxyTimer) {
+      clearTimeout(triggerSysProxyTimer)
+      triggerSysProxyTimer = null
     }
+    await disableSysProxy()
+    return
+  }
+
+  if (net.isOnline()) {
+    if (!getHealthyProxyEndpoint()) {
+      throw new Error('Refusing to enable the system proxy before sing-box is healthy')
+    }
+    await disableSysProxy()
+    await enableSysProxy()
   } else {
     if (triggerSysProxyTimer) clearTimeout(triggerSysProxyTimer)
-    triggerSysProxyTimer = setTimeout(() => triggerSysProxy(enable), 5000)
+    triggerSysProxyTimer = setTimeout(() => {
+      void triggerSysProxy(enable).catch((error) =>
+        proxyLogger.warn('Deferred proxy enable failed', error)
+      )
+    }, 5000)
   }
 }
 
-async function enableSysProxy(): Promise<void> {
-  await startPacServer()
-  const { sysProxy } = await getAppConfig()
-  const { mode, host, bypass = defaultBypass } = sysProxy
-  const { 'mixed-port': port = DEFAULT_MIHOMO_PORTS.mixed } = await getControledMihomoConfig()
-  const proxyHost = host || '127.0.0.1'
+export function triggerSysProxy(enable: boolean): Promise<void> {
+  if (enable && systemProxyShutdown) {
+    return Promise.reject(new Error('Refusing to enable the system proxy while AikoBox is exiting'))
+  }
+  const operation = proxyOperation.then(() => triggerSysProxyInternal(enable))
+  proxyOperation = operation.catch(() => {})
+  return operation
+}
 
-  if (process.platform === 'darwin') {
+async function enableSysProxy(): Promise<void> {
+  const { sysProxy } = await getAppConfig()
+  if (systemProxyShutdown) {
+    throw new Error('Refusing to enable the system proxy while AikoBox is exiting')
+  }
+  const { mode, host, bypass = defaultBypass } = sysProxy
+  const healthyEndpoint = getHealthyProxyEndpoint()
+  if (!healthyEndpoint) {
+    throw new Error('Refusing to enable the system proxy without a verified core endpoint')
+  }
+  const port = healthyEndpoint.port
+  const proxyHost = healthyEndpoint.host
+  if (host && host !== proxyHost) {
+    await proxyLogger.warn(
+      `Ignoring configured system proxy host ${host}; using verified endpoint ${proxyHost}`
+    )
+  }
+  // PAC must target the port of the core that actually passed health checks.
+  // This differs from configuredPort when a rejected candidate fell back to LKG.
+  await startPacServer(port)
+  if (systemProxyShutdown) {
+    await stopPacServer()
+    throw new Error('Refusing to enable the system proxy while AikoBox is exiting')
+  }
+
+  if (process.platform === 'win32') {
+    const previousRegistry = captureWindowsProxyRegistry()
+    const previous = readWindowsProxyState()
+    const applied: SystemProxyState =
+      mode === 'auto'
+        ? {
+            manual: { enable: false, host: '', port: 0, bypass: '' },
+            auto: { enable: true, url: `http://127.0.0.1:${pacPort}/pac` }
+          }
+        : {
+            manual: { enable: true, host: proxyHost, port, bypass: bypass.join(',') },
+            auto: { enable: false, url: '' }
+          }
+    const intermediate: SystemProxyState = {
+      manual: applied.manual,
+      auto: previous.auto
+    }
+    const record = createOwnedSystemProxyRecord(
+      previous,
+      applied,
+      [intermediate],
+      process.pid,
+      previousRegistry,
+      healthyEndpoint
+    )
+
+    // Persist intent before touching WinINET so a crash at any later point can
+    // be recovered safely on the next launch.
+    persistOwnershipRecord(record)
+    try {
+      applyWindowsProxyState(applied)
+      record.appliedRegistry = captureWindowsProxyRegistry()
+      record.phase = 'applied'
+      persistOwnershipRecord(record)
+      ownedSystemProxy = record
+      sysProxyAppliedByApp = true
+    } catch (error) {
+      try {
+        restoreWindowsProxyRegistry(previousRegistry)
+        if (!sameWindowsProxyRegistrySnapshot(captureWindowsProxyRegistry(), previousRegistry)) {
+          throw new Error('Windows did not restore the original WinINET registry state')
+        }
+        clearOwnershipRecord()
+        sysProxyAppliedByApp = false
+      } catch (rollbackError) {
+        // Keep the journal: the next launch can retry from every known partial
+        // state. Losing this record would turn a recoverable failure into a
+        // persistent dead proxy.
+        await proxyLogger.error('Failed to roll back a partial system proxy update', rollbackError)
+      }
+      await proxyLogger.error('Failed to enable system proxy transactionally', error)
+      throw error
+    }
+  } else if (process.platform === 'darwin') {
     // macOS 需要 helper 提权
     if (mode === 'auto') {
       await helperRequest(() =>
         axios.post(
           'http://localhost/pac',
-          { url: `http://${proxyHost}:${pacPort}/pac` },
+          { url: `http://127.0.0.1:${pacPort}/pac` },
           { socketPath: helperSocketPath }
         )
       )
@@ -106,7 +501,7 @@ async function enableSysProxy(): Promise<void> {
     // Windows / Linux 直接使用 sysproxy-rs
     try {
       if (mode === 'auto') {
-        triggerAutoProxy(true, `http://${proxyHost}:${pacPort}/pac`)
+        triggerAutoProxy(true, `http://127.0.0.1:${pacPort}/pac`)
       } else {
         triggerManualProxy(true, proxyHost, port, bypass.join(','))
       }
@@ -119,6 +514,26 @@ async function enableSysProxy(): Promise<void> {
 }
 
 async function disableSysProxy(): Promise<void> {
+  if (process.platform === 'win32') {
+    const record = ownedSystemProxy || readOwnershipRecord()
+    if (!record) {
+      sysProxyAppliedByApp = false
+      await stopPacServer()
+      return
+    }
+    try {
+      const result = restoreOwnedWindowsProxy(record)
+      if (result === 'still-dependent') {
+        throw new Error('WinINET still points at AikoBox after an external proxy change')
+      }
+      await stopPacServer()
+    } catch (error) {
+      await proxyLogger.error('Failed to restore the previous system proxy state', error)
+      throw error
+    }
+    return
+  }
+
   await stopPacServer()
 
   // 系统代理不是本应用设置的，绝不主动清除（可能属于其他代理软件）
@@ -140,15 +555,27 @@ async function disableSysProxy(): Promise<void> {
   }
 }
 
-export function disableSysProxySync(): void {
-  if (process.platform === 'darwin') return
-  if (!sysProxyAppliedByApp) return
+export function disableSysProxySync(): boolean {
+  if (process.platform === 'darwin') return false
+  if (process.platform === 'win32') {
+    const record = ownedSystemProxy || readOwnershipRecord()
+    if (!record) return true
+    try {
+      const result = restoreOwnedWindowsProxy(record)
+      return result !== 'still-dependent' && readOwnershipRecord() === null
+    } catch {
+      // The async shutdown path will retry. Never clear another app's proxy.
+      return false
+    }
+  }
+  if (!sysProxyAppliedByApp) return true
   try {
     triggerAutoProxy(false, '')
     triggerManualProxy(false, '', 0, '')
     sysProxyAppliedByApp = false
+    return true
   } catch {
-    // ignore errors during sync disable
+    return false
   }
 }
 

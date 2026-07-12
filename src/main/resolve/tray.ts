@@ -38,9 +38,11 @@ import {
   quitWithoutCore,
   checkMihomoCorePermissions,
   requestTunPermissions,
-  restartAsAdmin
+  restartAsAdmin,
+  setTunEnabled
 } from '../core/manager'
 import { trayLogger } from '../utils/logger'
+import { isTrustedIpcSender } from '../utils/electronSecurity'
 import { floatingWindow, triggerFloatingWindow } from './floatingWindow'
 
 export let tray: Tray | null = null
@@ -52,6 +54,7 @@ type TrayImage = Electron.NativeImage | string
 type CustomTrayIconKey = keyof ICustomTrayIcons
 const customTrayIconSize = 16
 const customTrayIconScaleFactors = [1, 1.25, 1.5, 2, 2.5, 3]
+const rendererRoot = join(__dirname, '../renderer')
 
 export const buildContextMenu = async (): Promise<Menu> => {
   // 添加调试日志
@@ -287,9 +290,9 @@ export const buildContextMenu = async (): Promise<Menu> => {
               return
             }
 
-            await patchControledMihomoConfig({ tun: { enable }, dns: { enable: true } })
+            await setTunEnabled(enable)
           } else {
-            await patchControledMihomoConfig({ tun: { enable } })
+            await setTunEnabled(enable)
           }
           mainWindow?.webContents.send('controledMihomoConfigUpdated')
           floatingWindow?.webContents.send('controledMihomoConfigUpdated')
@@ -426,7 +429,11 @@ export async function createTray(): Promise<void> {
     }
     // 移除旧监听器防止累积
     ipcMain.removeAllListeners('trayIconUpdate')
-    ipcMain.on('trayIconUpdate', async (_, png: string, enabled: boolean) => {
+    ipcMain.on('trayIconUpdate', async (event, png: string, enabled: boolean) => {
+      if (!isTrustedIpcSender(event, rendererRoot, undefined, !app.isPackaged)) {
+        await trayLogger.warn('Blocked tray icon update from an untrusted renderer')
+        return
+      }
       macTrafficIconEnabled = enabled
       const appConfig = await getAppConfig()
       const status = await getTrayIconStatus()
@@ -483,7 +490,12 @@ export async function createTray(): Promise<void> {
     })
     // 移除旧监听器防止累积
     ipcMain.removeAllListeners('updateTrayMenu')
-    ipcMain.on('updateTrayMenu', async () => {
+    ipcMain.on('updateTrayMenu', async (event) => {
+      // ipcMain.emit() is also used internally and intentionally has no event.
+      if (event && !isTrustedIpcSender(event, rendererRoot, undefined, !app.isPackaged)) {
+        await trayLogger.warn('Blocked tray menu update from an untrusted renderer')
+        return
+      }
       await updateTrayMenu()
     })
   }

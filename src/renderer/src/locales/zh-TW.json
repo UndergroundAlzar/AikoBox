@@ -795,7 +795,7 @@
   "guide.dns.title": "DNS",
   "guide.dns.description": "軟件默認使用應用程式的 DNS 設置覆蓋訂閱配置，如果您需要使用訂閱配置中的 DNS 設置，請關閉此功能，域名嗅探同理",
   "guide.end.title": "教程結束",
-  "guide.end.description": "現在您已經瞭解了軟件的基本用法，匯入您的訂閱開始使用吧，祝您使用愉快！\n您還可以訪問我們的 <a href=\"https://github.com/aikobox/aikobox\" target=\"_blank\">GitHub 倉庫</a> 獲取最新資訊",
+  "guide.end.description": "現在您已經瞭解了軟件的基本用法，匯入您的訂閱開始使用吧，祝您使用愉快！\n您還可以訪問我們的 <a href=\"https://github.com/UndergroundAlzar/AikoBox\" target=\"_blank\">GitHub 倉庫</a> 獲取最新資訊",
   "network.topology.title": "網路拓撲",
   "network.topology.clients": "客戶端",
   "network.topology.rules": "規則",

@@ -1,0 +1,103 @@
+import { execFileSync } from 'child_process'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { parse } from '../../utils/yaml'
+import { convertClashToSingbox } from './convert'
+
+const projectRoot = process.cwd()
+const corePath = join(projectRoot, 'extra', 'sidecar', 'sing-box.exe')
+const fixtureDir = join(projectRoot, 'src', 'main', 'core', 'singbox', 'fixtures')
+let workDir = ''
+
+beforeAll(() => {
+  workDir = mkdtempSync(join(tmpdir(), 'aikobox-singbox-check-'))
+})
+
+afterAll(() => {
+  rmSync(workDir, { recursive: true, force: true })
+})
+
+describe('real sing-box configuration gate', () => {
+  it('keeps the pinned Windows sidecar available for schema verification', () => {
+    expect(existsSync(corePath)).toBe(true)
+  })
+
+  it('converts realistic YAML and passes sing-box check', () => {
+    const source = readFileSync(join(fixtureDir, 'airport-inline-mainstream.yaml'), 'utf8')
+    const clash = parse<Record<string, unknown>>(source)
+    const result = convertClashToSingbox(clash, {
+      platform: 'win32',
+      controllerSecret: 'fixture-controller-secret'
+    })
+    expect(result.errors).toEqual([])
+
+    const configPath = join(workDir, 'sing-box.json')
+    writeFileSync(configPath, JSON.stringify(result.config, null, 2))
+    expect(() =>
+      execFileSync(corePath, ['check', '-D', workDir, '-c', configPath, '--disable-color'], {
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: 15000
+      })
+    ).not.toThrow()
+  })
+
+  it('emits valid source ACL rules for LAN proxy access', () => {
+    const result = convertClashToSingbox(
+      {
+        'mixed-port': 17890,
+        'allow-lan': true,
+        authentication: ['user:password'],
+        'lan-allowed-ips': ['192.168.50.0/24'],
+        'lan-disallowed-ips': ['192.168.50.100/32'],
+        proxies: [{ name: 'local', type: 'socks5', server: '127.0.0.1', port: 1080 }],
+        'proxy-groups': [{ name: 'PROXY', type: 'select', proxies: ['local'] }],
+        rules: ['MATCH,PROXY']
+      },
+      { platform: 'win32', controllerSecret: 'fixture-controller-secret' }
+    )
+    expect(result.errors).toEqual([])
+
+    const configPath = join(workDir, 'sing-box-lan-acl.json')
+    writeFileSync(configPath, JSON.stringify(result.config, null, 2))
+    expect(() =>
+      execFileSync(corePath, ['check', '-D', workDir, '-c', configPath, '--disable-color'], {
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: 15000
+      })
+    ).not.toThrow()
+  })
+
+  it('emits a valid ShadowTLS v3 outbound', () => {
+    const result = convertClashToSingbox({
+      'mixed-port': 17890,
+      proxies: [
+        {
+          name: 'ShadowTLS',
+          type: 'shadowtls',
+          server: '192.0.2.10',
+          port: 443,
+          version: 3,
+          password: 'secret',
+          servername: 'www.example.com',
+          tls: true
+        }
+      ],
+      'proxy-groups': [{ name: 'PROXY', type: 'select', proxies: ['ShadowTLS'] }],
+      rules: ['MATCH,PROXY']
+    })
+    expect(result.errors).toEqual([])
+    const configPath = join(workDir, 'sing-box-shadowtls.json')
+    writeFileSync(configPath, JSON.stringify(result.config, null, 2))
+    expect(() =>
+      execFileSync(corePath, ['check', '-D', workDir, '-c', configPath, '--disable-color'], {
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: 15000
+      })
+    ).not.toThrow()
+  })
+})

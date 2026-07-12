@@ -242,7 +242,7 @@ export async function updatePluginProfile(id: string, force = false): Promise<vo
     const content = await fetchWithRediscovery(id, record, vault, net)
     await upsertPluginProfile(
       {
-        profileId: record.profileId!,
+        profileId: record.profileId,
         pluginId: id,
         name: record.name,
         interval: record.interval ?? DEFAULT_PLUGIN_INTERVAL_MIN,

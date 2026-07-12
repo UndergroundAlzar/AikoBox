@@ -4,12 +4,7 @@ import { exec } from 'child_process'
 import { promisify } from 'util'
 import path from 'path'
 import { app, dialog } from 'electron'
-import {
-  startPacServer,
-  startSubStoreBackendServer,
-  startSubStoreFrontendServer
-} from '../resolve/server'
-import { triggerSysProxy } from '../sys/sysproxy'
+import { startSubStoreBackendServer, startSubStoreFrontendServer } from '../resolve/server'
 import {
   getAppConfig,
   getControledMihomoConfig,
@@ -381,28 +376,16 @@ export async function ensureRuntimeFiles(): Promise<void> {
 }
 
 export async function init(): Promise<void> {
-  const { sysProxy } = await getAppConfig()
-
-  const initTasks: Promise<void>[] = [ensureRuntimeFiles(), startSSIDCheck()]
-
-  initTasks.push(
-    (async (): Promise<void> => {
-      try {
-        if (sysProxy.enable) {
-          await startPacServer()
-        }
-        await triggerSysProxy(sysProxy.enable)
-      } catch {
-        // ignore
-      }
-    })()
-  )
-
-  await Promise.all(initTasks)
+  // System proxy activation is intentionally not part of background init.
+  // The main process applies it only after sing-box passes its API health check.
+  await Promise.all([ensureRuntimeFiles(), startSSIDCheck()])
   initDeeplink()
 }
 
 export async function startSubStoreServices(): Promise<void> {
   await ensureRuntimeFiles()
-  await Promise.all([startSubStoreFrontendServer(), startSubStoreBackendServer()])
+  // Backend CORS is pinned to the actual random frontend origin, so the
+  // frontend must bind first.
+  await startSubStoreFrontendServer()
+  await startSubStoreBackendServer()
 }

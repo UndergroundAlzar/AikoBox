@@ -48,12 +48,15 @@ const Override: React.FC = () => {
     setImporting(true)
     try {
       const urlObj = new URL(url)
+      if (!/\.ya?ml$/i.test(urlObj.pathname)) {
+        throw new Error('AikoBox for Windows accepts YAML overrides only')
+      }
       const name = urlObj.pathname.split('/').pop()
       await addOverrideItem({
         name: name ? decodeURIComponent(name) : undefined,
         type: 'remote',
         url,
-        ext: urlObj.pathname.endsWith('.js') ? 'js' : 'yaml'
+        ext: 'yaml'
       })
     } catch (e) {
       toast.error(t('override.error.importFailed', { error: String(e) }))
@@ -105,14 +108,15 @@ const Override: React.FC = () => {
       event.stopPropagation()
       if (event.dataTransfer?.files) {
         const file = event.dataTransfer.files[0]
-        if (file.name.endsWith('.js') || file.name.endsWith('.yaml')) {
-          const content = await readTextFile((file as File & { path: string }).path)
+        if (/\.ya?ml$/i.test(file.name)) {
+          const path = window.api.webUtils.getPathForFile(file)
+          const content = await readTextFile(path)
           try {
             await addOverrideItemRef.current({
               name: file.name,
               type: 'local',
               file: content,
-              ext: file.name.endsWith('.js') ? 'js' : 'yaml'
+              ext: 'yaml'
             })
           } finally {
             setFileOver(false)
@@ -214,7 +218,7 @@ const Override: React.FC = () => {
               onAction={async (key) => {
                 if (key === 'open') {
                   try {
-                    const files = await getFilePath(['js', 'yaml'])
+                    const files = await getFilePath(['yml', 'yaml'])
                     if (files?.length) {
                       const content = await readTextFile(files[0])
                       const fileName = files[0].split('/').pop()?.split('\\').pop()
@@ -222,7 +226,7 @@ const Override: React.FC = () => {
                         name: fileName,
                         type: 'local',
                         file: content,
-                        ext: fileName?.endsWith('.js') ? 'js' : 'yaml'
+                        ext: 'yaml'
                       })
                     }
                   } catch (e) {
@@ -235,19 +239,11 @@ const Override: React.FC = () => {
                     file: t('override.defaultContent.yaml'),
                     ext: 'yaml'
                   })
-                } else if (key === 'new-js') {
-                  await addOverrideItem({
-                    name: t('override.newFile.js'),
-                    type: 'local',
-                    file: t('override.defaultContent.js'),
-                    ext: 'js'
-                  })
                 }
               }}
             >
               <DropdownItem key="open">{t('override.actions.open')}</DropdownItem>
               <DropdownItem key="new-yaml">{t('override.actions.newYaml')}</DropdownItem>
-              <DropdownItem key="new-js">{t('override.actions.newJs')}</DropdownItem>
             </DropdownMenu>
           </Dropdown>
         </div>

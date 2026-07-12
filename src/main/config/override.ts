@@ -9,6 +9,12 @@ import { getControledMihomoConfig } from './controledMihomo'
 let overrideConfig: IOverrideConfig // override.yaml
 let overrideConfigWriteQueue: Promise<void> = Promise.resolve()
 
+function assertSafeOverrideId(id: string): void {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(id) || id === '.' || id === '..') {
+    throw new Error('Invalid override id')
+  }
+}
+
 export async function getOverrideConfig(force = false): Promise<IOverrideConfig> {
   if (force || !overrideConfig) {
     const data = await readFile(overrideConfigPath(), 'utf-8')
@@ -20,6 +26,7 @@ export async function getOverrideConfig(force = false): Promise<IOverrideConfig>
 }
 
 export async function setOverrideConfig(config: IOverrideConfig): Promise<void> {
+  for (const item of config.items || []) assertSafeOverrideId(item.id)
   overrideConfigWriteQueue = overrideConfigWriteQueue.then(async () => {
     overrideConfig = config
     await writeFile(overrideConfigPath(), stringify(overrideConfig), 'utf-8')
@@ -28,11 +35,13 @@ export async function setOverrideConfig(config: IOverrideConfig): Promise<void> 
 }
 
 export async function getOverrideItem(id: string | undefined): Promise<IOverrideItem | undefined> {
+  if (id !== undefined) assertSafeOverrideId(id)
   const { items } = await getOverrideConfig()
   return items.find((item) => item.id === id)
 }
 
 export async function updateOverrideItem(item: IOverrideItem): Promise<void> {
+  assertSafeOverrideId(item.id)
   const config = await getOverrideConfig()
   const index = config.items.findIndex((i) => i.id === item.id)
   if (index === -1) {
@@ -54,6 +63,7 @@ export async function addOverrideItem(item: Partial<IOverrideItem>): Promise<voi
 }
 
 export async function removeOverrideItem(id: string): Promise<void> {
+  assertSafeOverrideId(id)
   const config = await getOverrideConfig()
   const item = await getOverrideItem(id)
   if (!item) return
@@ -66,15 +76,19 @@ export async function removeOverrideItem(id: string): Promise<void> {
 
 export async function createOverride(item: Partial<IOverrideItem>): Promise<IOverrideItem> {
   const id = item.id || new Date().getTime().toString(16)
+  assertSafeOverrideId(id)
   const newItem = {
     id,
     name: item.name || (item.type === 'remote' ? 'Remote File' : 'Local File'),
     type: item.type,
-    ext: item.ext || 'js',
+    ext: item.ext || (process.platform === 'win32' ? 'yaml' : 'js'),
     url: item.url,
     global: item.global || false,
     updated: new Date().getTime()
   } as IOverrideItem
+  if (process.platform === 'win32' && newItem.ext === 'js') {
+    throw new Error('JavaScript overrides are disabled on Windows; use a YAML override')
+  }
   switch (newItem.type) {
     case 'remote': {
       const { 'mixed-port': mixedPort = DEFAULT_MIHOMO_PORTS.mixed } =
@@ -103,6 +117,7 @@ export async function createOverride(item: Partial<IOverrideItem>): Promise<IOve
 }
 
 export async function getOverride(id: string, ext: 'js' | 'yaml' | 'log'): Promise<string> {
+  assertSafeOverrideId(id)
   if (!existsSync(overridePath(id, ext))) {
     return ''
   }
@@ -110,5 +125,9 @@ export async function getOverride(id: string, ext: 'js' | 'yaml' | 'log'): Promi
 }
 
 export async function setOverride(id: string, ext: 'js' | 'yaml', content: string): Promise<void> {
+  assertSafeOverrideId(id)
+  if (process.platform === 'win32' && ext === 'js') {
+    throw new Error('JavaScript overrides are disabled on Windows; use a YAML override')
+  }
   await writeFile(overridePath(id, ext), content, 'utf-8')
 }

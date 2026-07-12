@@ -60,8 +60,8 @@ import {
   startSubStoreBackendServer,
   stopSubStoreFrontendServer,
   stopSubStoreBackendServer,
-  downloadSubStore,
   subStoreFrontendPort,
+  subStoreBackendPrefix,
   subStorePort
 } from '../resolve/server'
 import {
@@ -71,17 +71,20 @@ import {
   grantTunPermissions,
   manualGrantCorePermition,
   checkAdminPrivileges,
-  restartAsAdmin,
   checkMihomoCorePermissions,
   requestTunPermissions,
   checkHighPrivilegeCore,
   showTunPermissionDialog,
-  showErrorDialog
+  showErrorDialog,
+  setTunEnabled,
+  installCoreUpdate,
+  rollbackCoreUpdate
 } from '../core/manager'
 import { triggerSysProxy } from '../sys/sysproxy'
 import { checkUpdate, downloadAndInstallUpdate } from '../resolve/autoUpdater'
 import {
   getFilePath,
+  grantSelectedFileCapability,
   openFile,
   openUWPTool,
   readImageFileDataURL,
@@ -131,16 +134,19 @@ import {
   updatePluginProfile
 } from '../resolve/plugin'
 import { getPluginConfig } from '../config/plugin'
+import { checkCoreUpdate } from '../core/singbox/coreUpdateService'
 import { getImageDataURL } from './image'
 import { get as httpGet } from './chromeRequest'
 import { getIconDataURL } from './icon'
 import { getAppName } from './appName'
 import { logDir, rulePath } from './dirs'
+import { assertTrustedIpcSender } from './electronSecurity'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AsyncFn = (...args: any[]) => Promise<any>
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SyncFn = (...args: any[]) => any
+const rendererRoot = path.join(__dirname, '../renderer')
 
 function wrapAsync<T extends AsyncFn>(
   fn: T
@@ -160,9 +166,15 @@ function wrapAsync<T extends AsyncFn>(
 function registerHandlers(handlers: Record<string, AsyncFn | SyncFn>, async = true): void {
   for (const [channel, handler] of Object.entries(handlers)) {
     if (async) {
-      ipcMain.handle(channel, (_e, ...args) => wrapAsync(handler as AsyncFn)(...args))
+      ipcMain.handle(channel, (event, ...args) => {
+        assertTrustedIpcSender(event, rendererRoot, undefined, !app.isPackaged)
+        return wrapAsync(handler as AsyncFn)(...args)
+      })
     } else {
-      ipcMain.handle(channel, (_e, ...args) => (handler as SyncFn)(...args))
+      ipcMain.handle(channel, (event, ...args) => {
+        assertTrustedIpcSender(event, rendererRoot, undefined, !app.isPackaged)
+        return (handler as SyncFn)(...args)
+      })
     }
   }
 }
@@ -274,6 +286,7 @@ const asyncHandlers: Record<string, AsyncFn> = {
   getRuleStr,
   setRuleStr,
   readTextFile,
+  openFile,
   // Core
   restartCore,
   mihomoHotReloadConfig,
@@ -281,11 +294,12 @@ const asyncHandlers: Record<string, AsyncFn> = {
   quitWithoutCore,
   // System
   triggerSysProxy,
+  setTunEnabled,
   checkTunPermissions,
   grantTunPermissions,
   manualGrantCorePermition,
   checkAdminPrivileges,
-  restartAsAdmin,
+  restartAsAdmin: requestTunPermissions,
   checkMihomoCorePermissions,
   requestTunPermissions,
   checkHighPrivilegeCore,
@@ -297,6 +311,9 @@ const asyncHandlers: Record<string, AsyncFn> = {
   // Update
   checkUpdate,
   downloadAndInstallUpdate,
+  checkCoreUpdate,
+  installCoreUpdate,
+  rollbackCoreUpdate,
   // Backup
   webdavBackup,
   webdavRestore,
@@ -310,7 +327,6 @@ const asyncHandlers: Record<string, AsyncFn> = {
   stopSubStoreFrontendServer,
   startSubStoreBackendServer,
   stopSubStoreBackendServer,
-  downloadSubStore,
   subStoreSubs,
   subStoreCollections,
   // Theme
@@ -347,26 +363,28 @@ const asyncHandlers: Record<string, AsyncFn> = {
   getAppName,
   changeLanguage,
   setTitleBarOverlay,
-  registerShortcut
+  registerShortcut,
+  resetAppConfig
 }
 
 const syncHandlers: Record<string, SyncFn> = {
-  resetAppConfig,
   getFilePath,
-  openFile,
   getInterfaces,
   setNativeTheme,
   getVersion: () => app.getVersion(),
   platform: () => process.platform,
   subStorePort: () => subStorePort,
   subStoreFrontendPort: () => subStoreFrontendPort,
+  subStoreBackendPrefix: () => subStoreBackendPrefix,
   updateTrayIconImmediate,
   showMainWindow,
   closeMainWindow,
   triggerMainWindow,
   setAlwaysOnTop: (alwaysOnTop: boolean) => mainWindow?.setAlwaysOnTop(alwaysOnTop),
   isAlwaysOnTop: () => mainWindow?.isAlwaysOnTop(),
-  openDevTools: () => mainWindow?.webContents.openDevTools(),
+  openDevTools: () => {
+    if (!app.isPackaged) mainWindow?.webContents.openDevTools()
+  },
   createHeapSnapshot: () => v8.writeHeapSnapshot(path.join(logDir(), `${Date.now()}.heapsnapshot`)),
   relaunchApp: () => {
     app.relaunch()
@@ -378,4 +396,15 @@ const syncHandlers: Record<string, SyncFn> = {
 export function registerIpcMainHandlers(): void {
   registerHandlers(asyncHandlers, true)
   registerHandlers(syncHandlers, false)
+  ipcMain.removeAllListeners('grantSelectedFileCapability')
+  ipcMain.on('grantSelectedFileCapability', (event, filePath: unknown) => {
+    try {
+      assertTrustedIpcSender(event, rendererRoot, undefined, !app.isPackaged)
+      if (typeof filePath !== 'string' || !filePath) throw new Error('Invalid selected file path')
+      grantSelectedFileCapability(filePath)
+      event.returnValue = true
+    } catch {
+      event.returnValue = false
+    }
+  })
 }

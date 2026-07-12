@@ -90,7 +90,6 @@ const GeneralConfig: React.FC = () => {
     autoQuitWithoutCoreMode = 'core',
     customTheme = 'default.css',
     envType = [platform === 'win32' ? 'powershell' : 'bash'],
-    autoCheckUpdate,
     appTheme = 'system',
     language = 'zh-CN',
     triggerMainWindowBehavior = 'show',
@@ -265,15 +264,6 @@ const GeneralConfig: React.FC = () => {
               } finally {
                 mutateEnable()
               }
-            }}
-          />
-        </SettingItem>
-        <SettingItem title={t('settings.autoCheckUpdate')} divider>
-          <Switch
-            size="sm"
-            isSelected={autoCheckUpdate}
-            onValueChange={(v) => {
-              patchAppConfig({ autoCheckUpdate: v })
             }}
           />
         </SettingItem>

@@ -88,6 +88,7 @@ interface IpcApi {
   quitWithoutCore: () => Promise<void>
   // System
   triggerSysProxy: (enable: boolean) => Promise<void>
+  setTunEnabled: (enable: boolean) => Promise<void>
   checkTunPermissions: () => Promise<boolean>
   grantTunPermissions: () => Promise<void>
   manualGrantCorePermition: () => Promise<void>
@@ -105,6 +106,9 @@ interface IpcApi {
   // Update
   checkUpdate: () => Promise<IAppVersion | undefined>
   downloadAndInstallUpdate: (version: string) => Promise<void>
+  checkCoreUpdate: () => Promise<ICoreReleaseInfo>
+  installCoreUpdate: (version: string) => Promise<ICoreUpdateResult>
+  rollbackCoreUpdate: () => Promise<ICoreUpdateResult>
   getVersion: () => Promise<string>
   platform: () => Promise<NodeJS.Platform>
   // Backup
@@ -120,9 +124,9 @@ interface IpcApi {
   stopSubStoreFrontendServer: () => Promise<void>
   startSubStoreBackendServer: () => Promise<void>
   stopSubStoreBackendServer: () => Promise<void>
-  downloadSubStore: () => Promise<void>
   subStorePort: () => Promise<number>
   subStoreFrontendPort: () => Promise<number>
+  subStoreBackendPrefix: () => Promise<string>
   subStoreSubs: () => Promise<ISubStoreSub[]>
   subStoreCollections: () => Promise<ISubStoreSub[]>
   // Theme
@@ -250,6 +254,7 @@ export const {
   quitWithoutCore,
   // System
   triggerSysProxy,
+  setTunEnabled,
   checkTunPermissions,
   grantTunPermissions,
   manualGrantCorePermition,
@@ -267,6 +272,9 @@ export const {
   // Update
   checkUpdate,
   downloadAndInstallUpdate,
+  checkCoreUpdate,
+  installCoreUpdate,
+  rollbackCoreUpdate,
   getVersion,
   // Backup
   webdavBackup,
@@ -281,9 +289,9 @@ export const {
   stopSubStoreFrontendServer,
   startSubStoreBackendServer,
   stopSubStoreBackendServer,
-  downloadSubStore,
   subStorePort,
   subStoreFrontendPort,
+  subStoreBackendPrefix,
   subStoreSubs,
   subStoreCollections,
   // Theme

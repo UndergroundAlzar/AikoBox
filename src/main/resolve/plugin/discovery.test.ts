@@ -1,8 +1,8 @@
+/* eslint-disable import/order -- Vitest mocks must be installed before loading the module under test. */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const requestOnce = vi.fn()
 vi.mock('./http-client', () => ({ requestOnce: (...a: unknown[]) => requestOnce(...a) }))
-
 import { discoverGateway } from './discovery'
 
 const OK = {

@@ -1,16 +1,19 @@
 import path from 'path'
 import { mihomoCoreDir } from '../../utils/dirs'
-import type { ISingboxController } from './convert'
-
-export const SINGBOX_CONFIG_NAME = 'sing-box.json'
+import { deriveController, type ISingboxController } from './convert'
+export { deriveProxyPortFromSingboxConfig } from './configIntrospection'
+export * from './configPaths'
 
 export function singboxCorePath(): string {
-  const isWin = process.platform === 'win32'
-  return path.join(mihomoCoreDir(), `sing-box${isWin ? '.exe' : ''}`)
+  // Synchronous/security-sensitive callers always receive the installation-owned
+  // binary. The manager may opt into a managed core only through the asynchronous
+  // hash/version/admin verification API in coreSelection.ts.
+  return singboxBundledCorePath()
 }
 
-export function singboxWorkConfigPath(workDir: string): string {
-  return path.join(workDir, SINGBOX_CONFIG_NAME)
+export function singboxBundledCorePath(): string {
+  const isWin = process.platform === 'win32'
+  return path.join(mihomoCoreDir(), `sing-box${isWin ? '.exe' : ''}`)
 }
 
 let activeController: ISingboxController = {
@@ -26,4 +29,15 @@ export function setActiveController(controller: ISingboxController): void {
 
 export function getActiveController(): ISingboxController {
   return activeController
+}
+
+export function setActiveControllerFromSingboxConfig(config: Record<string, unknown>): void {
+  const experimental = (config.experimental || {}) as Record<string, unknown>
+  const clashApi = (experimental.clash_api || {}) as Record<string, unknown>
+  setActiveController(
+    deriveController({
+      'external-controller': clashApi.external_controller,
+      secret: clashApi.secret
+    })
+  )
 }

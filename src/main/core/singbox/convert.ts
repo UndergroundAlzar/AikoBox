@@ -1,3 +1,5 @@
+import { compileSafeClashRegex } from './safeRegex'
+
 /**
  * Pure converter: merged Clash (mihomo) config object -> sing-box (1.12+ schema) config object.
  *
@@ -21,11 +23,14 @@ export interface ISingboxController {
 export interface ISingboxConvertOptions {
   /** process.platform of the target machine; affects platform-only inbounds */
   platform?: string
+  /** generated per-run secret used when the Clash config does not provide one */
+  controllerSecret?: string
 }
 
 export interface ISingboxConvertResult {
   config: Dict
   warnings: string[]
+  errors: string[]
   controller: ISingboxController
 }
 
@@ -57,6 +62,59 @@ function toNum(v: unknown): number | undefined {
   return undefined
 }
 
+function bandwidthMbps(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value !== 'string') return undefined
+  const match = value.trim().match(/^(\d+(?:\.\d+)?)\s*([KMGT]?)([bB])ps$/)
+  if (!match) return toNum(value)
+  const amount = Number(match[1])
+  const powers: Record<string, number> = { '': 1e-6, K: 1e-3, M: 1, G: 1e3, T: 1e6 }
+  const bytesMultiplier = match[3] === 'B' ? 8 : 1
+  return amount * powers[match[2]] * bytesMultiplier
+}
+
+function portRanges(value: unknown): string[] {
+  return toStrArray(value)
+    .flatMap((entry) => entry.split(','))
+    .map((entry) => entry.trim().replace(/^(\d+)\s*-\s*(\d+)$/, '$1:$2'))
+    .filter(Boolean)
+}
+
+function mapIpVersion(value: unknown): string | undefined {
+  switch (toStr(value)?.toLowerCase()) {
+    case 'ipv4':
+      return 'ipv4_only'
+    case 'ipv6':
+      return 'ipv6_only'
+    case 'ipv4-prefer':
+    case 'prefer-ipv4':
+      return 'prefer_ipv4'
+    case 'ipv6-prefer':
+    case 'prefer-ipv6':
+      return 'prefer_ipv6'
+    default:
+      return undefined
+  }
+}
+
+function wildcardToRegex(value: string): string {
+  return `^${value
+    .split('*')
+    .map((part) => part.replace(/[|\\{}()[\]^$+?.]/g, '\\$&'))
+    .join('.*')}$`
+}
+
+function applyCommonDialFields(target: Dict, proxy: Dict): void {
+  const fields = compact({
+    bind_interface: toStr(proxy['interface-name']),
+    tcp_fast_open: toBool(proxy.tfo),
+    tcp_multi_path: toBool(proxy.mptcp),
+    udp_fragment: toBool(proxy['udp-fragment']),
+    domain_strategy: mapIpVersion(proxy['ip-version'])
+  })
+  Object.assign(target, fields)
+}
+
 function toBool(v: unknown): boolean | undefined {
   if (typeof v === 'boolean') return v
   if (v === 'true') return true
@@ -69,6 +127,45 @@ function toStrArray(v: unknown): string[] {
   return asArray(v)
     .map((item) => toStr(item))
     .filter((item): item is string => item !== undefined)
+}
+
+const DEFAULT_TUN_IPV4_ADDRESS = '198.19.0.1/30'
+const DEFAULT_TUN_IPV6_ADDRESS = 'fdfe:dcba:9876::1/126'
+
+function buildTunAddresses(tun: Dict, ipv6Enabled: boolean, warnings: string[]): string[] {
+  const normalize = (value: unknown): string[] =>
+    toStrArray(value)
+      .map((address) => address.trim())
+      .filter(Boolean)
+
+  const address = normalize(tun.address)
+  const legacyIpv4 = normalize(tun['inet4-address'])
+  const legacyIpv6 = normalize(tun['inet6-address'])
+
+  // `address` is the modern combined form. When it is absent, retain
+  // Mihomo's legacy behaviour: inet4/inet6 fields override their respective
+  // family while the other family still receives a safe default.
+  const configured =
+    address.length > 0
+      ? [...address, ...legacyIpv4, ...legacyIpv6]
+      : [
+          ...(legacyIpv4.length > 0 ? legacyIpv4 : [DEFAULT_TUN_IPV4_ADDRESS]),
+          ...(legacyIpv6.length > 0 ? legacyIpv6 : ipv6Enabled ? [DEFAULT_TUN_IPV6_ADDRESS] : [])
+        ]
+
+  const ipv6Addresses = configured.filter((item) => item.includes(':'))
+  let enabledAddresses = ipv6Enabled ? configured : configured.filter((item) => !item.includes(':'))
+
+  if (!ipv6Enabled && ipv6Addresses.length > 0) {
+    warnings.push('tun IPv6 address ignored because top-level ipv6 is disabled')
+  }
+
+  // A unified address list containing only IPv6 becomes empty when IPv6 is
+  // disabled. Keep the TUN schema startable with the collision-resistant v4
+  // default instead of falling back to the Docker/WSL-heavy 172.19.0.0/30.
+  if (enabledAddresses.length === 0) enabledAddresses = [DEFAULT_TUN_IPV4_ADDRESS]
+
+  return [...new Set(enabledAddresses)]
 }
 
 function compact(obj: Dict): Dict {
@@ -110,20 +207,15 @@ export function deriveController(clash: Dict): ISingboxController {
   const raw = toStr(clash['external-controller'])?.trim() || ''
   const secret = toStr(clash['secret']) || ''
 
-  let host = '127.0.0.1'
   let port = DEFAULT_CONTROLLER_PORT
   if (raw) {
     const parsed = parseHostPort(raw)
     if (parsed.port && parsed.port > 0 && parsed.port <= 65535) port = parsed.port
-    if (parsed.host) host = parsed.host
   }
 
-  const listenHost = host === '' ? '127.0.0.1' : host
-  const clientHost =
-    listenHost === '0.0.0.0' || listenHost === '::' || listenHost === '*' ? '127.0.0.1' : listenHost
-
-  const listen = listenHost === '*' ? `0.0.0.0:${port}` : `${listenHost}:${port}`
-  return { listen, host: clientHost, port, secret }
+  // The controller carries configuration and connection metadata. A desktop
+  // client never needs to expose that control plane outside loopback.
+  return { listen: `127.0.0.1:${port}`, host: '127.0.0.1', port, secret }
 }
 
 /* -------------------------------- log ------------------------------------- */
@@ -270,23 +362,27 @@ function parseNameserver(raw: string, tag: string): DnsServerBuild {
 interface DnsBuild {
   dns: Dict
   warnings: string[]
+  defaultDomainResolver: string
 }
 
 function buildDns(clash: Dict, ipv6Enabled: boolean): DnsBuild {
   const warnings: string[] = []
   const dnsConfig = asDict(clash.dns)
   const dnsEnabled = toBool(dnsConfig.enable) ?? false
+  const dnsIpv6Enabled = ipv6Enabled && toBool(dnsConfig.ipv6) !== false
+  const addressQueryTypes = dnsIpv6Enabled ? ['A', 'AAAA'] : ['A']
 
   const servers: Dict[] = []
   const rules: Dict[] = []
   const seen = new Map<string, string>() // normalized definition -> tag
+  let bootstrapTag = 'dns-local'
 
   const addServer = (server: Dict): string => {
     // DNS 服务器初始化早于路由默认解析器：域名地址的 DNS 服务器
     // 必须自带 domain_resolver（用系统解析器引导）
     const host = toStr(server.server)
     if (host && !isIpLiteral(host) && !server.domain_resolver) {
-      server.domain_resolver = 'dns-local'
+      server.domain_resolver = bootstrapTag
     }
     const { tag: _tag, ...rest } = server
     const key = JSON.stringify(rest)
@@ -298,6 +394,46 @@ function buildDns(clash: Dict, ipv6Enabled: boolean): DnsBuild {
   }
 
   addServer({ type: 'local', tag: 'dns-local' })
+
+  const addNamedServers = (values: unknown, prefix: string): string[] => {
+    const tags: string[] = []
+    let index = 0
+    for (const value of toStrArray(values)) {
+      const { server, warning } = parseNameserver(value, `${prefix}-${index++}`)
+      if (warning) warnings.push(warning)
+      if (server) tags.push(addServer(server))
+    }
+    return tags
+  }
+
+  const bootstrapTags = addNamedServers(dnsConfig['default-nameserver'], 'dns-bootstrap')
+  if (bootstrapTags.length > 0) bootstrapTag = bootstrapTags[0]
+  const proxyServerResolverTags = addNamedServers(
+    dnsConfig['proxy-server-nameserver'],
+    'dns-proxy-server'
+  )
+  const directResolverTags = addNamedServers(dnsConfig['direct-nameserver'], 'dns-direct')
+  if (directResolverTags.length > 0) {
+    rules.push({ outbound: ['direct'], server: directResolverTags[0] })
+  }
+
+  const hosts = asDict(clash.hosts)
+  const predefined: Dict = {}
+  for (const [domain, value] of Object.entries(hosts)) {
+    if (!domain || /[*+]/.test(domain)) {
+      warnings.push(`hosts pattern "${domain}" is not an exact domain, skipped`)
+      continue
+    }
+    const addresses = toStrArray(value)
+    if (addresses.length === 0) continue
+    predefined[domain] = addresses.length === 1 ? addresses[0] : addresses
+  }
+  if (Object.keys(predefined).length > 0) {
+    servers.push({ type: 'hosts', tag: 'dns-hosts', predefined })
+    // sing-box 1.13 legacy response filter: fall through when the hosts server
+    // has no matching answer, otherwise use its predefined response.
+    rules.unshift({ ip_accept_any: true, server: 'dns-hosts' })
+  }
 
   let defaultTag = 'dns-local'
   if (dnsEnabled) {
@@ -343,7 +479,7 @@ function buildDns(clash: Dict, ipv6Enabled: boolean): DnsBuild {
         tag: 'dns-fakeip',
         inet4_range: toStr(dnsConfig['fake-ip-range']) || '198.18.0.1/16'
       }
-      if (ipv6Enabled) fakeip.inet6_range = 'fc00::/18'
+      if (dnsIpv6Enabled) fakeip.inet6_range = 'fc00::/18'
       servers.push(fakeip)
 
       const filterPatterns = toStrArray(dnsConfig['fake-ip-filter'])
@@ -353,7 +489,7 @@ function buildDns(clash: Dict, ipv6Enabled: boolean): DnsBuild {
 
       if (filterMode === 'whitelist') {
         if (Object.keys(filterFields).length > 0) {
-          rules.push({ ...filterFields, query_type: ['A', 'AAAA'], server: 'dns-fakeip' })
+          rules.push({ ...filterFields, query_type: addressQueryTypes, server: 'dns-fakeip' })
         } else {
           warnings.push('fake-ip-filter-mode whitelist with empty filter disables fake-ip')
         }
@@ -361,7 +497,7 @@ function buildDns(clash: Dict, ipv6Enabled: boolean): DnsBuild {
         if (Object.keys(filterFields).length > 0) {
           rules.push({ ...filterFields, server: defaultTag })
         }
-        rules.push({ query_type: ['A', 'AAAA'], server: 'dns-fakeip' })
+        rules.push({ query_type: addressQueryTypes, server: 'dns-fakeip' })
       }
       if (classified.skipped.length > 0) {
         warnings.push(
@@ -375,19 +511,19 @@ function buildDns(clash: Dict, ipv6Enabled: boolean): DnsBuild {
     }
   }
 
-  if (clash.hosts && Object.keys(asDict(clash.hosts)).length > 0) {
-    warnings.push('hosts mapping is not converted to sing-box yet, skipped')
-  }
-
   const dns = compact({
     servers,
     rules,
     final: defaultTag,
-    strategy: ipv6Enabled ? undefined : 'ipv4_only',
+    strategy: dnsIpv6Enabled ? undefined : 'ipv4_only',
     independent_cache: servers.some((s) => s.type === 'fakeip') ? true : undefined
   })
 
-  return { dns, warnings }
+  return {
+    dns,
+    warnings,
+    defaultDomainResolver: proxyServerResolverTags[0] || bootstrapTag
+  }
 }
 
 /* ------------------------------ outbounds --------------------------------- */
@@ -487,6 +623,7 @@ function buildTransport(p: Dict): { transport?: Dict; warning?: string } {
       return {
         transport: compact({
           type: 'http',
+          host: toStrArray(opts.host),
           method: toStr(opts.method),
           path: paths.length > 0 ? paths[0] : undefined,
           headers: Object.keys(headers).length > 0 ? headers : undefined
@@ -558,6 +695,7 @@ function convertVmess(p: Dict, tag: string): OutboundBuild {
     uuid: toStr(p.uuid),
     security: toStr(p.cipher) || 'auto',
     alter_id: toNum(p.alterId) ?? toNum(p['alter-id']) ?? 0,
+    packet_encoding: toStr(p['packet-encoding']),
     tls: tls || (forcedTls ? compact(forcedTls) : undefined),
     transport
   })
@@ -604,14 +742,21 @@ function convertTrojan(p: Dict, tag: string): OutboundBuild {
 }
 
 function convertHysteria2(p: Dict, tag: string): OutboundBuild {
+  const serverPorts = portRanges(p.ports || p['server-ports'])
   const outbound: Dict = compact({
     type: 'hysteria2',
     tag,
     server: toStr(p.server),
-    server_port: toNum(p.port),
+    server_port: serverPorts.length > 0 ? undefined : toNum(p.port),
+    server_ports: serverPorts,
+    hop_interval:
+      toNum(p['hop-interval']) !== undefined
+        ? `${toNum(p['hop-interval'])}s`
+        : toStr(p['hop-interval']),
     password: toStr(p.password) || toStr(p.auth),
-    up_mbps: toNum(p.up),
-    down_mbps: toNum(p.down),
+    up_mbps: bandwidthMbps(p.up),
+    down_mbps: bandwidthMbps(p.down),
+    network: toStr(p.network),
     tls: buildForcedTls(p, ['h3'])
   })
   const obfs = toStr(p.obfs)
@@ -621,6 +766,54 @@ function convertHysteria2(p: Dict, tag: string): OutboundBuild {
     return { warning: `proxy "${tag}": hysteria2 obfs "${obfs}" is not supported, proxy skipped` }
   }
   return { outbound }
+}
+
+function convertHysteria(p: Dict, tag: string): OutboundBuild {
+  const serverPorts = portRanges(p.ports || p['server-ports'])
+  const formatBandwidth = (value: unknown): string | undefined => {
+    if (typeof value === 'string' && /[a-z]/i.test(value)) return value.trim()
+    const mbps = bandwidthMbps(value)
+    return mbps === undefined ? undefined : `${mbps} Mbps`
+  }
+  return {
+    outbound: compact({
+      type: 'hysteria',
+      tag,
+      server: toStr(p.server),
+      server_port: serverPorts.length > 0 ? undefined : toNum(p.port),
+      server_ports: serverPorts,
+      hop_interval:
+        toNum(p['hop-interval']) !== undefined
+          ? `${toNum(p['hop-interval'])}s`
+          : toStr(p['hop-interval']),
+      up: formatBandwidth(p.up),
+      down: formatBandwidth(p.down),
+      obfs: toStr(p.obfs),
+      auth: toStr(p.auth),
+      auth_str: toStr(p['auth-str']),
+      network: toStr(p.protocol) || toStr(p.network),
+      tls: buildForcedTls(p, ['h3'])
+    })
+  }
+}
+
+function convertSsh(p: Dict, tag: string): OutboundBuild {
+  return {
+    outbound: compact({
+      type: 'ssh',
+      tag,
+      server: toStr(p.server),
+      server_port: toNum(p.port) || 22,
+      user: toStr(p.user) || toStr(p.username),
+      password: toStr(p.password),
+      private_key: toStr(p['private-key']),
+      private_key_path: toStr(p['private-key-path']),
+      private_key_passphrase: toStr(p['private-key-passphrase']),
+      host_key: toStrArray(p['host-key']),
+      host_key_algorithms: toStrArray(p['host-key-algorithms']),
+      client_version: toStr(p['client-version'])
+    })
+  }
 }
 
 function convertTuic(p: Dict, tag: string): OutboundBuild {
@@ -724,9 +917,33 @@ function convertAnytls(p: Dict, tag: string): OutboundBuild {
     server: toStr(p.server),
     server_port: toNum(p.port),
     password: toStr(p.password),
+    idle_session_check_interval: toStr(p['idle-session-check-interval']),
+    idle_session_timeout: toStr(p['idle-session-timeout']),
+    min_idle_session: toNum(p['min-idle-session']),
     tls: buildForcedTls(p)
   })
   return { outbound }
+}
+
+function convertShadowTls(p: Dict, tag: string): OutboundBuild {
+  const version = toNum(p.version) ?? 1
+  if (![1, 2, 3].includes(version)) {
+    return { warning: `proxy "${tag}": ShadowTLS version ${version} is invalid, proxy skipped` }
+  }
+  if (version > 1 && !toStr(p.password)) {
+    return { warning: `proxy "${tag}": ShadowTLS v${version} requires a password, proxy skipped` }
+  }
+  return {
+    outbound: compact({
+      type: 'shadowtls',
+      tag,
+      server: toStr(p.server),
+      server_port: toNum(p.port),
+      version,
+      password: toStr(p.password),
+      tls: buildForcedTls(p)
+    })
+  }
 }
 
 function convertProxy(p: Dict): OutboundBuild {
@@ -744,6 +961,8 @@ function convertProxy(p: Dict): OutboundBuild {
       return convertTrojan(p, tag)
     case 'hysteria2':
       return convertHysteria2(p, tag)
+    case 'hysteria':
+      return convertHysteria(p, tag)
     case 'tuic':
       return convertTuic(p, tag)
     case 'wireguard':
@@ -754,6 +973,10 @@ function convertProxy(p: Dict): OutboundBuild {
       return convertSocks5(p, tag)
     case 'anytls':
       return convertAnytls(p, tag)
+    case 'ssh':
+      return convertSsh(p, tag)
+    case 'shadowtls':
+      return convertShadowTls(p, tag)
     case 'direct':
       return { outbound: { type: 'direct', tag } }
     default:
@@ -769,6 +992,7 @@ interface GroupBuild {
   outbounds: Dict[]
   groupTags: string[]
   warnings: string[]
+  errors: string[]
 }
 
 function resolveGroupMembers(
@@ -777,24 +1001,27 @@ function resolveGroupMembers(
   allProxyNames: string[],
   knownTags: Set<string>,
   groupNames: Set<string>,
-  warnings: string[]
+  warnings: string[],
+  errors: string[]
 ): string[] {
   let members = toStrArray(group.proxies)
   if (toBool(group['include-all']) === true || toBool(group['include-all-proxies']) === true) {
     members = [...members, ...allProxyNames]
   }
   if (toStrArray(group.use).length > 0) {
-    warnings.push(`group "${groupName}": proxy-providers (use) are not supported, entries skipped`)
+    errors.push(
+      `group "${groupName}": proxy-providers (use) cannot be converted safely; refusing direct fallback`
+    )
   }
 
   const filter = toStr(group.filter)
   const excludeFilter = toStr(group['exclude-filter'])
   const applyRegex = (list: string[], pattern: string, keep: boolean): string[] => {
     try {
-      const re = new RegExp(pattern)
+      const re = compileSafeClashRegex(pattern)
       return list.filter((name) => (keep ? re.test(name) : !re.test(name)))
-    } catch {
-      warnings.push(`group "${groupName}": invalid filter regex "${pattern}", ignored`)
+    } catch (error) {
+      errors.push(`group "${groupName}": unsafe or invalid filter (${String(error)})`)
       return list
     }
   }
@@ -843,7 +1070,9 @@ function resolveGroupMembers(
   }
 
   if (filtered.length === 0) {
-    warnings.push(`group "${groupName}": no usable members remain, padded with "direct"`)
+    errors.push(
+      `group "${groupName}": no usable members remain; refusing unsafe fallback to "direct"`
+    )
     filtered = ['direct']
   }
   return filtered
@@ -857,6 +1086,7 @@ function convertGroups(
   proxyTags: Set<string>
 ): GroupBuild {
   const warnings: string[] = []
+  const errors: string[] = []
   const outbounds: Dict[] = []
   const groupTags: string[] = []
   // precompute which groups will actually be emitted so member resolution
@@ -898,7 +1128,8 @@ function convertGroups(
       allProxyNames,
       proxyTags,
       memberNames,
-      warnings
+      warnings,
+      errors
     )
 
     if (type === 'select') {
@@ -929,7 +1160,7 @@ function convertGroups(
     }
   }
 
-  return { outbounds, groupTags, warnings }
+  return { outbounds, groupTags, warnings, errors }
 }
 
 /* -------------------------------- rules ----------------------------------- */
@@ -1006,6 +1237,8 @@ function buildRuleCondition(
       return { fields: { domain_keyword: [payload] } }
     case 'DOMAIN-REGEX':
       return { fields: { domain_regex: [payload] } }
+    case 'DOMAIN-WILDCARD':
+      return { fields: { domain_regex: [wildcardToRegex(payload)] } }
     case 'IP-CIDR':
     case 'IP-CIDR6':
       return { fields: { ip_cidr: [payload] } }
@@ -1031,6 +1264,18 @@ function buildRuleCondition(
       return { fields: { process_name: [payload] } }
     case 'PROCESS-PATH':
       return { fields: { process_path: [payload] } }
+    case 'PROCESS-PATH-REGEX':
+      return { fields: { process_path_regex: [payload] } }
+    case 'PROCESS-PATH-WILDCARD':
+      return { fields: { process_path_regex: [wildcardToRegex(payload)] } }
+    case 'PROCESS-NAME-REGEX':
+      return { fields: { process_path_regex: [`(?:^|[\\\\/])(?:${payload})$`] } }
+    case 'PROCESS-NAME-WILDCARD':
+      return {
+        fields: {
+          process_path_regex: [`(?:^|[\\\\/])${wildcardToRegex(payload).slice(1)}`]
+        }
+      }
     case 'NETWORK':
       return { fields: { network: [payload.toLowerCase()] } }
     case 'GEOSITE':
@@ -1041,6 +1286,18 @@ function buildRuleCondition(
         return { fields: { ip_is_private: true } }
       }
       return { fields: { rule_set: [ruleSets.get('geoip', payload)] } }
+    }
+    case 'SRC-GEOIP': {
+      const code = payload.toLowerCase()
+      if (code === 'lan' || code === 'private') {
+        return { fields: { source_ip_is_private: true } }
+      }
+      return {
+        fields: {
+          rule_set: [ruleSets.get('geoip', payload)],
+          rule_set_ip_cidr_match_source: true
+        }
+      }
     }
     case 'AND':
     case 'OR':
@@ -1101,10 +1358,12 @@ interface RulesBuild {
   ruleSets: Dict[]
   final: string
   warnings: string[]
+  errors: string[]
 }
 
 function convertRules(rules: string[], knownOutbounds: Set<string>): RulesBuild {
   const warnings: string[] = []
+  const errors: string[] = []
   const routeRules: Dict[] = []
   const ruleSets = createRuleSetRegistry()
   let final = 'direct'
@@ -1118,7 +1377,7 @@ function convertRules(rules: string[], knownOutbounds: Set<string>): RulesBuild 
       return null
     }
     if (knownOutbounds.has(target)) return { outbound: target }
-    warnings.push(`rule "${ruleStr}": target "${target}" not found or unsupported, rule skipped`)
+    errors.push(`rule "${ruleStr}": target "${target}" not found or unsupported`)
     return null
   }
 
@@ -1141,12 +1400,12 @@ function convertRules(rules: string[], knownOutbounds: Set<string>): RulesBuild 
         // an always-reject final: model as catch-all reject rule
         routeRules.push({ action: 'reject' })
       } else if (knownOutbounds.has(target)) final = target
-      else warnings.push(`MATCH target "${target}" not found, falling back to direct`)
+      else errors.push(`MATCH target "${target}" not found; refusing fallback to direct`)
       continue
     }
 
     if (upper === 'RULE-SET') {
-      warnings.push(`rule "${ruleStr}": Clash rule-providers are not supported yet, skipped`)
+      errors.push(`rule "${ruleStr}": Clash rule-providers cannot be converted safely yet`)
       continue
     }
     if (upper === 'SUB-RULE') {
@@ -1186,7 +1445,7 @@ function convertRules(rules: string[], knownOutbounds: Set<string>): RulesBuild 
     routeRules.push({ ...condition.fields, ...targetFields })
   }
 
-  return { routeRules, ruleSets: [...ruleSets.map.values()], final, warnings }
+  return { routeRules, ruleSets: [...ruleSets.map.values()], final, warnings, errors }
 }
 
 /* ------------------------------- inbounds --------------------------------- */
@@ -1245,8 +1504,7 @@ function buildInbounds(
 
   const tun = asDict(clash.tun)
   if (toBool(tun.enable) === true) {
-    const address = ['172.19.0.1/30']
-    if (ipv6Enabled) address.push('fdfe:dcba:9876::1/126')
+    const address = buildTunAddresses(tun, ipv6Enabled, warnings)
     const stack = toStr(tun.stack)
     const inbound: Dict = compact({
       type: 'tun',
@@ -1270,6 +1528,42 @@ function buildInbounds(
   return { inbounds, warnings }
 }
 
+function buildLanAccessRules(clash: Dict, inbounds: Dict[], warnings: string[]): Dict[] {
+  if (toBool(clash['allow-lan']) !== true) return []
+
+  const inboundTags = inbounds
+    .filter((inbound) => ['mixed', 'http', 'socks'].includes(toStr(inbound.type) || ''))
+    .map((inbound) => toStr(inbound.tag))
+    .filter((tag): tag is string => Boolean(tag))
+  if (inboundTags.length === 0) return []
+
+  const allowed = [
+    ...new Set(toStrArray(clash['lan-allowed-ips']).map((item) => item.trim()))
+  ].filter(Boolean)
+  const denied = [
+    ...new Set(toStrArray(clash['lan-disallowed-ips']).map((item) => item.trim()))
+  ].filter(Boolean)
+  const users = toStrArray(clash.authentication).filter((entry) => entry.includes(':'))
+  if (users.length === 0) {
+    warnings.push('allow-lan is enabled without authentication; LAN clients can use the proxy')
+  }
+
+  const rules: Dict[] = []
+  if (denied.length > 0) {
+    rules.push({ inbound: inboundTags, source_ip_cidr: denied, action: 'reject' })
+  }
+  if (allowed.length > 0) {
+    const safeAllowed = [...new Set([...allowed, '127.0.0.0/8', '::1/128'])]
+    rules.push({
+      type: 'logical',
+      mode: 'and',
+      rules: [{ inbound: inboundTags }, { source_ip_cidr: safeAllowed, invert: true }],
+      action: 'reject'
+    })
+  }
+  return rules
+}
+
 /* ------------------------------ main entry -------------------------------- */
 
 const IGNORED_TOP_LEVEL_KEYS: Record<string, string> = {
@@ -1291,11 +1585,22 @@ export function convertClashToSingbox(
   options: ISingboxConvertOptions = {}
 ): ISingboxConvertResult {
   const warnings: string[] = []
+  const errors: string[] = []
   const input = asDict(clash)
   const platform = options.platform
 
   const ipv6Enabled = toBool(input.ipv6) !== false
   const controller = deriveController(input)
+  const requestedController = toStr(input['external-controller'])?.trim()
+  if (requestedController) {
+    const requestedHost = parseHostPort(requestedController).host.toLowerCase()
+    if (requestedHost && !['127.0.0.1', 'localhost', '::1'].includes(requestedHost)) {
+      warnings.push('external-controller was restricted to 127.0.0.1 for desktop security')
+    }
+  }
+  if (!controller.secret && options.controllerSecret) {
+    controller.secret = options.controllerSecret
+  }
 
   for (const [key, message] of Object.entries(IGNORED_TOP_LEVEL_KEYS)) {
     const value = input[key]
@@ -1308,6 +1613,13 @@ export function convertClashToSingbox(
       continue
     if (value === false) continue
     warnings.push(message)
+  }
+
+  const proxyProviders = asDict(input['proxy-providers'])
+  if (Object.keys(proxyProviders).length > 0 && asArray(input.proxies).length === 0) {
+    errors.push(
+      'profile contains proxy-providers but no inline proxies; refusing to start a direct-only configuration'
+    )
   }
 
   /* ---- outbounds ---- */
@@ -1326,12 +1638,19 @@ export function convertClashToSingbox(
     const { outbound, endpoint, warning } = convertProxy(proxy)
     if (warning) warnings.push(warning)
     if (outbound) {
+      applyCommonDialFields(outbound, proxy)
       outbounds.push(outbound)
       proxyTags.push(outbound.tag as string)
     } else if (endpoint) {
+      applyCommonDialFields(endpoint, proxy)
       endpoints.push(endpoint)
       proxyTags.push(endpoint.tag as string)
     }
+  }
+  if (asArray(input.proxies).length > 0 && proxyTags.length === 0) {
+    errors.push(
+      'profile contains proxy nodes but none are supported; refusing to start a direct-only configuration'
+    )
   }
 
   // dialer-proxy -> detour (second pass, only when the target exists)
@@ -1353,6 +1672,7 @@ export function convertClashToSingbox(
   const groups = asArray(input['proxy-groups']).map((g) => asDict(g))
   const groupBuild = convertGroups(groups, proxyTags, availableTags)
   warnings.push(...groupBuild.warnings)
+  errors.push(...groupBuild.errors)
 
   /* ---- GLOBAL selector (for clash_mode Global) ---- */
   const hasUserGlobal = groupBuild.groupTags.includes('GLOBAL')
@@ -1374,7 +1694,12 @@ export function convertClashToSingbox(
   ])
   const ruleStrings = asArray(input.rules).map((r) => (typeof r === 'string' ? r : String(r)))
   const rulesBuild = convertRules(ruleStrings, knownOutbounds)
+  if (ruleStrings.length === 0 && proxyTags.length > 0) {
+    rulesBuild.final = groupBuild.groupTags[0] || proxyTags[0]
+    warnings.push(`profile has no rules; unmatched traffic will use "${rulesBuild.final}"`)
+  }
   warnings.push(...rulesBuild.warnings)
+  errors.push(...rulesBuild.errors)
 
   /* ---- dns ---- */
   const dnsBuild = buildDns(input, ipv6Enabled)
@@ -1386,7 +1711,7 @@ export function convertClashToSingbox(
   warnings.push(...inboundsBuild.warnings)
 
   /* ---- route rules (actions + clash modes + converted rules) ---- */
-  const routeRules: Dict[] = []
+  const routeRules: Dict[] = buildLanAccessRules(input, inboundsBuild.inbounds, warnings)
   if (toBool(asDict(input.sniffer).enable) === true) {
     routeRules.push({ action: 'sniff' })
   }
@@ -1407,13 +1732,15 @@ export function convertClashToSingbox(
   /* ---- assemble ---- */
   const mode = toStr(input.mode) || 'rule'
   const profile = asDict(input.profile)
+  const tun = asDict(input.tun)
 
   const route: Dict = compact({
     rules: routeRules,
     rule_set: rulesBuild.ruleSets,
     final: rulesBuild.final,
-    auto_detect_interface: true,
-    default_domain_resolver: { server: 'dns-local' },
+    auto_detect_interface:
+      toBool(tun['auto-detect-interface']) ?? toBool(input['auto-detect-interface']) ?? true,
+    default_domain_resolver: { server: dnsBuild.defaultDomainResolver },
     default_interface: toStr(input['interface-name']),
     default_mark: !platform || platform === 'linux' ? toNum(input['routing-mark']) : undefined
   })
@@ -1443,5 +1770,10 @@ export function convertClashToSingbox(
     config.endpoints = endpoints
   }
 
-  return { config, warnings: [...new Set(warnings)], controller }
+  return {
+    config,
+    warnings: [...new Set(warnings)],
+    errors: [...new Set(errors)],
+    controller
+  }
 }

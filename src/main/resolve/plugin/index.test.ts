@@ -1,3 +1,4 @@
+/* eslint-disable import/order -- Vitest mocks must be installed before loading the module under test. */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 const profiles: Record<string, string> = {}
@@ -59,7 +60,6 @@ vi.mock('./gateway', async (importOriginal) => {
     revoke: (...a: unknown[]) => revoke(...a)
   }
 })
-
 import { GatewayError } from './gateway'
 import {
   previewPlugin,
@@ -136,7 +136,7 @@ describe('loginPlugin', () => {
     const rec = pluginItems[item.id]
     expect(rec.status).toBe('active')
     expect(rec.profileId).toBeDefined()
-    expect(profiles[rec.profileId!]).toBe(CLASH)
+    expect(profiles[rec.profileId ?? '']).toBe(CLASH)
     const vault = vaults[item.id]
     expect(Buffer.from(vault.devicePrivKey, 'base64')).toHaveLength(32)
     expect(vault.gateway.gateway).toBe('https://gw.front.com')
@@ -246,13 +246,13 @@ describe('updatePluginProfile', () => {
   it('transient failure keeps old profile + sets backoff', async () => {
     const item = await installPlugin(file())
     await loginPlugin(item.id)
-    const before = profiles[pluginItems[item.id].profileId!]
+    const before = profiles[pluginItems[item.id].profileId ?? '']
     fetchConfig.mockRejectedValueOnce(new GatewayError('transient', 'timeout'))
     await updatePluginProfile(item.id)
     expect(pluginItems[item.id].status).toBe('active')
     expect(pluginItems[item.id].failureCount).toBe(1)
     expect(pluginItems[item.id].nextRetryAt).toBeGreaterThan(Date.now())
-    expect(profiles[pluginItems[item.id].profileId!]).toBe(before)
+    expect(profiles[pluginItems[item.id].profileId ?? '']).toBe(before)
   })
 
   it('backoff success clears failure state', async () => {
@@ -355,7 +355,7 @@ describe('removePlugin', () => {
   it('best-effort revokes then removes profile + record + vault', async () => {
     const item = await installPlugin(file())
     await loginPlugin(item.id)
-    const pid = pluginItems[item.id].profileId!
+    const pid = pluginItems[item.id].profileId ?? ''
     await removePlugin(item.id)
     expect(revoke).toHaveBeenCalled()
     expect(pluginItems[item.id]).toBeUndefined()

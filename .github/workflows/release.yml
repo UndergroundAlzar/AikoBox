@@ -1,0 +1,123 @@
+name: Signed Windows release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  build-signed:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Require an exact package-version tag
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($env:RELEASE_TAG -cne "v$version") {
+            throw "Tag $env:RELEASE_TAG must exactly equal package version v$version"
+          }
+      - name: Require the tagged commit to belong to main
+        shell: pwsh
+        run: |
+          git merge-base --is-ancestor origin/main $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Signed release tags must point to a commit contained in origin/main'
+          }
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.27.0
+          run_install: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Require signing identity secrets
+        shell: pwsh
+        env:
+          CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+          EXPECTED_THUMBPRINT: ${{ secrets.WINDOWS_CERTIFICATE_THUMBPRINT }}
+          EXPECTED_SUBJECT: ${{ secrets.WINDOWS_CERTIFICATE_SUBJECT }}
+        run: |
+          if (-not $env:CSC_LINK -or -not $env:CSC_KEY_PASSWORD -or -not $env:EXPECTED_THUMBPRINT -or -not $env:EXPECTED_SUBJECT) {
+            throw 'Signed releases require the certificate, password, expected thumbprint, and exact subject secrets'
+          }
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: node scripts/prepare.mjs --x64
+      - run: node --test scripts/prepare.test.mjs
+      - name: Require complete third-party redistribution evidence
+        run: pnpm run audit:licenses
+      - run: pnpm exec electron-builder install-app-deps
+      - run: pnpm run review
+      - run: pnpm run test
+      - name: Build and sign the two Windows x64 distributions
+        env:
+          CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+        run: pnpm run build:win
+      - name: Require the expected signer and a timestamp on every AikoBox executable
+        shell: pwsh
+        env:
+          EXPECTED_THUMBPRINT: ${{ secrets.WINDOWS_CERTIFICATE_THUMBPRINT }}
+          EXPECTED_SUBJECT: ${{ secrets.WINDOWS_CERTIFICATE_SUBJECT }}
+        run: |
+          $outer = @(Get-ChildItem dist -Filter 'aikobox-windows-*.exe')
+          if ($outer.Count -ne 2) { throw "Expected exactly two release executables" }
+          $inner = Get-Item -LiteralPath 'dist/win-unpacked/AikoBox.exe'
+          foreach ($artifact in (@($outer) + @($inner))) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $artifact.FullName
+            if ($signature.Status -ne 'Valid') {
+              throw "$($artifact.Name) signature is $($signature.Status), expected Valid"
+            }
+            if ($signature.SignerCertificate.Thumbprint -cne $env:EXPECTED_THUMBPRINT) {
+              throw "$($artifact.Name) was signed by an unexpected certificate"
+            }
+            if ($signature.SignerCertificate.Subject -cne $env:EXPECTED_SUBJECT) {
+              throw "$($artifact.Name) has an unexpected signer subject"
+            }
+            if ($null -eq $signature.TimeStamperCertificate) {
+              throw "$($artifact.Name) has no Authenticode timestamp"
+            }
+          }
+      - name: Verify the exact artifact set and checksums
+        env:
+          AIKOBOX_RELEASE_TAG: ${{ github.ref_name }}
+        run: pnpm run verify:release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: signed-aikobox-${{ github.ref_name }}
+          path: |
+            dist/*-setup.exe
+            dist/*-portable.exe
+            dist/*.sha256
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build-signed
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: signed-aikobox-${{ github.ref_name }}
+          path: dist
+      - name: Publish the immutable, signed release set
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create $env:RELEASE_TAG --verify-tag --generate-notes dist/*-setup.exe dist/*-portable.exe dist/*.sha256 dist/SHA256SUMS.txt

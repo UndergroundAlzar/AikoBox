@@ -25,13 +25,16 @@ import { FaNetworkWired } from 'react-icons/fa'
 import { IoMdRefresh, IoMdShuffle, IoMdEye, IoMdEyeOff } from 'react-icons/io'
 import useSWR from 'swr'
 import {
+  checkCoreUpdate,
+  installCoreUpdate,
   mihomoVersion,
   mihomoHotReloadConfig,
+  rollbackCoreUpdate,
   restartCore,
-  startSubStoreBackendServer,
-  triggerSysProxy
+  startSubStoreBackendServer
 } from '@renderer/utils/ipc'
 import React, { useState, useEffect, useRef } from 'react'
+import { toast } from '@renderer/components/base/toast'
 import InterfaceModal from '@renderer/components/mihomo/interface-modal'
 import { MdDeleteForever, MdEdit, MdDelete, MdOpenInNew } from 'react-icons/md'
 import { useTranslation } from 'react-i18next'
@@ -75,7 +78,6 @@ const Mihomo: React.FC = () => {
   const {
     maxLogDays = 7,
     maxLogFileSize = 10,
-    sysProxy,
     showMixedPort,
     enableMixedPort = true,
     showSocksPort,
@@ -88,7 +90,11 @@ const Mihomo: React.FC = () => {
     enableTproxyPort = false
   } = appConfig || {}
   const { controledMihomoConfig, patchControledMihomoConfig } = useControledMihomoConfig()
-  const { data: coreVersion } = useSWR('mihomoVersion', mihomoVersion)
+  const { data: coreVersion, mutate: mutateCoreVersion } = useSWR('mihomoVersion', mihomoVersion)
+  const [coreUpdateInfo, setCoreUpdateInfo] = useState<ICoreReleaseInfo | null>(null)
+  const [checkingCoreUpdate, setCheckingCoreUpdate] = useState(false)
+  const [runningCoreUpdate, setRunningCoreUpdate] = useState(false)
+  const [coreUpdateAction, setCoreUpdateAction] = useState<'install' | 'rollback' | null>(null)
 
   const {
     ipv6,
@@ -303,6 +309,87 @@ const Mihomo: React.FC = () => {
   return (
     <>
       {lanOpen && <InterfaceModal onClose={() => setLanOpen(false)} />}
+      <Modal
+        isOpen={coreUpdateAction !== null}
+        isDismissable={!runningCoreUpdate}
+        hideCloseButton={runningCoreUpdate}
+        onOpenChange={(open) => {
+          if (!open && !runningCoreUpdate) setCoreUpdateAction(null)
+        }}
+      >
+        <ModalContent>
+          <ModalHeader>
+            {coreUpdateAction === 'rollback'
+              ? t('mihomo.coreUpdater.rollbackTitle')
+              : t('mihomo.coreUpdater.availableTitle')}
+          </ModalHeader>
+          <ModalBody>
+            {coreUpdateAction === 'rollback' ? (
+              <p>{t('mihomo.coreUpdater.rollbackDescription')}</p>
+            ) : (
+              <>
+                <p>
+                  {t('mihomo.coreUpdater.availableDescription', {
+                    current: coreUpdateInfo?.currentVersion,
+                    latest: coreUpdateInfo?.latestVersion
+                  })}
+                </p>
+                <p className="text-sm text-default-500">
+                  {t('mihomo.coreUpdater.securityDescription')}
+                </p>
+              </>
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              variant="light"
+              isDisabled={runningCoreUpdate}
+              onPress={() => setCoreUpdateAction(null)}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              color={coreUpdateAction === 'rollback' ? 'warning' : 'primary'}
+              isLoading={runningCoreUpdate}
+              onPress={async () => {
+                if (!coreUpdateAction) return
+                setRunningCoreUpdate(true)
+                try {
+                  const result =
+                    coreUpdateAction === 'rollback'
+                      ? await rollbackCoreUpdate()
+                      : await installCoreUpdate(coreUpdateInfo?.latestVersion || '')
+                  setCoreUpdateInfo((previous) =>
+                    previous
+                      ? {
+                          ...previous,
+                          currentVersion: result.version,
+                          updateAvailable: previous.latestVersion !== result.version,
+                          canRollback: result.canRollback
+                        }
+                      : previous
+                  )
+                  await mutateCoreVersion()
+                  toast.success(
+                    coreUpdateAction === 'rollback'
+                      ? t('mihomo.coreUpdater.rollbackSuccess', { version: result.version })
+                      : t('mihomo.coreUpdater.updateSuccess', { version: result.version })
+                  )
+                  setCoreUpdateAction(null)
+                } catch (error) {
+                  toast.error(error instanceof Error ? error.message : String(error))
+                } finally {
+                  setRunningCoreUpdate(false)
+                }
+              }}
+            >
+              {coreUpdateAction === 'rollback'
+                ? t('mihomo.coreUpdater.rollbackButton')
+                : t('mihomo.coreUpdater.installButton')}
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
       <BasePage title={t('mihomo.title')}>
         {/* 内核信息 */}
         <SettingCard>
@@ -312,6 +399,42 @@ const Mihomo: React.FC = () => {
                 sing-box
               </Chip>
               <span className="text-default-500">{coreVersion?.version ?? '-'}</span>
+              <Button
+                size="sm"
+                variant="flat"
+                color="primary"
+                isLoading={checkingCoreUpdate}
+                onPress={async () => {
+                  setCheckingCoreUpdate(true)
+                  try {
+                    const info = await checkCoreUpdate()
+                    setCoreUpdateInfo(info)
+                    if (info.updateAvailable) {
+                      setCoreUpdateAction('install')
+                    } else {
+                      toast.success(
+                        t('mihomo.coreUpdater.upToDate', { version: info.currentVersion })
+                      )
+                    }
+                  } catch (error) {
+                    toast.error(error instanceof Error ? error.message : String(error))
+                  } finally {
+                    setCheckingCoreUpdate(false)
+                  }
+                }}
+              >
+                {t('mihomo.coreUpdater.checkButton')}
+              </Button>
+              {coreUpdateInfo?.canRollback && (
+                <Button
+                  size="sm"
+                  variant="light"
+                  color="warning"
+                  onPress={() => setCoreUpdateAction('rollback')}
+                >
+                  {t('mihomo.coreUpdater.rollbackButton')}
+                </Button>
+              )}
             </div>
           </SettingItem>
         </SettingCard>
@@ -328,9 +451,6 @@ const Mihomo: React.FC = () => {
                   onPress={async () => {
                     await onChangeNeedRestart({ 'mixed-port': mixedPortInput })
                     await startSubStoreBackendServer()
-                    if (sysProxy?.enable) {
-                      triggerSysProxy(true)
-                    }
                   }}
                 >
                   {t('mihomo.confirm')}

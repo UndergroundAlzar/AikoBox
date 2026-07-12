@@ -1,0 +1,61 @@
+name: Windows quality gate
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Lint, test, typecheck, and compile (Windows x64)
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Enable pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.27.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install locked dependencies without lifecycle downloads
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Check formatting
+        run: pnpm run format:check
+
+      - name: Check lint
+        run: pnpm run lint:check
+
+      - name: Check types
+        run: pnpm run typecheck
+
+      - name: Run offline unit tests
+        run: pnpm run test:ci
+
+      - name: Test the locked resource verifier itself
+        run: node --test scripts/prepare.test.mjs
+
+      - name: Test the fail-closed third-party license audit
+        run: pnpm run test:licenses
+
+      - name: Compile Electron application
+        run: pnpm run build

@@ -38,7 +38,7 @@ function base(extra: Dict = {}): Dict {
 
 describe('empty profile', () => {
   it('produces a valid startable config', () => {
-    const { config, warnings } = convertClashToSingbox({})
+    const { config, warnings, errors } = convertClashToSingbox({})
     expect(Array.isArray(config.outbounds)).toBe(true)
     // direct + GLOBAL always exist
     expect(outbound(config, 'direct').type).toBe('direct')
@@ -53,6 +53,7 @@ describe('empty profile', () => {
     const clashApi = ((config.experimental as Dict).clash_api as Dict) || {}
     expect(clashApi.external_controller).toBe('127.0.0.1:9090')
     expect(warnings).toBeInstanceOf(Array)
+    expect(errors).toEqual([])
   })
 })
 
@@ -74,10 +75,26 @@ describe('clash_api / cache_file', () => {
     expect(controller.secret).toBe('test-secret')
   })
 
-  it('binds 0.0.0.0 but clients connect via 127.0.0.1', () => {
+  it('uses a generated controller secret when the profile has none', () => {
+    const { config, controller } = convertClashToSingbox(base({ secret: '' }), {
+      controllerSecret: 'generated-secret'
+    })
+    const clashApi = (config.experimental as Dict).clash_api as Dict
+    expect(controller.secret).toBe('generated-secret')
+    expect(clashApi.secret).toBe('generated-secret')
+  })
+
+  it('restricts wildcard controller addresses to loopback', () => {
     const controller = deriveController({ 'external-controller': '0.0.0.0:9091', secret: 's' })
-    expect(controller.listen).toBe('0.0.0.0:9091')
+    expect(controller.listen).toBe('127.0.0.1:9091')
     expect(controller.host).toBe('127.0.0.1')
+  })
+
+  it('warns when a public controller address is restricted', () => {
+    const result = convertClashToSingbox(base({ 'external-controller': '0.0.0.0:9091' }))
+    expect(result.warnings).toContain(
+      'external-controller was restricted to 127.0.0.1 for desktop security'
+    )
   })
 
   it('defaults when empty', () => {
@@ -151,7 +168,62 @@ describe('inbounds', () => {
     expect(tun.auto_route).toBe(true)
     expect(tun.strict_route).toBe(true)
     expect(tun.route_exclude_address).toEqual(['192.168.0.0/16'])
-    expect((tun.address as string[]).length).toBe(2) // v4 + v6
+    expect(tun.address).toEqual(['198.19.0.1/30', 'fdfe:dcba:9876::1/126'])
+    expect(tun.address).not.toContain('172.19.0.1/30')
+  })
+
+  it('honors modern and legacy TUN addresses without duplicates', () => {
+    const { config } = convertClashToSingbox(
+      base({
+        tun: {
+          enable: true,
+          address: ['10.77.0.1/30', 'fd00:77::1/126'],
+          'inet4-address': ['10.78.0.1/30', '10.77.0.1/30'],
+          'inet6-address': 'fd00:78::1/126'
+        }
+      })
+    )
+    const tun = (config.inbounds as Dict[]).find((i) => i.type === 'tun') as Dict
+
+    expect(tun.address).toEqual([
+      '10.77.0.1/30',
+      'fd00:77::1/126',
+      '10.78.0.1/30',
+      'fd00:78::1/126'
+    ])
+  })
+
+  it('uses legacy family overrides and drops configured TUN IPv6 when top-level IPv6 is disabled', () => {
+    const { config, warnings } = convertClashToSingbox(
+      base({
+        ipv6: false,
+        tun: {
+          enable: true,
+          'inet4-address': '10.88.0.1/30',
+          'inet6-address': 'fd00:88::1/126'
+        }
+      })
+    )
+    const tun = (config.inbounds as Dict[]).find((i) => i.type === 'tun') as Dict
+
+    expect(tun.address).toEqual(['10.88.0.1/30'])
+    expect(warnings.join('\n')).toMatch(/TUN IPv6 address ignored/i)
+  })
+
+  it('maps tun.auto-detect-interface to sing-box route settings', () => {
+    const disabled = convertClashToSingbox(
+      base({ tun: { enable: true, 'auto-detect-interface': false } })
+    ).config
+    const enabled = convertClashToSingbox(
+      base({ tun: { enable: true, 'auto-detect-interface': true } })
+    ).config
+    const legacyTopLevel = convertClashToSingbox(
+      base({ 'auto-detect-interface': false, tun: { enable: true } })
+    ).config
+
+    expect((disabled.route as Dict).auto_detect_interface).toBe(false)
+    expect((enabled.route as Dict).auto_detect_interface).toBe(true)
+    expect((legacyTopLevel.route as Dict).auto_detect_interface).toBe(false)
   })
 
   it('drops redir/tproxy ports on unsupported platforms with a warning', () => {
@@ -192,7 +264,9 @@ describe('dns', () => {
     expect(filterRule.server).not.toBe('dns-fakeip')
     const last = rules[rules.length - 1]
     expect(last.server).toBe('dns-fakeip')
-    expect(last.query_type).toEqual(['A', 'AAAA'])
+    expect(last.query_type).toEqual(['A'])
+    expect(fakeip.inet6_range).toBeUndefined()
+    expect(dns.strategy).toBe('ipv4_only')
     expect(dns.independent_cache).toBe(true)
   })
 
@@ -212,6 +286,47 @@ describe('dns', () => {
     expect((config.dns as Dict).strategy).toBe('ipv4_only')
     const { config: v6 } = convertClashToSingbox(base({ ipv6: true }))
     expect((v6.dns as Dict).strategy).toBeUndefined()
+  })
+
+  it('lets dns.ipv6 disable AAAA even when top-level IPv6 remains enabled', () => {
+    const { config } = convertClashToSingbox(
+      base({
+        ipv6: true,
+        dns: { enable: true, ipv6: false, 'enhanced-mode': 'fake-ip' }
+      })
+    )
+    const dns = config.dns as Dict
+    const fakeip = (dns.servers as Dict[]).find((server) => server.type === 'fakeip') as Dict
+    const fakeipRule = (dns.rules as Dict[]).find((rule) => rule.server === 'dns-fakeip') as Dict
+
+    expect(dns.strategy).toBe('ipv4_only')
+    expect(fakeip.inet6_range).toBeUndefined()
+    expect(fakeipRule.query_type).toEqual(['A'])
+  })
+
+  it('maps hosts and bootstrap/proxy/direct DNS resolvers', () => {
+    const { config, warnings } = convertClashToSingbox(
+      base({
+        hosts: { 'router.lan': '192.168.1.1', 'nas.lan': ['192.168.1.2', 'fd00::2'] },
+        dns: {
+          enable: true,
+          nameserver: ['https://dns.example.com/dns-query'],
+          'default-nameserver': ['1.1.1.1'],
+          'proxy-server-nameserver': ['9.9.9.9'],
+          'direct-nameserver': ['223.5.5.5']
+        }
+      })
+    )
+    const dns = config.dns as Dict
+    const servers = dns.servers as Dict[]
+    const hosts = servers.find((server) => server.type === 'hosts') as Dict
+    expect(hosts.predefined).toMatchObject({ 'router.lan': '192.168.1.1' })
+    expect((dns.rules as Dict[])[0]).toMatchObject({ ip_accept_any: true, server: 'dns-hosts' })
+    expect((config.route as Dict).default_domain_resolver).toEqual({ server: 'dns-proxy-server-0' })
+    expect(servers.find((server) => server.tag === 'dns-0')?.domain_resolver).toBe(
+      'dns-bootstrap-0'
+    )
+    expect(warnings.join('\n')).not.toMatch(/hosts mapping/)
   })
 })
 
@@ -284,6 +399,10 @@ describe('proxies', () => {
             tls: true,
             servername: 'sni.com',
             network: 'ws',
+            'packet-encoding': 'packetaddr',
+            'interface-name': 'Ethernet',
+            tfo: true,
+            'ip-version': 'ipv4-prefer',
             'ws-opts': { path: '/path', headers: { Host: 'ws.com' } }
           }
         ]
@@ -293,6 +412,40 @@ describe('proxies', () => {
     expect(vm).toMatchObject({ type: 'vmess', uuid: 'uuid-1', security: 'auto', alter_id: 0 })
     expect(vm.transport).toMatchObject({ type: 'ws', path: '/path', headers: { Host: 'ws.com' } })
     expect(vm.tls).toMatchObject({ enabled: true, server_name: 'sni.com' })
+    expect(vm).toMatchObject({
+      packet_encoding: 'packetaddr',
+      bind_interface: 'Ethernet',
+      tcp_fast_open: true,
+      domain_strategy: 'prefer_ipv4'
+    })
+  })
+
+  it('preserves Clash HTTP transport hosts', () => {
+    const { config } = convertClashToSingbox(
+      base({
+        proxies: [
+          {
+            name: 'vm-http',
+            type: 'vmess',
+            server: 'vm.example',
+            port: 443,
+            uuid: 'uuid-http',
+            cipher: 'auto',
+            network: 'http',
+            'http-opts': {
+              host: ['front-one.example', 'front-two.example'],
+              path: ['/tunnel']
+            }
+          }
+        ]
+      })
+    )
+
+    expect(outbound(config, 'vm-http').transport).toMatchObject({
+      type: 'http',
+      host: ['front-one.example', 'front-two.example'],
+      path: '/tunnel'
+    })
   })
 
   it('maps vless with reality, vision flow, uTLS and grpc transport', () => {
@@ -367,6 +520,67 @@ describe('proxies', () => {
     const hy = outbound(config, 'hy2')
     expect(hy).toMatchObject({ type: 'hysteria2', password: 'pw', up_mbps: 30, down_mbps: 200 })
     expect(hy.obfs).toMatchObject({ type: 'salamander', password: 'ob' })
+  })
+
+  it('maps hysteria v1, SSH and Hysteria2 port hopping/bandwidth units', () => {
+    const { config, errors } = convertClashToSingbox(
+      base({
+        proxies: [
+          {
+            name: 'hy1',
+            type: 'hysteria',
+            server: 'hy.example.com',
+            ports: '20000-30000',
+            'hop-interval': 20,
+            up: '1 Gbps',
+            down: '100 Mbps',
+            'auth-str': 'secret',
+            sni: 'hy.example.com'
+          },
+          {
+            name: 'hy2-hop',
+            type: 'hysteria2',
+            server: 'hy2.example.com',
+            ports: ['40000-40100'],
+            'hop-interval': 15,
+            up: '1 Gbps',
+            down: '2 GBps',
+            password: 'secret',
+            sni: 'hy2.example.com'
+          },
+          {
+            name: 'ssh1',
+            type: 'ssh',
+            server: 'ssh.example.com',
+            port: 22,
+            username: 'alice',
+            password: 'secret',
+            'host-key': ['ssh-ed25519 AAAAfixture']
+          }
+        ]
+      })
+    )
+
+    expect(outbound(config, 'hy1')).toMatchObject({
+      type: 'hysteria',
+      server_ports: ['20000:30000'],
+      hop_interval: '20s',
+      up: '1 Gbps',
+      auth_str: 'secret'
+    })
+    expect(outbound(config, 'hy2-hop')).toMatchObject({
+      type: 'hysteria2',
+      server_ports: ['40000:40100'],
+      hop_interval: '15s',
+      up_mbps: 1000,
+      down_mbps: 16000
+    })
+    expect(outbound(config, 'ssh1')).toMatchObject({
+      type: 'ssh',
+      user: 'alice',
+      password: 'secret'
+    })
+    expect(errors).toEqual([])
   })
 
   it('maps tuic v5', () => {
@@ -454,7 +668,10 @@ describe('proxies', () => {
             server: 'at.com',
             port: 443,
             password: 'pw',
-            sni: 'at.com'
+            sni: 'at.com',
+            'idle-session-check-interval': '20s',
+            'idle-session-timeout': '40s',
+            'min-idle-session': 2
           }
         ]
       })
@@ -462,6 +679,11 @@ describe('proxies', () => {
     const at = outbound(config, 'at1')
     expect(at.type).toBe('anytls')
     expect(at.tls).toMatchObject({ enabled: true, server_name: 'at.com' })
+    expect(at).toMatchObject({
+      idle_session_check_interval: '20s',
+      idle_session_timeout: '40s',
+      min_idle_session: 2
+    })
   })
 
   it('skips unsupported proxy types with a warning, never crashes', () => {
@@ -556,15 +778,41 @@ describe('proxy groups', () => {
     expect(outbound(config, 'HK').outbounds).toEqual(['HK-1'])
   })
 
-  it('pads empty groups with direct', () => {
-    const { config, warnings } = convertClashToSingbox(
+  it('supports the common RE2-style leading (?i) filter flag', () => {
+    const { config, errors } = convertClashToSingbox(
+      base({
+        proxies,
+        'proxy-groups': [
+          { name: 'Hong Kong', type: 'select', 'include-all': true, filter: '(?i)hk|香港' }
+        ]
+      })
+    )
+    expect(outbound(config, 'Hong Kong').outbounds).toEqual(['HK-1'])
+    expect(errors).toEqual([])
+  })
+
+  it('reports empty groups as fatal instead of silently falling back to direct', () => {
+    const { config, errors } = convertClashToSingbox(
       base({
         proxies,
         'proxy-groups': [{ name: 'Empty', type: 'select', proxies: ['does-not-exist'] }]
       })
     )
     expect(outbound(config, 'Empty').outbounds).toEqual(['direct'])
-    expect(warnings.join('\n')).toMatch(/Empty/)
+    expect(errors.join('\n')).toMatch(/Empty.*refusing unsafe fallback/)
+  })
+
+  it('rejects provider-only profiles instead of producing a direct-only config', () => {
+    const { errors } = convertClashToSingbox(
+      base({
+        'proxy-providers': {
+          airport: { type: 'http', url: 'https://example.invalid/provider.yaml' }
+        },
+        'proxy-groups': [{ name: 'Proxy', type: 'select', use: ['airport'] }]
+      })
+    )
+    expect(errors.join('\n')).toMatch(/proxy-providers.*no inline proxies/)
+    expect(errors.join('\n')).toMatch(/cannot be converted safely/)
   })
 })
 
@@ -612,6 +860,28 @@ describe('rules', () => {
     expect(rules.find((r) => (r.source_port as number[])?.includes(7777))).toBeDefined()
     expect(rules.find((r) => (r.process_name as string[])?.includes('chrome.exe'))).toBeDefined()
     expect((config.route as Dict).final).toBe('p1')
+  })
+
+  it('maps Windows wildcard/regex process rules and source GeoIP', () => {
+    const { config, errors } = convertClashToSingbox(
+      base({
+        proxies,
+        rules: [
+          'DOMAIN-WILDCARD,*.example.com,p1',
+          'PROCESS-NAME-WILDCARD,chrome*.exe,p1',
+          'PROCESS-PATH-REGEX,^C:\\\\Apps\\\\.+\\\\client\\.exe$,p1',
+          'SRC-GEOIP,private,DIRECT',
+          'MATCH,p1'
+        ]
+      })
+    )
+    const rules = routeRules(config)
+    expect(rules.some((rule) => (rule.domain_regex as string[])?.[0]?.includes('example'))).toBe(
+      true
+    )
+    expect(rules.some((rule) => Array.isArray(rule.process_path_regex))).toBe(true)
+    expect(rules.some((rule) => rule.source_ip_is_private === true)).toBe(true)
+    expect(errors).toEqual([])
   })
 
   it('converts GEOSITE / GEOIP into remote srs rule-sets with direct download detour', () => {
@@ -668,8 +938,8 @@ describe('rules', () => {
     expect(notRule.domain_suffix).toEqual(['cn'])
   })
 
-  it('skips rule-providers and unknown targets with warnings', () => {
-    const { config, warnings } = convertClashToSingbox(
+  it('rejects rule-providers and unknown targets instead of falling back', () => {
+    const { config, errors } = convertClashToSingbox(
       base({
         proxies,
         rules: ['RULE-SET,my-provider,p1', 'DOMAIN,x.com,GhostGroup', 'MATCH,DIRECT']
@@ -677,8 +947,8 @@ describe('rules', () => {
     )
     const rules = routeRules(config)
     expect(rules.find((r) => (r.domain as string[])?.includes('x.com'))).toBeUndefined()
-    expect(warnings.join('\n')).toMatch(/rule-providers/)
-    expect(warnings.join('\n')).toMatch(/GhostGroup/)
+    expect(errors.join('\n')).toMatch(/rule-providers/)
+    expect(errors.join('\n')).toMatch(/GhostGroup/)
     expect((config.route as Dict).final).toBe('direct')
   })
 })

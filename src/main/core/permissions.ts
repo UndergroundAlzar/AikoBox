@@ -1,19 +1,56 @@
 import { exec, execFile } from 'child_process'
 import { promisify } from 'util'
-import { stat } from 'fs/promises'
+import { readFile, stat } from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import { app, dialog, ipcMain } from 'electron'
+import { app, dialog } from 'electron'
 import { getControledMihomoConfig, patchControledMihomoConfig } from '../config'
-import { mihomoCoreDir } from '../utils/dirs'
+import { dataDir, mihomoCoreDir } from '../utils/dirs'
 import { managerLogger } from '../utils/logger'
+import {
+  isExecutableWithinWindowsProgramFiles,
+  isWindowsTunElevationAllowed
+} from '../utils/portable'
 import { checkAutoRun, enableAutoRun } from '../sys/autoRun'
+import { triggerSysProxy } from '../sys/sysproxy'
 import i18next from '../../shared/i18n'
+import {
+  inspectWindowsProcess,
+  matchesProcessIdentity,
+  parseProcessIdentityRecord,
+  sameExecutablePath
+} from '../utils/processIdentity'
 import { singboxCorePath } from './singbox'
 import { checkAdminPrivileges } from './admin'
 
 const execPromise = promisify(exec)
 const execFilePromise = promisify(execFile)
+
+export async function isTrustedWindowsInstallation(): Promise<boolean> {
+  if (!isWindowsTunElevationAllowed(process.execPath, process.env, app.isPackaged)) {
+    return false
+  }
+
+  try {
+    // Environment variables are user-controlled. Ask Windows/.NET for the
+    // actual known folder and require the executable to live below it before
+    // starting any elevated Electron process.
+    const { stdout } = await execFilePromise(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        '[Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)'
+      ],
+      { windowsHide: true, timeout: 3000, maxBuffer: 16 * 1024 }
+    )
+    return isExecutableWithinWindowsProgramFiles(process.execPath, stdout.trim())
+  } catch (error) {
+    managerLogger.warn('Could not verify the Windows Program Files known folder', error)
+    return false
+  }
+}
 
 // 唯一内核：sing-box（旧的 mihomo/mihomo-alpha/mihomo-smart 配置值一律映射到 sing-box）
 type StopCoreBeforeAdminRestart = (force?: boolean) => Promise<void>
@@ -69,6 +106,9 @@ export async function checkMihomoCorePermissions(): Promise<boolean> {
 
   try {
     if (process.platform === 'win32') {
+      if (!(await isTrustedWindowsInstallation())) {
+        return false
+      }
       return await checkAdminPrivileges()
     }
 
@@ -119,98 +159,83 @@ export async function checkHighPrivilegeCore(): Promise<boolean> {
 }
 
 async function checkHighPrivilegeCoreProcess(): Promise<boolean> {
-  const coreExecutables = process.platform === 'win32' ? ['sing-box.exe'] : ['sing-box']
-
   try {
     if (process.platform === 'win32') {
-      let stdout = ''
-      try {
-        const result = await execFilePromise('tasklist', ['/FO', 'CSV', '/NH'], {
-          windowsHide: true,
-          timeout: 3000,
-          maxBuffer: 4 * 1024 * 1024
-        })
-        stdout = result.stdout
-      } catch (error) {
-        managerLogger.error('Failed to list processes via tasklist', error)
+      const corePath = singboxCorePath()
+      const pidRecord = parseProcessIdentityRecord(
+        await readFile(path.join(dataDir(), 'core.pid'), 'utf-8').catch(() => '')
+      )
+      // Never attribute an arbitrary inaccessible sing-box process to AikoBox.
+      // Only a versioned ownership record written by our own spawn path is
+      // eligible for the UAC handoff.
+      if (
+        !pidRecord?.executablePath ||
+        pidRecord.startTimeMs === undefined ||
+        !sameExecutablePath(pidRecord.executablePath, corePath)
+      ) {
         return false
       }
 
-      const candidatePids: { pid: string; image: string }[] = []
-      for (const line of stdout.split('\n')) {
-        const match = line.match(/^"([^"]+)","(\d+)"/)
-        if (!match) continue
-        const image = match[1].toLowerCase()
-        if (coreExecutables.includes(image)) {
-          candidatePids.push({ pid: match[2], image })
-        }
-      }
-
-      if (candidatePids.length === 0) {
-        managerLogger.info('No core processes found running')
-        return false
-      }
-
-      managerLogger.info(`Found ${candidatePids.length} core processes running`)
-
-      const pidArgs = candidatePids.map(({ pid }) => pid).join(',')
       try {
-        const { stdout: processInfo } = await execFilePromise(
-          'powershell',
-          [
-            '-NoProfile',
-            '-Command',
-            `Get-Process -Id ${pidArgs} -ErrorAction SilentlyContinue | Select-Object Name,Id,Path | ConvertTo-Json -Compress`
-          ],
-          { windowsHide: true, timeout: 4000, maxBuffer: 4 * 1024 * 1024 }
-        )
-
-        if (!processInfo.trim()) return false
-
-        const parsed = JSON.parse(processInfo)
-        const list = Array.isArray(parsed) ? parsed : [parsed]
-        for (const proc of list) {
-          if (
-            proc &&
-            typeof proc.Name === 'string' &&
-            proc.Name.toLowerCase().includes('sing-box') &&
-            proc.Path === null
-          ) {
-            return true
+        const result = await execFilePromise(
+          'tasklist',
+          ['/FI', `PID eq ${pidRecord.pid}`, '/FO', 'CSV', '/NH'],
+          {
+            windowsHide: true,
+            timeout: 3000,
+            maxBuffer: 1024 * 1024
           }
+        )
+        const match = result.stdout.match(/^"([^"]+)","(\d+)"/m)
+        if (
+          !match ||
+          match[1].toLowerCase() !== 'sing-box.exe' ||
+          Number(match[2]) !== pidRecord.pid
+        ) {
+          return false
         }
+
+        const actual = await inspectWindowsProcess(pidRecord.pid)
+        if (actual) {
+          return matchesProcessIdentity(pidRecord, actual, corePath)
+        }
+
+        // An elevated process may hide Path/StartTime from a non-elevated
+        // caller. The exact PID plus our structured journal is sufficient to
+        // offer a UAC handoff; no process is terminated in this branch.
+        return true
       } catch (error) {
-        managerLogger.info('PowerShell process inspection failed', error)
+        managerLogger.error('Failed to inspect journaled core process', error)
+        return false
       }
     } else {
+      const coreExecutable = 'sing-box'
       let foundProcesses = false
 
-      for (const executable of coreExecutables) {
-        try {
-          const { stdout } = await execPromise(`ps aux | grep ${executable} | grep -v grep`)
-          const lines = stdout
-            .split('\n')
-            .filter((line) => line.trim() && line.includes(executable))
+      try {
+        const { stdout } = await execPromise(`ps aux | grep ${coreExecutable} | grep -v grep`)
+        const lines = stdout
+          .split('\n')
+          .filter((line) => line.trim() && line.includes(coreExecutable))
 
-          if (lines.length > 0) {
-            foundProcesses = true
-            managerLogger.info(`Found ${lines.length} ${executable} processes running`)
+        if (lines.length > 0) {
+          foundProcesses = true
+          managerLogger.info(`Found ${lines.length} ${coreExecutable} processes running`)
 
-            for (const line of lines) {
-              const parts = line.trim().split(/\s+/)
-              if (parts.length >= 1) {
-                const user = parts[0]
-                managerLogger.info(`${executable} process running as user: ${user}`)
+          for (const line of lines) {
+            const parts = line.trim().split(/\s+/)
+            if (parts.length >= 1) {
+              const user = parts[0]
+              managerLogger.info(`${coreExecutable} process running as user: ${user}`)
 
-                if (user === 'root') {
-                  return true
-                }
+              if (user === 'root') {
+                return true
               }
             }
           }
-        } catch {
-          // ignore
         }
+      } catch {
+        // ignore
       }
 
       if (!foundProcesses) {
@@ -249,37 +274,64 @@ export async function restartAsAdmin(forTun: boolean = true): Promise<void> {
     throw new Error('This function is only available on Windows')
   }
 
-  // 先停止 Core，避免新旧进程冲突
+  const exePath = process.execPath
+  if (!(await isTrustedWindowsInstallation())) {
+    throw new Error(
+      'Administrator elevation is available only from the installed AikoBox in Program Files; development and portable builds support system proxy mode only'
+    )
+  }
+
+  const args = process.argv
+    .slice(1)
+    .filter(
+      (arg) => arg !== '--admin-restart-for-tun' && !arg.startsWith('--wait-for-aikobox-pid=')
+    )
+  const restartArgs = [
+    ...args,
+    ...(forTun ? ['--admin-restart-for-tun'] : []),
+    `--wait-for-aikobox-pid=${process.pid}`
+  ]
+  const quotePowerShell = (value: string): string => `'${value.replace(/'/g, "''")}'`
+  const argumentList = restartArgs.map(quotePowerShell).join(',')
+  const command = `$process = Start-Process -FilePath ${quotePowerShell(exePath)} -ArgumentList @(${argumentList}) -WorkingDirectory ${quotePowerShell(path.dirname(exePath))} -Verb RunAs -PassThru; if ($null -eq $process) { exit 1 }`
+  const encodedCommand = Buffer.from(command, 'utf16le').toString('base64')
+
+  // Release the single-instance lock only for the UAC handoff. The elevated
+  // instance acquires it immediately but waits for this PID before touching the
+  // core. If UAC is cancelled, reacquire the lock and leave networking intact.
+  app.releaseSingleInstanceLock()
   try {
-    managerLogger.info('Stopping core before admin restart...')
+    await execFilePromise(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-EncodedCommand', encodedCommand],
+      { windowsHide: true, timeout: 120000 }
+    )
+  } catch (error) {
+    app.requestSingleInstanceLock()
+    managerLogger.warn('Administrator restart was cancelled or failed; keeping current core', error)
+    throw error
+  }
+
+  // UAC was accepted and the elevated replacement is waiting. Restore the
+  // user's previous proxy before stopping this instance's core.
+  try {
+    await triggerSysProxy(false)
+  } catch (error) {
+    app.requestSingleInstanceLock()
+    managerLogger.error(
+      'Administrator handoff aborted because the system proxy could not be restored',
+      error
+    )
+    throw error
+  }
+  try {
+    managerLogger.info('Stopping core after elevated replacement was accepted...')
     await stopCoreBeforeAdminRestart?.(true)
-    await new Promise((resolve) => setTimeout(resolve, 500))
   } catch (error) {
     managerLogger.warn('Failed to stop core before restart:', error)
   }
 
-  const exePath = process.execPath
-  const args = process.argv.slice(1).filter((arg) => arg !== '--admin-restart-for-tun')
-  const restartArgs = forTun ? [...args, '--admin-restart-for-tun'] : args
-
-  const escapedExePath = exePath.replace(/'/g, "''")
-  const argsString = restartArgs.map((arg) => arg.replace(/'/g, "''")).join("', '")
-
-  // 使用 Start-Sleep 延迟启动，确保旧进程完全退出后再启动新进程
-  const command =
-    restartArgs.length > 0
-      ? `powershell -NoProfile -Command "Start-Sleep -Milliseconds 1000; Start-Process -FilePath '${escapedExePath}' -ArgumentList '${argsString}' -Verb RunAs"`
-      : `powershell -NoProfile -Command "Start-Sleep -Milliseconds 1000; Start-Process -FilePath '${escapedExePath}' -Verb RunAs"`
-
-  managerLogger.info('Restarting as administrator with command', command)
-
-  // 先启动 PowerShell（它会等待 1 秒），然后立即退出当前进程
-  exec(command, { windowsHide: true }, (error) => {
-    if (error) {
-      managerLogger.error('Failed to start PowerShell for admin restart', error)
-    }
-  })
-  managerLogger.info('PowerShell command started, quitting app immediately')
+  managerLogger.info('Elevated replacement accepted, quitting current instance')
   app.exit(0)
 }
 
@@ -329,9 +381,7 @@ export async function showErrorDialog(title: string, message: string): Promise<v
   })
 }
 
-export async function validateTunPermissionsOnStartup(
-  _restartCore: () => Promise<void>
-): Promise<void> {
+export async function validateTunPermissionsOnStartup(): Promise<void> {
   const { tun } = await getControledMihomoConfig()
 
   if (!tun?.enable) {
@@ -347,19 +397,24 @@ export async function validateTunPermissionsOnStartup(
     )
     await patchControledMihomoConfig({ tun: { enable: false } })
 
-    const { mainWindow } = await import('../index')
-    mainWindow?.webContents.send('controledMihomoConfigUpdated')
-    ipcMain.emit('updateTrayMenu')
-
     managerLogger.info('TUN auto-disabled due to insufficient permissions on startup')
   } else {
     managerLogger.info('TUN permissions validated successfully')
   }
 }
 
-export async function checkAdminRestartForTun(restartCore: () => Promise<void>): Promise<void> {
+export async function checkAdminRestartForTun(): Promise<void> {
   if (process.argv.includes('--admin-restart-for-tun')) {
     managerLogger.info('Detected admin restart for TUN mode, auto-enabling TUN...')
+
+    if (process.platform === 'win32' && !(await isTrustedWindowsInstallation())) {
+      await patchControledMihomoConfig({ tun: { enable: false } }).catch((error) =>
+        managerLogger.error('Failed to persist the unsafe TUN disable', error)
+      )
+      throw new Error(
+        'Refusing TUN elevation outside the installed AikoBox directory in Program Files'
+      )
+    }
 
     try {
       if (process.platform === 'win32') {
@@ -372,13 +427,7 @@ export async function checkAdminRestartForTun(restartCore: () => Promise<void>):
             await enableAutoRun()
           }
 
-          await restartCore()
-
-          managerLogger.info('TUN mode auto-enabled after admin restart')
-
-          const { mainWindow } = await import('../index')
-          mainWindow?.webContents.send('controledMihomoConfigUpdated')
-          ipcMain.emit('updateTrayMenu')
+          managerLogger.info('TUN mode enabled before starting the elevated core')
         } else {
           managerLogger.warn('Admin restart detected but no admin privileges found')
         }
@@ -387,7 +436,7 @@ export async function checkAdminRestartForTun(restartCore: () => Promise<void>):
       managerLogger.error('Failed to auto-enable TUN after admin restart', error)
     }
   } else {
-    await validateTunPermissionsOnStartup(restartCore)
+    await validateTunPermissionsOnStartup()
   }
 }
 

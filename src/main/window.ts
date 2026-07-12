@@ -4,11 +4,16 @@ import { BrowserWindow, Menu, screen, shell } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { getAppConfig } from './config'
-import { quitWithoutCore, stopCore } from './core/manager'
-import { triggerSysProxy } from './sys/sysproxy'
+import { quitWithoutCore } from './core/manager'
+import {
+  handleWindowsQuerySessionEnd,
+  handleWindowsSessionEnd,
+  setLifecycleWindowStateSaver
+} from './lifecycle'
 import { hideDockIcon, showDockIcon } from './resolve/tray'
 import { dataDir } from './utils/dirs'
 import { mainWindowLogger } from './utils/logger'
+import { isTrustedRendererUrl, normalizeExternalHttpUrl } from './utils/electronSecurity'
 
 interface WindowState {
   width: number
@@ -20,6 +25,19 @@ interface WindowState {
 
 // 内存态，最大化期间保留上次普通尺寸（#1954）。
 let windowState: WindowState = { width: 800, height: 600 }
+const rendererRoot = join(__dirname, '../renderer')
+
+function openExternalBrowserUrl(value: string): void {
+  const url = normalizeExternalHttpUrl(value)
+  if (!url) {
+    mainWindowLogger.warn('Blocked unsafe external URL').catch(() => {})
+    return
+  }
+
+  void shell.openExternal(url).catch((error) => {
+    mainWindowLogger.warn('Failed to open external URL', error).catch(() => {})
+  })
+}
 
 function windowStateFile(): string {
   return join(dataDir(), 'window-state.json')
@@ -155,8 +173,13 @@ async function createWindowInternal(): Promise<void> {
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),
       spellcheck: false,
-      sandbox: false,
-      devTools: true
+      sandbox: true,
+      nodeIntegration: false,
+      contextIsolation: true,
+      devTools: is.dev,
+      webSecurity: true,
+      webviewTag: false,
+      navigateOnDragDrop: false
     }
   })
 
@@ -288,15 +311,32 @@ function setupWindowEvents(window: BrowserWindow, config: WindowConfig): void {
   window.on('maximize', () => updateWindowState(window, false))
   window.on('unmaximize', () => updateWindowState(window, false))
 
-  window.on('session-end', async () => {
+  window.on('session-end', () => {
     saveWindowState(window)
-    await triggerSysProxy(false)
-    await stopCore()
+    handleWindowsSessionEnd()
+  })
+
+  window.on('query-session-end', (event) => {
+    saveWindowState(window)
+    handleWindowsQuerySessionEnd(event)
   })
 
   window.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    openExternalBrowserUrl(details.url)
     return { action: 'deny' }
+  })
+
+  // Never let application content navigate the privileged top-level renderer
+  // to an external origin. Browser URLs are delegated to the system browser.
+  window.webContents.on('will-navigate', (event, url) => {
+    if (isTrustedRendererUrl(url, rendererRoot, undefined, is.dev)) return
+    event.preventDefault()
+    openExternalBrowserUrl(url)
+  })
+  window.webContents.on('will-redirect', (event, url) => {
+    if (isTrustedRendererUrl(url, rendererRoot, undefined, is.dev)) return
+    event.preventDefault()
+    openExternalBrowserUrl(url)
   })
 }
 
@@ -377,3 +417,5 @@ export function saveMainWindowState(): void {
     saveWindowState(mainWindow)
   }
 }
+
+setLifecycleWindowStateSaver(saveMainWindowState)

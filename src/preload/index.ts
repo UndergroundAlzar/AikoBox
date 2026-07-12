@@ -76,6 +76,7 @@ const validInvokeChannels = [
   'quitWithoutCore',
   // System
   'triggerSysProxy',
+  'setTunEnabled',
   'checkTunPermissions',
   'grantTunPermissions',
   'manualGrantCorePermition',
@@ -94,6 +95,9 @@ const validInvokeChannels = [
   // Update
   'checkUpdate',
   'downloadAndInstallUpdate',
+  'checkCoreUpdate',
+  'installCoreUpdate',
+  'rollbackCoreUpdate',
   'getVersion',
   'platform',
   // Backup
@@ -109,9 +113,9 @@ const validInvokeChannels = [
   'stopSubStoreFrontendServer',
   'startSubStoreBackendServer',
   'stopSubStoreBackendServer',
-  'downloadSubStore',
   'subStorePort',
   'subStoreFrontendPort',
+  'subStoreBackendPrefix',
   'subStoreSubs',
   'subStoreCollections',
   // Theme
@@ -184,7 +188,11 @@ type ListenChannel = (typeof validListenChannels)[number]
 type SendChannel = (typeof validSendChannels)[number]
 
 type IpcListener = (event: Electron.IpcRendererEvent, ...args: unknown[]) => void
-const listenerMap = new Map<ListenChannel, Set<IpcListener>>()
+type RegisteredIpcListener = (event: Electron.IpcRendererEvent, ...args: unknown[]) => void
+const listenerMap = new Map<ListenChannel, Map<IpcListener, RegisteredIpcListener>>()
+// Preserve the historical callback signature without exposing the real event.sender
+// (which is ipcRenderer and would bypass the channel whitelist).
+const safeRendererEvent = Object.freeze({}) as Electron.IpcRendererEvent
 
 // 安全的 IPC API，只暴露白名单内的 channels
 const electronAPI = {
@@ -202,27 +210,39 @@ const electronAPI = {
     },
     on: (channel: ListenChannel, listener: IpcListener): void => {
       if (validListenChannels.includes(channel)) {
-        if (!listenerMap.has(channel)) {
-          listenerMap.set(channel, new Set())
+        let listeners = listenerMap.get(channel)
+        if (!listeners) {
+          listeners = new Map()
+          listenerMap.set(channel, listeners)
         }
-        listenerMap.get(channel)?.add(listener)
-        ipcRenderer.on(channel, listener)
+        if (listeners.has(listener)) return
+
+        const registeredListener: RegisteredIpcListener = (_event, ...args) => {
+          listener(safeRendererEvent, ...args)
+        }
+        listeners.set(listener, registeredListener)
+        ipcRenderer.on(channel, registeredListener)
       }
     },
     removeListener: (channel: ListenChannel, listener: IpcListener): void => {
       if (validListenChannels.includes(channel)) {
-        listenerMap.get(channel)?.delete(listener)
-        ipcRenderer.removeListener(channel, listener)
+        const listeners = listenerMap.get(channel)
+        const registeredListener = listeners?.get(listener)
+        if (!registeredListener) return
+        ipcRenderer.removeListener(channel, registeredListener)
+        listeners?.delete(listener)
+        if (listeners?.size === 0) listenerMap.delete(channel)
       }
     },
     removeAllListeners: (channel: ListenChannel): void => {
       if (validListenChannels.includes(channel)) {
         const listeners = listenerMap.get(channel)
         if (listeners) {
-          listeners.forEach((listener) => {
-            ipcRenderer.removeListener(channel, listener)
+          listeners.forEach((registeredListener) => {
+            ipcRenderer.removeListener(channel, registeredListener)
           })
           listeners.clear()
+          listenerMap.delete(channel)
         }
       }
     }
@@ -233,7 +253,14 @@ const electronAPI = {
 }
 
 const api = {
-  webUtils: webUtils
+  webUtils: {
+    getPathForFile: (file: File): string => {
+      const filePath = webUtils.getPathForFile(file)
+      const granted = ipcRenderer.sendSync('grantSelectedFileCapability', filePath)
+      if (granted !== true) throw new Error('The main process rejected the selected file')
+      return filePath
+    }
+  }
 }
 
 if (process.contextIsolated) {

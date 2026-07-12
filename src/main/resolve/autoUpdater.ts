@@ -3,7 +3,7 @@ import i18next from 'i18next'
 /**
  * AikoBox 不使用应用内自动更新：
  * 远程检查始终静默返回“无可用更新”，更新随完整安装包发布。
- * UI（检查更新按钮/更新弹窗）保留，checkUpdate 永远不会抛出网络错误。
+ * UI 入口在发布源和签名校验真正接入前隐藏；IPC 暂时保留以兼容旧 renderer。
  */
 export async function checkUpdate(): Promise<IAppVersion | undefined> {
   return undefined

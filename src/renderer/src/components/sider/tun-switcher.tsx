@@ -3,7 +3,7 @@ import { useControledMihomoConfig } from '@renderer/hooks/use-controled-mihomo-c
 import BorderSwitch from '@renderer/components/base/border-swtich'
 import { TbDeviceIpadHorizontalBolt } from 'react-icons/tb'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { updateTrayIconImmediate } from '@renderer/utils/ipc'
+import { setTunEnabled, updateTrayIconImmediate } from '@renderer/utils/ipc'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import React from 'react'
@@ -23,7 +23,7 @@ const TunSwitcher: React.FC<Props> = (props) => {
   const { appConfig } = useAppConfig()
   const { tunCardStatus = 'col-span-1', disableAnimations = false } = appConfig || {}
   const sysProxyEnabled = appConfig?.sysProxy?.enable ?? false
-  const { controledMihomoConfig, patchControledMihomoConfig } = useControledMihomoConfig()
+  const { controledMihomoConfig } = useControledMihomoConfig()
   const { tun } = controledMihomoConfig || {}
   const { enable } = tun || {}
   const {
@@ -38,7 +38,7 @@ const TunSwitcher: React.FC<Props> = (props) => {
   })
   const transform = tf ? { x: tf.x, y: tf.y, scaleX: 1, scaleY: 1 } : null
   const onChange = async (enable: boolean): Promise<void> => {
-    updateTrayIconImmediate(sysProxyEnabled, enable)
+    const previousEnable = Boolean(tun?.enable)
     if (enable) {
       try {
         // 检查内核权限
@@ -89,16 +89,27 @@ const TunSwitcher: React.FC<Props> = (props) => {
         console.warn('Permission check failed:', error)
       }
 
-      await patchControledMihomoConfig({ tun: { enable }, dns: { enable: true } })
       if (enable) {
         const autoRunEnabled = await window.electron.ipcRenderer.invoke('checkAutoRun')
         if (autoRunEnabled) {
           await window.electron.ipcRenderer.invoke('enableAutoRun')
         }
       }
-    } else {
-      await patchControledMihomoConfig({ tun: { enable } })
     }
+
+    try {
+      await setTunEnabled(enable)
+    } catch (error) {
+      updateTrayIconImmediate(sysProxyEnabled, previousEnable)
+      await window.electron.ipcRenderer.invoke(
+        'showErrorDialog',
+        t('common.error.restartCoreFailed'),
+        String(error)
+      )
+      return
+    }
+
+    updateTrayIconImmediate(sysProxyEnabled, enable)
     window.electron.ipcRenderer.send('updateFloatingWindow')
     window.electron.ipcRenderer.send('updateTrayMenu')
   }
