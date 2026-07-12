@@ -12,6 +12,7 @@ extraResources:
     to: ''
     filter:
       - 'files/**/*'
+      - '!files/7za.exe'
       - 'sidecar/**/*'
 protocols:
   name: 'AikoBox URI Scheme'

@@ -20,11 +20,15 @@ test('offline audit covers dependencies and explicitly tracked resource blockers
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
   assert.match(result.stdout, /production dependency versions use reviewed license expressions/)
   assert.match(result.stderr, /Production packages without a root license file/)
-  assert.match(result.stderr, /\[BLOCKED\].*sevenZip.*singBox/)
+  assert.match(result.stderr, /\[BLOCKED\].*enableLoopback.*singBox/)
+  assert.doesNotMatch(result.stdout + result.stderr, /sevenZip|7za\.exe/)
 })
 
 test('release-gate mode fails closed while redistribution evidence is unresolved', () => {
   const result = runAudit()
   assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
-  assert.match(result.stderr, /Runtime resource licensing is unresolved/)
+  assert.match(
+    result.stderr,
+    /Runtime resource licensing is unresolved for: enableLoopback, notoColorEmoji, singBox, subStoreBackend, subStoreFrontend, sysproxy, trafficMonitor/
+  )
 })

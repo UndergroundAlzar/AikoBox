@@ -114,6 +114,9 @@ function verifyPackagedApplication() {
   const appAsar = resolve(resources, 'app.asar')
   assertAmd64Pe(appExecutable)
   if (!existsSync(appAsar)) throw new Error('Missing packaged app.asar')
+  if (existsSync(resolve(resources, 'files', '7za.exe'))) {
+    throw new Error('Retired 7za.exe must not be present in the packaged runtime')
+  }
 
   const asarEntries = listPackage(appAsar).map((entry) => entry.replaceAll('\\', '/'))
   for (const required of ['/LICENSE', '/THIRD_PARTY_NOTICES.md']) {

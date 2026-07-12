@@ -74,14 +74,6 @@
       "output": "extra/files/sub-store-frontend",
       "fileCount": 160,
       "directorySha256": "8e732156c12e29f36ddf864e3c0739e2ef2de3d4c5180bc8e8aeead0b0de6ff8"
-    },
-    "sevenZip": {
-      "type": "local-file",
-      "version": "7zip-bin 5.2.0 / 7-Zip 21.07",
-      "source": "node_modules/7zip-bin/win/x64/7za.exe",
-      "output": "extra/files/7za.exe",
-      "size": 1231360,
-      "sha256": "b0cfdeaf429f5cc53f85123dd8f5a5feb92c19d31aa34df257edf9a26be05f95"
     }
   }
 }

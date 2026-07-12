@@ -54,6 +54,9 @@ jobs:
       - name: Run isolated fake-core runtime smoke
         run: pnpm run smoke:runtime
 
+      - name: Test the CI-only Electron smoke safety boundary
+        run: pnpm run test:electron-smoke
+
       - name: Test the locked resource verifier itself
         run: node --test scripts/prepare.test.mjs
 
@@ -62,3 +65,11 @@ jobs:
 
       - name: Compile Electron application
         run: pnpm run build
+
+      - name: Install the locked Electron runtime for the process smoke
+        run: pnpm rebuild electron
+
+      - name: Launch the production renderer in the isolated Electron process smoke
+        env:
+          AIKOBOX_ELECTRON_SMOKE_TOKEN: aikobox-github-windows-electron-smoke-v1
+        run: pnpm run smoke:electron:ci
