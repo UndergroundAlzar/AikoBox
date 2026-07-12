@@ -11,9 +11,13 @@ const lockPath = path.join(scriptsDirectory, 'resources-lock.json')
 const preparePath = path.join(scriptsDirectory, 'prepare.mjs')
 const sha256Pattern = /^[a-f0-9]{64}$/
 const mutablePathPattern = /(^|\/)latest(\/|$)|(^|\/)(main|master)(\/|$)/i
+const resourceLock = JSON.parse(fs.readFileSync(lockPath, 'utf8'))
+const hasInstalledResourceSet = Object.values(resourceLock.resources).every((resource) =>
+  fs.existsSync(path.resolve(repositoryRoot, resource.output))
+)
 
 test('resource lock contains only pinned HTTPS downloads and SHA-256 identities', () => {
-  const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'))
+  const lock = resourceLock
 
   assert.equal(lock.schemaVersion, 1)
   assert.equal(lock.target, 'win32-x64')
@@ -47,7 +51,9 @@ test('resource lock contains only pinned HTTPS downloads and SHA-256 identities'
 
 test(
   'verify-only mode validates every installed resource without network access',
-  { skip: process.platform !== 'win32' || process.arch !== 'x64' },
+  {
+    skip: process.platform !== 'win32' || process.arch !== 'x64' || !hasInstalledResourceSet
+  },
   () => {
     const result = spawnSync(process.execPath, [preparePath, '--verify-only'], {
       cwd: repositoryRoot,
@@ -58,6 +64,25 @@ test(
 
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
     assert.match(result.stdout, /All 8 locked resources passed integrity verification/)
+    assert.doesNotMatch(result.stdout + result.stderr, /downloaded and verified/i)
+  }
+)
+
+test(
+  'verify-only mode fails closed without downloading when resources are absent',
+  {
+    skip: process.platform !== 'win32' || process.arch !== 'x64' || hasInstalledResourceSet
+  },
+  () => {
+    const result = spawnSync(process.execPath, [preparePath, '--verify-only'], {
+      cwd: repositoryRoot,
+      encoding: 'utf8',
+      env: { ...process.env, AIKOBOX_PREPARE_OFFLINE: '1' },
+      timeout: 60_000
+    })
+
+    assert.notEqual(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    assert.match(result.stdout + result.stderr, /installed resource is missing/i)
     assert.doesNotMatch(result.stdout + result.stderr, /downloaded and verified/i)
   }
 )
