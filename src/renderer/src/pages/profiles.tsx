@@ -19,7 +19,9 @@ import EditInfoModal from '@renderer/components/profiles/edit-info-modal'
 import { useProfileConfig } from '@renderer/hooks/use-profile-config'
 import { useAppConfig } from '@renderer/hooks/use-app-config'
 import { usePluginConfig } from '@renderer/hooks/use-plugin-config'
+import { showError } from '@renderer/utils/error-display'
 import {
+  addProfileItem as addProfileItemDirect,
   getFilePath,
   readTextFile,
   subStoreCollections,
@@ -44,6 +46,7 @@ import SubStoreIcon from '@renderer/components/base/substore-icon'
 import useSWR from 'swr'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { runProfileBatchUpdate } from '@renderer/utils/profile-batch-update'
 import { DEFAULT_USE_SUB_STORE } from '../../../shared/appConfig'
 
 const Profiles: React.FC = () => {
@@ -76,6 +79,8 @@ const Profiles: React.FC = () => {
   const [subStoreImporting, setSubStoreImporting] = useState(false)
   const [importing, setImporting] = useState(false)
   const [updating, setUpdating] = useState(false)
+  const importingRef = useRef(false)
+  const updatingRef = useRef(false)
   const [fileOver, setFileOver] = useState(false)
   const [url, setUrl] = useState('')
   const [, setNow] = useState(new Date())
@@ -153,25 +158,37 @@ const Profiles: React.FC = () => {
     return items
   }, [subs, collections, t])
   const handleImport = async (): Promise<void> => {
+    if (importingRef.current || updatingRef.current) return
+    importingRef.current = true
     setImporting(true)
-    await addProfileItem({
-      name: '',
-      type: 'remote',
-      url,
-      useProxy,
-      authToken: authToken || undefined,
-      userAgent: userAgent || undefined,
-      ageSecretKey: ageSecretKey || undefined
-    })
-    setUrl('')
-    setAuthToken('')
-    setUserAgent('')
-    setAgeSecretKey('')
-    setImporting(false)
+    try {
+      await addProfileItemDirect({
+        name: '',
+        type: 'remote',
+        url,
+        useProxy,
+        authToken: authToken || undefined,
+        userAgent: userAgent || undefined,
+        ageSecretKey: ageSecretKey || undefined
+      })
+      mutateProfileConfig()
+      window.electron.ipcRenderer.send('updateTrayMenu')
+      setUrl('')
+      setAuthToken('')
+      setUserAgent('')
+      setAgeSecretKey('')
+      toast.success(t('profiles.notification.importSuccess'))
+    } catch (error) {
+      await showError(error, t('profiles.error.importFailed'))
+    } finally {
+      importingRef.current = false
+      setImporting(false)
+    }
   }
   const pageRef = useRef<HTMLDivElement>(null)
 
   const onDragEnd = async (event: DragEndEvent): Promise<void> => {
+    if (updatingRef.current || importingRef.current) return
     const { active, over } = event
     if (over) {
       if (active.id !== over.id) {
@@ -197,7 +214,7 @@ const Profiles: React.FC = () => {
 
   const handleInputKeyUp = useCallback((e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== 'Enter' || e.currentTarget.value.trim() === '') return
-    handleImportRef.current()
+    void handleImportRef.current()
   }, [])
 
   useEffect(() => {
@@ -219,6 +236,10 @@ const Profiles: React.FC = () => {
     const handleDrop = async (event: DragEvent): Promise<void> => {
       event.preventDefault()
       event.stopPropagation()
+      if (updatingRef.current || importingRef.current) {
+        setFileOver(false)
+        return
+      }
       if (event.dataTransfer?.files) {
         const file = event.dataTransfer.files[0]
         const name = file?.name.toLowerCase() ?? ''
@@ -273,21 +294,46 @@ const Profiles: React.FC = () => {
           className="app-nodrag"
           variant="light"
           isIconOnly
+          isDisabled={updating}
           onPress={async () => {
+            if (updatingRef.current || importingRef.current) return
+            updatingRef.current = true
             setUpdating(true)
-            for (const item of items) {
-              if (item.id === current) continue
-              if (item.type === 'remote') await addProfileItem(item)
-              else if (item.type === 'plugin' && item.pluginId)
-                await updatePluginProfile(item.pluginId, true)
+            try {
+              const result = await runProfileBatchUpdate(items, current, async (item) => {
+                if (item.type === 'remote') {
+                  await addProfileItemDirect(item)
+                  return
+                }
+                if (item.type === 'plugin' && item.pluginId) {
+                  await updatePluginProfile(item.pluginId, true, true)
+                }
+              })
+              mutateProfileConfig()
+              window.electron.ipcRenderer.send('updateTrayMenu')
+
+              if (result.total === 0) {
+                toast.warning(t('profiles.notification.updateAllEmpty'))
+              } else if (result.failed === 0) {
+                toast.success(
+                  t('profiles.notification.updateAllSuccess', { count: result.succeeded })
+                )
+              } else if (result.succeeded === 0) {
+                toast.error(t('profiles.notification.updateAllFailed', { count: result.failed }))
+              } else {
+                toast.warning(
+                  t('profiles.notification.updateAllPartial', {
+                    succeeded: result.succeeded,
+                    failed: result.failed
+                  })
+                )
+              }
+            } catch (error) {
+              await showError(error, t('common.error.updateProfileFailed'))
+            } finally {
+              updatingRef.current = false
+              setUpdating(false)
             }
-            const currentItem = items.find((item) => item.id === current)
-            if (currentItem && currentItem.type === 'remote') {
-              await addProfileItem(currentItem)
-            } else if (currentItem?.type === 'plugin' && currentItem.pluginId) {
-              await updatePluginProfile(currentItem.pluginId, true)
-            }
-            setUpdating(false)
           }}
         >
           <IoMdRefresh className={`text-lg ${updating ? 'animate-spin' : ''}`} />
@@ -362,7 +408,7 @@ const Profiles: React.FC = () => {
             <Button
               size="sm"
               color="primary"
-              isDisabled={isUrlEmpty}
+              isDisabled={isUrlEmpty || updating}
               isLoading={importing}
               onPress={handleImport}
             >
@@ -378,6 +424,7 @@ const Profiles: React.FC = () => {
                 <DropdownTrigger>
                   <Button
                     isLoading={subStoreImporting}
+                    isDisabled={updating || importing}
                     title="Sub-Store"
                     className="substore-import"
                     size="sm"
@@ -530,7 +577,12 @@ const Profiles: React.FC = () => {
                 {t('plugins.useProxy')}
               </Checkbox>
             </Tooltip>
-            <Button size="sm" color="primary" onPress={() => setShowPluginImport(true)}>
+            <Button
+              size="sm"
+              color="primary"
+              isDisabled={updating || importing}
+              onPress={() => setShowPluginImport(true)}
+            >
               {t('plugins.import')}
             </Button>
           </div>
@@ -538,7 +590,12 @@ const Profiles: React.FC = () => {
         {(pluginConfig?.items?.length ?? 0) > 0 && (
           <div className="grid grid-cols-1 gap-2 mb-3">
             {pluginConfig?.items?.map((p) => (
-              <PluginItem key={p.id} item={p} onChanged={mutatePluginConfig} />
+              <PluginItem
+                key={p.id}
+                item={p}
+                disabled={updating || importing}
+                onChanged={mutatePluginConfig}
+              />
             ))}
           </div>
         )}
@@ -573,8 +630,10 @@ const Profiles: React.FC = () => {
                 updateProfileItem={updateProfileItem}
                 info={item}
                 onPress={async () => {
+                  if (updatingRef.current || importingRef.current) return
                   await changeCurrentProfile(item.id)
                 }}
+                disabled={updating || importing}
               />
             ))}
           </SortableContext>

@@ -6,7 +6,7 @@ import os from 'os'
 import path from 'path'
 import AdmZip from 'adm-zip'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { CORE_SELECTION_FILE } from './coreSelection'
+import { CORE_SELECTION_FILE, resolveVerifiedManagedCorePath } from './coreSelection'
 import {
   CANDIDATE_VALIDATION_CONFIG,
   compareVersions,
@@ -37,6 +37,9 @@ async function fixture(options?: {
   checkFails?: boolean
   untrustedAssetUrl?: boolean
   untrustedRedirect?: boolean
+  wrongArchiveLayout?: boolean
+  now?: () => number
+  stagedUpdateTtlMs?: number
 }) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'aikobox-core-updater-'))
   tempDirs.push(root)
@@ -54,7 +57,12 @@ async function fixture(options?: {
     : archiveUrl
   const checksumUrl = `${base}/${checksumName}`
   const zip = new AdmZip()
-  zip.addFile(`sing-box-${version}-windows-amd64/sing-box.exe`, Buffer.from('new-core'))
+  zip.addFile(
+    options?.wrongArchiveLayout
+      ? 'unexpected/sing-box.exe'
+      : `sing-box-${version}-windows-amd64/sing-box.exe`,
+    Buffer.from('new-core')
+  )
   const archive = zip.toBuffer()
   const checksum = createHash('sha256').update(archive).digest('hex')
   const release = {
@@ -110,9 +118,11 @@ async function fixture(options?: {
     coreDir,
     bundledCorePath,
     elevated: options?.elevated ?? false,
-    execFile: exec
+    execFile: exec,
+    now: options?.now,
+    stagedUpdateTtlMs: options?.stagedUpdateTtlMs
   })
-  return { updater, coreDir, exec, version, archiveName }
+  return { updater, coreDir, bundledCorePath, exec, version, archiveName }
 }
 
 describe('sing-box core updater', () => {
@@ -138,6 +148,10 @@ describe('sing-box core updater', () => {
     expect(compareVersions('1.13.0', '1.12.9')).toBeGreaterThan(0)
     expect(compareVersions('1.13.0', '1.13.0-beta.2')).toBeGreaterThan(0)
     expect(compareVersions('1.13.0-beta.10', '1.13.0-beta.2')).toBeGreaterThan(0)
+    expect(compareVersions('1.13.0-beta-2', '1.13.0-beta-1')).toBeGreaterThan(0)
+    expect(compareVersions('999999999999999999999.0.0', '2.0.0')).toBeGreaterThan(0)
+    expect(() => compareVersions('01.13.0', '1.13.0')).toThrow('Untrusted')
+    expect(() => compareVersions('1.13.0-beta..1', '1.13.0')).toThrow('Untrusted')
   })
 
   it('parses only the checksum belonging to the exact archive', () => {
@@ -146,9 +160,12 @@ describe('sing-box core updater', () => {
       parseChecksumFile(`${'b'.repeat(64)} other.zip\n${hash} *wanted.zip`, 'wanted.zip')
     ).toBe(hash)
     expect(() => parseChecksumFile(`${hash} almost-wanted.zip`, 'wanted.zip')).toThrow()
+    expect(() =>
+      parseChecksumFile(`${hash} wanted.zip\n${hash} *wanted.zip`, 'wanted.zip')
+    ).toThrow('duplicate')
   })
 
-  it('verifies archive SHA-256, version and check before atomically selecting it', async () => {
+  it('keeps an applied candidate pending until its health-checked restart is committed', async () => {
     const { updater, coreDir, exec, version } = await fixture()
     const available = await updater.check()
     expect(available).toMatchObject({
@@ -179,8 +196,27 @@ describe('sing-box core updater', () => {
     expect(manifest).toMatchObject({
       schema: 1,
       active: { version, file: `sing-box-${version}-windows-amd64.exe` },
-      previous: 'bundled'
+      previous: 'bundled',
+      pending: true
     })
+    expect(updater.getPendingValidationSelection()).toEqual(manifest.active)
+
+    // Simulate a process crash after apply but before commit. A fresh resolver
+    // has no in-memory transaction authorization and must stay on bundled.
+    await expect(
+      resolveVerifiedManagedCorePath(coreDir, {
+        elevated: false,
+        execFile: async () => {
+          throw new Error('pending candidate must not execute after a crash')
+        }
+      })
+    ).resolves.toBeNull()
+
+    await updater.commitSelectionChange()
+    const committed = JSON.parse(await readFile(path.join(coreDir, CORE_SELECTION_FILE), 'utf8'))
+    expect(committed).toMatchObject({ active: manifest.active, previous: 'bundled' })
+    expect(committed).not.toHaveProperty('pending')
+    expect(updater.getPendingValidationSelection()).toBeNull()
   })
 
   it('never creates an active selection when digest validation fails', async () => {
@@ -191,12 +227,17 @@ describe('sing-box core updater', () => {
     })
   })
 
-  it('prefers an official checksum asset over the GitHub asset digest', async () => {
+  it('requires the official checksum asset and GitHub digest to agree', async () => {
     const { updater, version } = await fixture({
       checksumAsset: true,
       corruptChecksumAsset: true
     })
-    await expect(updater.stage(version)).rejects.toThrow('SHA-256')
+    await expect(updater.stage(version)).rejects.toThrow('SHA-256 sources disagree')
+
+    const corruptDigest = await fixture({ checksumAsset: true, corruptChecksum: true })
+    await expect(corruptDigest.updater.stage(corruptDigest.version)).rejects.toThrow(
+      'SHA-256 sources disagree'
+    )
   })
 
   it('fails closed when the release supplies no official SHA-256 material', async () => {
@@ -222,12 +263,54 @@ describe('sing-box core updater', () => {
 
     const invalid = await fixture({ checkFails: true })
     await expect(invalid.updater.stage(invalid.version)).rejects.toThrow('invalid candidate config')
+
+    const wrongLayout = await fixture({ wrongArchiveLayout: true })
+    await expect(wrongLayout.updater.stage(wrongLayout.version)).rejects.toThrow(
+      `sing-box-${wrongLayout.version}-windows-amd64/sing-box.exe`
+    )
+  })
+
+  it('expires staged updates instead of activating an indefinitely reusable token', async () => {
+    let currentTime = 1_000
+    const { updater, version } = await fixture({
+      now: () => currentTime,
+      stagedUpdateTtlMs: 100
+    })
+    const staged = await updater.stage(version)
+    currentTime += 100
+    await expect(updater.apply(staged.token)).rejects.toThrow('expired before activation')
+    await expect(updater.apply(staged.token)).rejects.toThrow('missing or expired')
+  })
+
+  it('refuses activation if the selected core changed while the archive was staged', async () => {
+    const { updater, version, coreDir } = await fixture()
+    const staged = await updater.stage(version)
+    const file = `sing-box-${version}-windows-amd64.exe`
+    const contents = Buffer.from('different-selected-core')
+    await writeFile(path.join(coreDir, file), contents)
+    await writeFile(
+      path.join(coreDir, CORE_SELECTION_FILE),
+      JSON.stringify({
+        schema: 1,
+        active: {
+          file,
+          version,
+          sha256: createHash('sha256').update(contents).digest('hex')
+        },
+        previous: 'bundled'
+      })
+    )
+
+    await expect(updater.apply(staged.token)).rejects.toThrow(
+      'active sing-box core changed while the update was being prepared'
+    )
   })
 
   it('supports an explicit rollback while retaining the newer core for a later switch', async () => {
     const { updater, version, coreDir } = await fixture()
     const staged = await updater.stage(version)
     await updater.apply(staged.token)
+    await updater.commitSelectionChange()
     const result = await updater.rollback()
     expect(result).toEqual({
       version: '1.0.0',

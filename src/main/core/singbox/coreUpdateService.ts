@@ -5,7 +5,11 @@ import { net } from 'electron'
 import { dataDir } from '../../utils/dirs'
 import { createLogger } from '../../utils/logger'
 import { getSessionAdminStatus } from '../permissions'
-import { resolveVerifiedManagedCorePath } from './coreSelection'
+import {
+  resolveVerifiedManagedCorePath,
+  resolveVerifiedPendingManagedCorePath,
+  type VerifyManagedCoreOptions
+} from './coreSelection'
 import {
   createCoreUpdater,
   type CoreReleaseInfo,
@@ -42,7 +46,8 @@ export async function checkCoreUpdate(): Promise<CoreReleaseInfo> {
  */
 export async function resolveSingboxCorePathForExecution(): Promise<string> {
   const bundled = singboxBundledCorePath()
-  const managed = await resolveVerifiedManagedCorePath(path.join(dataDir(), 'core'), {
+  const coreDir = path.join(dataDir(), 'core')
+  const verification: VerifyManagedCoreOptions = {
     elevated: getSessionAdminStatus(),
     execFile: async (file, args) =>
       (await execFilePromise(file, [...args], {
@@ -51,7 +56,15 @@ export async function resolveSingboxCorePathForExecution(): Promise<string> {
         maxBuffer: 1024 * 1024
       })) as { stdout: string; stderr: string },
     warn: (message) => logger.warn(message)
-  })
+  }
+  const pending = updater().getPendingValidationSelection()
+  if (pending) {
+    // Only the updater instance that staged this exact candidate can take this
+    // path. A fresh process has no in-memory authorization and resolves the
+    // manifest's last-known-good selection instead.
+    return (await resolveVerifiedPendingManagedCorePath(coreDir, pending, verification)).path
+  }
+  const managed = await resolveVerifiedManagedCorePath(coreDir, verification)
   return managed?.path ?? bundled
 }
 

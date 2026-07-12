@@ -61,6 +61,7 @@ vi.mock('./gateway', async (importOriginal) => {
   }
 })
 import { GatewayError } from './gateway'
+import { readVault } from './vault'
 import {
   previewPlugin,
   installPlugin,
@@ -253,6 +254,60 @@ describe('updatePluginProfile', () => {
     expect(pluginItems[item.id].failureCount).toBe(1)
     expect(pluginItems[item.id].nextRetryAt).toBeGreaterThan(Date.now())
     expect(profiles[pluginItems[item.id].profileId ?? '']).toBe(before)
+  })
+
+  it('strict interactive update throws only a safe category after recording transient failure', async () => {
+    const item = await installPlugin(file())
+    await loginPlugin(item.id)
+    fetchConfig.mockRejectedValueOnce(
+      new GatewayError('transient', 'timeout at https://gateway.secret/?token=leak')
+    )
+
+    const error = (await updatePluginProfile(item.id, true, true).catch((e) => e)) as Error
+
+    expect(error.message).toBe('PLUGIN_UPDATE_NETWORK')
+    expect(error.message).not.toContain('gateway.secret')
+    expect(error.message).not.toContain('token=leak')
+    expect(pluginItems[item.id].failureCount).toBe(1)
+  })
+
+  it('strict interactive update maps unexpected errors to a generic safe category', async () => {
+    const item = await installPlugin(file())
+    await loginPlugin(item.id)
+    fetchConfig.mockRejectedValueOnce(new Error('internal path C:\\secret\\token.txt'))
+
+    const error = (await updatePluginProfile(item.id, true, true).catch((e) => e)) as Error
+
+    expect(error.message).toBe('PLUGIN_UPDATE_FAILED')
+    expect(error.message).not.toContain('secret')
+  })
+
+  it('strict interactive update reports login-required without performing network I/O', async () => {
+    const item = await installPlugin(file())
+    fetchConfig.mockClear()
+
+    await expect(updatePluginProfile(item.id, true, true)).rejects.toThrow(
+      'PLUGIN_UPDATE_LOGIN_REQUIRED'
+    )
+    expect(fetchConfig).not.toHaveBeenCalled()
+  })
+
+  it('default mode still propagates unexpected vault storage failures', async () => {
+    const item = await installPlugin(file())
+    await loginPlugin(item.id)
+    vi.mocked(readVault).mockRejectedValueOnce(new Error('vault storage unavailable'))
+
+    await expect(updatePluginProfile(item.id, true)).rejects.toThrow('vault storage unavailable')
+  })
+
+  it('strict mode sanitizes unexpected vault storage failures', async () => {
+    const item = await installPlugin(file())
+    await loginPlugin(item.id)
+    vi.mocked(readVault).mockRejectedValueOnce(new Error('C:\\secret\\vault.db unavailable'))
+
+    const error = (await updatePluginProfile(item.id, true, true).catch((e) => e)) as Error
+    expect(error.message).toBe('PLUGIN_UPDATE_FAILED')
+    expect(error.message).not.toContain('secret')
   })
 
   it('backoff success clears failure state', async () => {

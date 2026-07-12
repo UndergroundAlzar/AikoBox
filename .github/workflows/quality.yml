@@ -51,6 +51,9 @@ jobs:
       - name: Run offline unit tests
         run: pnpm run test:ci
 
+      - name: Run isolated fake-core runtime smoke
+        run: pnpm run smoke:runtime
+
       - name: Test the locked resource verifier itself
         run: node --test scripts/prepare.test.mjs
 

@@ -8,6 +8,7 @@ import { writeFileAtomically } from '../../config/remoteResource'
 import {
   CORE_SELECTION_FILE,
   CORE_SELECTION_SCHEMA,
+  isValidCoreVersion,
   managedCoreFilename,
   parseCoreSelectionManifest,
   resolveVerifiedManagedCorePath,
@@ -29,6 +30,7 @@ const MAX_METADATA_BYTES = 2 * 1024 * 1024
 const MAX_ARCHIVE_BYTES = 128 * 1024 * 1024
 const MAX_EXECUTABLE_BYTES = 128 * 1024 * 1024
 const REQUEST_TIMEOUT_MS = 60_000
+const STAGED_UPDATE_TTL_MS = 15 * 60_000
 
 export const CANDIDATE_VALIDATION_CONFIG = Object.freeze({
   log: { disabled: true },
@@ -84,11 +86,14 @@ export interface CoreUpdaterDependencies {
   elevated: boolean
   warn?: (message: string) => void
   execFile?: (file: string, args: readonly string[]) => Promise<{ stdout: string; stderr: string }>
+  now?: () => number
+  stagedUpdateTtlMs?: number
 }
 
 interface TrustedRelease extends CoreReleaseInfo {
   archive: GithubAsset
   checksums?: GithubAsset
+  githubDigest?: string
   previousSelection: CoreSelectionEntry | 'bundled'
 }
 
@@ -106,29 +111,39 @@ function assertWindowsX64(platform: NodeJS.Platform, arch: string): void {
 
 function normalizeVersion(value: string): string {
   const version = value.startsWith('v') ? value.slice(1) : value
-  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
+  if (!isValidCoreVersion(version)) {
     throw new Error(`Untrusted sing-box release version: ${value}`)
   }
   return version
 }
 
+function compareNumericIdentifiers(left: string, right: string): number {
+  if (left.length !== right.length) return left.length < right.length ? -1 : 1
+  return left === right ? 0 : left < right ? -1 : 1
+}
+
 function compareIdentifiers(left: string, right: string): number {
   const leftNumeric = /^\d+$/.test(left)
   const rightNumeric = /^\d+$/.test(right)
-  if (leftNumeric && rightNumeric) return Number(left) - Number(right)
+  if (leftNumeric && rightNumeric) return compareNumericIdentifiers(left, right)
   if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1
-  return left.localeCompare(right)
+  return left === right ? 0 : left < right ? -1 : 1
 }
 
 export function compareVersions(leftValue: string, rightValue: string): number {
   const left = normalizeVersion(leftValue)
   const right = normalizeVersion(rightValue)
-  const [leftMain, leftPre] = left.split('-', 2)
-  const [rightMain, rightPre] = right.split('-', 2)
-  const leftParts = leftMain.split('.').map(Number)
-  const rightParts = rightMain.split('.').map(Number)
+  const leftSeparator = left.indexOf('-')
+  const rightSeparator = right.indexOf('-')
+  const leftMain = leftSeparator === -1 ? left : left.slice(0, leftSeparator)
+  const rightMain = rightSeparator === -1 ? right : right.slice(0, rightSeparator)
+  const leftPre = leftSeparator === -1 ? undefined : left.slice(leftSeparator + 1)
+  const rightPre = rightSeparator === -1 ? undefined : right.slice(rightSeparator + 1)
+  const leftParts = leftMain.split('.')
+  const rightParts = rightMain.split('.')
   for (let i = 0; i < 3; i++) {
-    if (leftParts[i] !== rightParts[i]) return leftParts[i] - rightParts[i]
+    const result = compareNumericIdentifiers(leftParts[i], rightParts[i])
+    if (result !== 0) return result
   }
   if (leftPre === undefined || rightPre === undefined) {
     return leftPre === rightPre ? 0 : leftPre === undefined ? 1 : -1
@@ -202,12 +217,17 @@ async function trustedFetch(fetcher: typeof fetch, url: string, maxBytes: number
 }
 
 export function parseChecksumFile(content: string, archiveName: string): string {
+  const matches: string[] = []
   for (const line of content.split(/\r?\n/)) {
     const match = line.trim().match(/^([a-fA-F0-9]{64})\s+\*?(.+)$/)
     if (match && match[2].trim() === archiveName) {
-      return match[1].toLowerCase()
+      matches.push(match[1].toLowerCase())
     }
   }
+  if (matches.length > 1) {
+    throw new Error(`Official checksum contains duplicate entries for ${archiveName}`)
+  }
+  if (matches.length === 1) return matches[0]
   throw new Error(`Official checksum is missing for ${archiveName}`)
 }
 
@@ -225,11 +245,16 @@ async function sha256File(file: string): Promise<string> {
 
 async function readManifest(coreDir: string): Promise<CoreSelectionManifest | null> {
   try {
-    return parseCoreSelectionManifest(
-      JSON.parse(await readFile(path.join(coreDir, CORE_SELECTION_FILE), 'utf8'))
-    )
-  } catch {
-    return null
+    const contents = await readFile(path.join(coreDir, CORE_SELECTION_FILE), 'utf8')
+    try {
+      return parseCoreSelectionManifest(JSON.parse(contents))
+    } catch (error) {
+      if (error instanceof SyntaxError) return null
+      throw error
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw error
   }
 }
 
@@ -269,17 +294,35 @@ export function createCoreUpdater(dependencies: CoreUpdaterDependencies): {
   rollback(): Promise<CoreUpdateResult>
   undoSelectionChange(): Promise<void>
   commitSelectionChange(): Promise<void>
+  getPendingValidationSelection(): CoreSelectionEntry | null
 } {
   const run = dependencies.execFile ?? defaultExecFile
+  const now = dependencies.now ?? Date.now
+  const stagedUpdateTtlMs = dependencies.stagedUpdateTtlMs ?? STAGED_UPDATE_TTL_MS
+  if (!Number.isSafeInteger(stagedUpdateTtlMs) || stagedUpdateTtlMs <= 0) {
+    throw new Error('The staged sing-box update lifetime is invalid')
+  }
   let operation: Promise<unknown> | null = null
   let selectionUndo: CoreSelectionManifest | null | undefined
+  let pendingValidationSelection: CoreSelectionEntry | undefined
   const staged = new Map<
     string,
     PreparedCore & {
       previousVersion: string
       previousSelection: CoreSelectionEntry | 'bundled'
+      expiresAt: number
     }
   >()
+
+  const sameSelection = (
+    left: CoreSelectionEntry | 'bundled',
+    right: CoreSelectionEntry | 'bundled'
+  ): boolean => {
+    if (left === 'bundled' || right === 'bundled') return left === right
+    return (
+      left.file === right.file && left.version === right.version && left.sha256 === right.sha256
+    )
+  }
 
   const selectedCore = async (): Promise<{
     path: string
@@ -323,7 +366,12 @@ export function createCoreUpdater(dependencies: CoreUpdaterDependencies): {
       throw new Error('Official Windows x64 archive has an invalid size')
     }
     if (checksums) assertOfficialAsset(checksums, expectedChecksums, version)
-    const githubDigest = archive.digest?.match(/^sha256:([a-f0-9]{64})$/)?.[1]
+    let githubDigest: string | undefined
+    if (archive.digest !== undefined && archive.digest !== null) {
+      const match = archive.digest.match(/^sha256:([a-f0-9]{64})$/)
+      if (!match) throw new Error('GitHub returned an invalid SHA-256 asset digest')
+      githubDigest = match[1]
+    }
     if (!checksums && !githubDigest) {
       throw new Error('Official SHA-256 release digest or checksum manifest is missing')
     }
@@ -347,6 +395,7 @@ export function createCoreUpdater(dependencies: CoreUpdaterDependencies): {
       canRollback: !dependencies.elevated && Boolean(manifest?.previous),
       archive,
       checksums,
+      githubDigest,
       previousSelection: selected.entry
     }
   }
@@ -363,9 +412,7 @@ export function createCoreUpdater(dependencies: CoreUpdaterDependencies): {
         MAX_ARCHIVE_BYTES
       )
       await writeFile(archivePath, archiveBytes, { flag: 'wx' })
-      // Prefer the project's checksum file when present. Current GitHub releases
-      // expose a platform-generated sha256 digest directly on each asset.
-      const expectedHash = release.checksums
+      const checksumDigest = release.checksums
         ? parseChecksumFile(
             (
               await trustedFetch(
@@ -376,20 +423,23 @@ export function createCoreUpdater(dependencies: CoreUpdaterDependencies): {
             ).toString('utf8'),
             release.archive.name
           )
-        : release.archive.digest?.slice('sha256:'.length)
+        : undefined
+      if (checksumDigest && release.githubDigest && checksumDigest !== release.githubDigest) {
+        throw new Error('Official sing-box SHA-256 sources disagree')
+      }
+      const expectedHash = checksumDigest ?? release.githubDigest
       if (!expectedHash) throw new Error('Official SHA-256 verification material is missing')
       const actualHash = await sha256File(archivePath)
       if (actualHash !== expectedHash)
         throw new Error('sing-box archive SHA-256 verification failed')
 
       const zip = new AdmZip(archivePath)
+      const expectedExecutableEntry = `sing-box-${release.latestVersion}-windows-amd64/sing-box.exe`
       const executableEntries = zip
         .getEntries()
-        .filter(
-          (entry) => !entry.isDirectory && path.posix.basename(entry.entryName) === 'sing-box.exe'
-        )
+        .filter((entry) => !entry.isDirectory && entry.entryName === expectedExecutableEntry)
       if (executableEntries.length !== 1) {
-        throw new Error('Official archive must contain exactly one sing-box.exe')
+        throw new Error(`Official archive is missing ${expectedExecutableEntry}`)
       }
       const executableSize = executableEntries[0].header.size
       if (
@@ -399,7 +449,11 @@ export function createCoreUpdater(dependencies: CoreUpdaterDependencies): {
       ) {
         throw new Error('sing-box.exe in the official archive has an invalid size')
       }
-      await writeFile(stagedPath, executableEntries[0].getData(), { flag: 'wx', mode: 0o755 })
+      const executableBytes = executableEntries[0].getData()
+      if (executableBytes.length !== executableSize) {
+        throw new Error('sing-box.exe size does not match its archive metadata')
+      }
+      await writeFile(stagedPath, executableBytes, { flag: 'wx', mode: 0o755 })
       const executableHash = await sha256File(stagedPath)
       const { stdout, stderr } = await run(stagedPath, ['version'])
       const candidateVersion = parseVersionOutput(`${stdout}\n${stderr}`)
@@ -460,21 +514,38 @@ export function createCoreUpdater(dependencies: CoreUpdaterDependencies): {
         staged.set(token, {
           ...prepared,
           previousVersion: release.currentVersion,
-          previousSelection: release.previousSelection
+          previousSelection: release.previousSelection,
+          expiresAt: now() + stagedUpdateTtlMs
         })
         return { token, version: prepared.entry.version, previousVersion: release.currentVersion }
       }),
     apply: (token) =>
       withLock(async () => {
         selectionUndo = undefined
+        pendingValidationSelection = undefined
         assertWindowsX64(dependencies.platform, dependencies.arch)
         if (dependencies.elevated) {
           throw new Error('Managed core activation is forbidden in an elevated AikoBox session')
         }
         const prepared = staged.get(token)
         if (!prepared) throw new Error('The staged sing-box update is missing or expired')
+        if (now() >= prepared.expiresAt) {
+          staged.delete(token)
+          await rm(prepared.tempDir, { recursive: true, force: true })
+          throw new Error('The staged sing-box update expired before activation')
+        }
         try {
           const previousManifest = await readManifest(dependencies.coreDir)
+          const selected = await selectedCore()
+          const selectedVersion = await currentVersion(selected.path, run)
+          if (
+            !sameSelection(selected.entry, prepared.previousSelection) ||
+            selectedVersion !== prepared.previousVersion
+          ) {
+            throw new Error(
+              'The active sing-box core changed while the update was being prepared; check for updates again'
+            )
+          }
           if ((await sha256File(prepared.stagedPath)) !== prepared.entry.sha256) {
             throw new Error('Staged sing-box core changed after verification')
           }
@@ -488,9 +559,11 @@ export function createCoreUpdater(dependencies: CoreUpdaterDependencies): {
           await writeManifest(dependencies.coreDir, {
             schema: CORE_SELECTION_SCHEMA,
             active: prepared.entry,
-            previous: prepared.previousSelection
+            previous: prepared.previousSelection,
+            pending: true
           })
           selectionUndo = previousManifest
+          pendingValidationSelection = prepared.entry
           return {
             version: prepared.entry.version,
             previousVersion: prepared.previousVersion,
@@ -505,6 +578,7 @@ export function createCoreUpdater(dependencies: CoreUpdaterDependencies): {
     rollback: () =>
       withLock(async () => {
         selectionUndo = undefined
+        pendingValidationSelection = undefined
         assertWindowsX64(dependencies.platform, dependencies.arch)
         if (dependencies.elevated) {
           throw new Error('Managed core rollback is forbidden in an elevated AikoBox session')
@@ -533,14 +607,14 @@ export function createCoreUpdater(dependencies: CoreUpdaterDependencies): {
         await writeManifest(dependencies.coreDir, {
           schema: CORE_SELECTION_SCHEMA,
           active: target,
-          previous: current
+          ...(manifest.pending ? {} : { previous: current })
         })
         selectionUndo = manifest
         return {
           version,
           previousVersion: current.version,
           rolledBack: true,
-          canRollback: true
+          canRollback: !manifest.pending
         }
       }),
     undoSelectionChange: () =>
@@ -550,10 +624,27 @@ export function createCoreUpdater(dependencies: CoreUpdaterDependencies): {
         if (previous) await writeManifest(dependencies.coreDir, previous)
         else await removeManifest(dependencies.coreDir)
         selectionUndo = undefined
+        pendingValidationSelection = undefined
       }),
     commitSelectionChange: () =>
       withLock(async () => {
+        if (selectionUndo === undefined) {
+          throw new Error('No pending core selection change can be committed')
+        }
+        if (pendingValidationSelection) {
+          const manifest = await readManifest(dependencies.coreDir)
+          if (!manifest?.pending || !sameSelection(manifest.active, pendingValidationSelection)) {
+            throw new Error('Pending core selection changed before it could be committed')
+          }
+          await writeManifest(dependencies.coreDir, {
+            schema: CORE_SELECTION_SCHEMA,
+            active: manifest.active,
+            previous: manifest.previous
+          })
+        }
         selectionUndo = undefined
-      })
+        pendingValidationSelection = undefined
+      }),
+    getPendingValidationSelection: () => pendingValidationSelection ?? null
   }
 }

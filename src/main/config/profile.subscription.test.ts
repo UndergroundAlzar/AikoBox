@@ -137,6 +137,26 @@ describe('remote profile subscriptions', () => {
     expect(mocks.axiosGet.mock.calls[0][0]).toMatch(
       /^http:\/\/127\.0\.0\.1:38324\/aikobox-test-capability\/download\/demo\?/
     )
+    expect(() =>
+      mocks.axiosGet.mock.calls[0][1].beforeRedirect({
+        href: 'https://unexpected.example/download/demo'
+      })
+    ).toThrow(/sensitive headers may not redirect across origins/)
+  })
+
+  it('does not forward URL credentials across redirect origins', async () => {
+    mocks.axiosGet.mockResolvedValueOnce(response(200, clashYaml, { 'content-type': 'text/yaml' }))
+    const { createProfile } = await import('./profile')
+
+    await createProfile({
+      id: 'basic-auth-redirect',
+      type: 'remote',
+      url: 'https://user:password@example.invalid/sub'
+    })
+
+    expect(() =>
+      mocks.axiosGet.mock.calls[0][1].beforeRedirect({ href: 'https://cdn.example/sub' })
+    ).toThrow(/sensitive headers may not redirect across origins/)
   })
 
   it('rejects an HTML success response and preserves the previous subscription', async () => {
@@ -181,6 +201,39 @@ describe('remote profile subscriptions', () => {
       })
     ).rejects.toThrow(/status code 503/)
     expect(existsSync(join(mocks.root, 'profiles', 'status-error.yaml'))).toBe(false)
+  })
+
+  it('reports both direct and proxy fallback failures without leaking URLs', async () => {
+    mocks.axiosGet
+      .mockRejectedValueOnce(
+        new Error('request failed at https://example.invalid/private-path-token/sub?token=secret')
+      )
+      .mockResolvedValueOnce(response(502, 'bad gateway', { 'content-type': 'text/plain' }))
+    const { createProfile } = await import('./profile')
+
+    let failure: unknown
+    try {
+      await createProfile({
+        id: 'dual-failure',
+        type: 'remote',
+        url: 'https://example.invalid/private-path-token/sub?token=secret'
+      })
+    } catch (error) {
+      failure = error
+    }
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect((failure as Error).message).toMatch(
+      /failed directly \(network request failed\) and through the local proxy \(Subscription failed: Request status code 502\)/
+    )
+    expect((failure as Error).message).not.toContain('token=secret')
+    expect((failure as Error).message).not.toContain('private-path-token')
+    expect(
+      (failure as AggregateError).errors.map((error) => String(error)).join('\n')
+    ).not.toContain('token=secret')
+    expect(mocks.logger.warn.mock.calls.flat().map(String).join('\n')).not.toContain('token=secret')
+    expect(mocks.logger.warn.mock.calls.flat().map(String).join('\n')).not.toContain(
+      'private-path-token'
+    )
   })
 
   it('normalizes a Base64 URI subscription and rejects unsafe URL schemes and profile ids', async () => {

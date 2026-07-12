@@ -24,6 +24,7 @@
   "scripts": {
     "test": "vitest run",
     "test:ci": "vitest run --exclude src/main/core/singbox/realConfig.test.ts",
+    "smoke:runtime": "node --import tsx scripts/runtime-smoke.mjs",
     "test:watch": "vitest",
     "format": "prettier --write .",
     "format:check": "prettier --list-different .",

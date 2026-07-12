@@ -8,6 +8,7 @@ import BaseConfirmModal from '@renderer/components/base/base-confirm-modal'
 interface Props {
   item: IPluginItem
   onChanged: () => void
+  disabled?: boolean
 }
 
 const statusColor: Record<IPluginStatus, 'success' | 'warning' | 'primary'> = {
@@ -16,12 +17,13 @@ const statusColor: Record<IPluginStatus, 'success' | 'warning' | 'primary'> = {
   'needs-reauth': 'warning'
 }
 
-const PluginItem: React.FC<Props> = ({ item, onChanged }) => {
+const PluginItem: React.FC<Props> = ({ item, onChanged, disabled = false }) => {
   const { t } = useTranslation()
   const [busy, setBusy] = useState(false)
   const [showRemove, setShowRemove] = useState(false)
 
   const doLogin = async (): Promise<void> => {
+    if (disabled) return
     setBusy(true)
     toast.info(t('plugins.loginInProgress'))
     try {
@@ -54,16 +56,34 @@ const PluginItem: React.FC<Props> = ({ item, onChanged }) => {
 
         <div className="flex gap-2 flex-wrap">
           {needsLogin && (
-            <Button size="sm" color="primary" isLoading={busy} onPress={doLogin}>
+            <Button
+              size="sm"
+              color="primary"
+              isLoading={busy}
+              isDisabled={disabled}
+              onPress={doLogin}
+            >
               {t('plugins.login')}
             </Button>
           )}
           {needsReauth && (
-            <Button size="sm" color="warning" isLoading={busy} onPress={doLogin}>
+            <Button
+              size="sm"
+              color="warning"
+              isLoading={busy}
+              isDisabled={disabled}
+              onPress={doLogin}
+            >
               {t('plugins.relogin')}
             </Button>
           )}
-          <Button size="sm" variant="flat" color="danger" onPress={() => setShowRemove(true)}>
+          <Button
+            size="sm"
+            variant="flat"
+            color="danger"
+            isDisabled={disabled}
+            onPress={() => setShowRemove(true)}
+          >
             {t('plugins.remove')}
           </Button>
         </div>
@@ -76,6 +96,7 @@ const PluginItem: React.FC<Props> = ({ item, onChanged }) => {
           content={t('plugins.removeConfirm')}
           onCancel={() => setShowRemove(false)}
           onConfirm={async () => {
+            if (disabled) return
             try {
               await removePlugin(item.id)
             } finally {
