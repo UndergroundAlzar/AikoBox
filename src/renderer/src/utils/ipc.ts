@@ -158,7 +158,7 @@ interface IpcApi {
   installPlugin: (fileBytesB64: string) => Promise<IPluginItem>
   loginPlugin: (id: string) => Promise<void>
   removePlugin: (id: string) => Promise<void>
-  updatePluginProfile: (id: string, force?: boolean) => Promise<void>
+  updatePluginProfile: (id: string, force?: boolean, throwOnFailure?: boolean) => Promise<void>
   // Misc
   getGistUrl: () => Promise<string>
   generateGistAgeKeyPair: () => Promise<{ secretKey: string; recipient: string }>

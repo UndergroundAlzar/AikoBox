@@ -367,13 +367,37 @@ function subscriptionRequestIdentity(options: {
 function redactSubscriptionUrl(url: string): string {
   try {
     const urlObj = new URL(url)
-    if (urlObj.username) urlObj.username = '***'
-    if (urlObj.password) urlObj.password = '***'
+    urlObj.username = ''
+    urlObj.password = ''
+    if (urlObj.pathname && urlObj.pathname !== '/') urlObj.pathname = '/***'
     if (urlObj.search) urlObj.search = '?***'
+    urlObj.hash = ''
     return urlObj.toString()
   } catch {
-    return url.includes('?') ? `${url.split('?')[0]}?***` : url
+    return '[redacted subscription URL]'
   }
+}
+
+function subscriptionAttemptErrorMessage(error: unknown): string {
+  const message = (error instanceof Error ? error.message : String(error))
+    .replace(/[\r\n\t]+/g, ' ')
+    .trim()
+  if (!message) return 'unknown request error'
+  if (/https?:\/\//i.test(message)) return 'network request failed'
+  if (/\b(?:Bearer|Basic|token|password|secret|authorization|credential)\b/i.test(message)) {
+    return 'subscription request failed (sensitive details redacted)'
+  }
+  return message
+    .replace(/\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, '[redacted authorization]')
+    .replace(
+      /\b(token|password|secret|authorization|credential)(\s*[:=]\s*)[^\s,;]+/gi,
+      '$1$2[redacted]'
+    )
+    .slice(0, 512)
+}
+
+function sanitizedSubscriptionAttemptError(error: unknown): Error {
+  return new Error(subscriptionAttemptErrorMessage(error))
 }
 
 function normalizeAxiosHeaders(headers: AxiosResponse['headers']): Record<string, string> {
@@ -429,6 +453,7 @@ async function fetchAndValidateSubscription(options: FetchOptions): Promise<Fetc
   )
 
   let requestUrl = url
+  let hasSensitiveRedirectContext = Boolean(authToken || substore)
   let proxy:
     | {
         protocol: 'http'
@@ -459,10 +484,12 @@ async function fetchAndValidateSubscription(options: FetchOptions): Promise<Fetc
     }
     requestUrl = urlObj.toString()
   } else if (useProxy) {
-    assertHttpUrl(url, 'Subscription URL')
+    const parsedUrl = assertHttpUrl(url, 'Subscription URL')
+    hasSensitiveRedirectContext ||= Boolean(parsedUrl.username || parsedUrl.password)
     proxy = { protocol: 'http', host: '127.0.0.1', port: mixedPort }
   } else {
-    assertHttpUrl(url, 'Subscription URL')
+    const parsedUrl = assertHttpUrl(url, 'Subscription URL')
+    hasSensitiveRedirectContext ||= Boolean(parsedUrl.username || parsedUrl.password)
   }
 
   let res: AxiosResponse<string>
@@ -477,17 +504,23 @@ async function fetchAndValidateSubscription(options: FetchOptions): Promise<Fetc
       maxContentLength: 32 * 1024 * 1024,
       maxBodyLength: 32 * 1024 * 1024,
       beforeRedirect: (redirectOptions) => {
-        assertSafeHttpRedirect(requestUrl, redirectOptions, 'Subscription', Boolean(authToken))
+        assertSafeHttpRedirect(
+          requestUrl,
+          redirectOptions,
+          'Subscription',
+          hasSensitiveRedirectContext
+        )
       },
       validateStatus: () => true,
       transformResponse: [(data) => data]
     })
   } catch (error) {
+    const sanitizedError = sanitizedSubscriptionAttemptError(error)
     await profileLogger.warn(
       `Remote profile request failed url=${redactedUrl} mode=${fetchMode}`,
-      error
+      sanitizedError
     )
-    throw error
+    throw sanitizedError
   }
 
   const data = typeof res.data === 'string' ? res.data : String(res.data ?? '')
@@ -657,13 +690,25 @@ export async function createProfile(item: Partial<IProfileItem>): Promise<IProfi
           `Direct remote profile fetch failed id=${id} url=${redactSubscriptionUrl(
             profileUrl
           )}; trying proxy fallback`,
-          directError
+          sanitizedSubscriptionAttemptError(directError)
         )
+        if (!isValidProxyPort(mixedPort)) {
+          throw sanitizedSubscriptionAttemptError(directError)
+        }
         try {
           // smart fallback
           result = await fetchSub(true, defaultTimeoutMs)
-        } catch {
-          throw directError
+        } catch (proxyError) {
+          const sanitizedDirectError = sanitizedSubscriptionAttemptError(directError)
+          const sanitizedProxyError = sanitizedSubscriptionAttemptError(proxyError)
+          throw new AggregateError(
+            [sanitizedDirectError, sanitizedProxyError],
+            `Subscription failed directly (${subscriptionAttemptErrorMessage(
+              sanitizedDirectError
+            )}) and through the local proxy (${subscriptionAttemptErrorMessage(
+              sanitizedProxyError
+            )})`
+          )
         }
       }
     }

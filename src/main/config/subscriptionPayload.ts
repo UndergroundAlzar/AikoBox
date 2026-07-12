@@ -2,6 +2,11 @@ import { parse, stringify } from '../utils/yaml'
 
 type Dict = Record<string, unknown>
 
+interface ProxyUriLine {
+  value: string
+  lineNumber: number
+}
+
 const MAX_SUBSCRIPTION_PROXIES = 10_000
 const MAX_SUBSCRIPTION_PROVIDERS = 64
 const MAX_SUBSCRIPTION_GROUPS = 512
@@ -31,9 +36,19 @@ function asDict(value: unknown): Dict {
 
 function decodeBase64(value: string): string {
   const compact = value.replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/')
-  if (!compact || !/^[A-Za-z0-9+/]*={0,2}$/.test(compact)) throw new Error('invalid Base64 data')
+  if (
+    !compact ||
+    compact.length % 4 === 1 ||
+    !/^[A-Za-z0-9+/]*={0,2}$/.test(compact) ||
+    compact.slice(0, -2).includes('=')
+  ) {
+    throw new Error('invalid Base64 data')
+  }
   const padded = compact.padEnd(Math.ceil(compact.length / 4) * 4, '=')
-  const result = Buffer.from(padded, 'base64').toString('utf8')
+  const bytes = Buffer.from(padded, 'base64')
+  const canonical = bytes.toString('base64').replace(/=+$/, '')
+  if (canonical !== compact.replace(/=+$/, '')) throw new Error('invalid Base64 data')
+  const result = bytes.toString('utf8')
   if (!result || result.includes('\uFFFD') || result.includes('\0'))
     throw new Error('invalid UTF-8 Base64 data')
   return result
@@ -43,7 +58,7 @@ function decoded(value: string): string {
   try {
     return decodeURIComponent(value)
   } catch {
-    return value
+    throw new Error('invalid percent-encoding')
   }
 }
 
@@ -54,13 +69,25 @@ function numberPort(value: string | number | null | undefined): number {
 }
 
 function displayName(fragment: string, fallback: string): string {
-  const name = decoded(fragment.replace(/^#/, '')).trim()
+  const raw = fragment.replace(/^#/, '')
+  let name: string
+  try {
+    name = decodeURIComponent(raw)
+  } catch {
+    // A malformed display-only fragment must not discard an otherwise usable
+    // node. Credentials and connection fields continue to use strict decoded().
+    name = raw
+  }
+  name = name.trim()
   return name || fallback
 }
 
 function queryBool(value: string | null): boolean | undefined {
   if (value === null) return undefined
-  return ['1', 'true', 'yes'].includes(value.toLowerCase())
+  const normalized = value.toLowerCase()
+  if (['1', 'true', 'yes'].includes(normalized)) return true
+  if (['0', 'false', 'no'].includes(normalized)) return false
+  throw new Error(`invalid boolean value "${value}"`)
 }
 
 function applyTransport(proxy: Dict, query: URLSearchParams): void {
@@ -137,7 +164,8 @@ function parseStandardUri(uri: string, fallback: string): Dict {
     proxy.uuid = username
     const flow = parsed.searchParams.get('flow')
     if (flow) proxy.flow = flow
-    const packetEncoding = parsed.searchParams.get('packetEncoding')
+    const packetEncoding =
+      parsed.searchParams.get('packetEncoding') || parsed.searchParams.get('packet-encoding')
     if (packetEncoding) proxy['packet-encoding'] = packetEncoding
     applyTransport(proxy, parsed.searchParams)
     applyTls(proxy, parsed.searchParams)
@@ -254,12 +282,23 @@ function parseShadowsocks(uri: string, fallback: string): Dict {
 }
 
 function parseVmess(uri: string, fallback: string): Dict {
-  const data = asDict(JSON.parse(decodeBase64(uri.slice('vmess://'.length))))
+  const encodedWithFragment = uri.slice('vmess://'.length)
+  const hashIndex = encodedWithFragment.indexOf('#')
+  const fragment = hashIndex >= 0 ? encodedWithFragment.slice(hashIndex) : ''
+  const encoded = hashIndex >= 0 ? encodedWithFragment.slice(0, hashIndex) : encodedWithFragment
+  const decodedPayload = decodeBase64(encoded)
+  let parsedPayload: unknown
+  try {
+    parsedPayload = JSON.parse(decodedPayload)
+  } catch {
+    throw new Error('VMess URI contains invalid JSON')
+  }
+  const data = asDict(parsedPayload)
   const server = String(data.add || data.server || '')
   const uuid = String(data.id || data.uuid || '')
   if (!server || !uuid) throw new Error('VMess URI is missing server or UUID')
   const proxy: Dict = {
-    name: String(data.ps || data.name || fallback),
+    name: String(data.ps || data.name || displayName(fragment, fallback)),
     type: 'vmess',
     server,
     port: numberPort(data.port as string | number),
@@ -276,10 +315,11 @@ function parseVmess(uri: string, fallback: string): Dict {
   assign('host', data.host)
   assign('path', data.path)
   assign('serviceName', data.path)
-  assign('security', data.tls)
+  assign('security', data.tls === true ? 'tls' : data.tls)
   assign('sni', data.sni)
   assign('alpn', data.alpn)
   assign('fp', data.fp)
+  assign('allowInsecure', data.allowInsecure)
   applyTransport(proxy, query)
   applyTls(proxy, query)
   return proxy
@@ -287,7 +327,7 @@ function parseVmess(uri: string, fallback: string): Dict {
 
 function parseProxyUri(uri: string, index: number): Dict {
   const schemeMatch = /^([a-z][a-z0-9+.-]*):\/\//i.exec(uri)
-  if (!schemeMatch) throw new Error(`line ${index + 1} is not a proxy URI`)
+  if (!schemeMatch) throw new Error('not a proxy URI')
   const scheme = schemeMatch[1].toLowerCase()
   if (!SUPPORTED_URI_SCHEMES.has(scheme)) {
     throw new Error(`proxy URI scheme "${scheme}" is not supported by the sing-box converter`)
@@ -298,11 +338,11 @@ function parseProxyUri(uri: string, index: number): Dict {
   return parseStandardUri(uri, fallback)
 }
 
-function proxyUriLines(content: string): string[] {
+function proxyUriLines(content: string): ProxyUriLine[] {
   return content
     .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith('#'))
+    .map((line, index) => ({ value: line.trim(), lineNumber: index + 1 }))
+    .filter((line) => line.value && !line.value.startsWith('#'))
 }
 
 function hasUsableClashContent(value: unknown): value is Dict {
@@ -310,6 +350,26 @@ function hasUsableClashContent(value: unknown): value is Dict {
   const proxies = Array.isArray(config.proxies) ? config.proxies : []
   const providers = asDict(config['proxy-providers'])
   return proxies.length > 0 || Object.keys(providers).length > 0
+}
+
+function assertDeclaredClashShape(value: unknown): void {
+  const config = asDict(value)
+  const declaresProxies = Object.hasOwn(config, 'proxies')
+  const declaresProviders = Object.hasOwn(config, 'proxy-providers')
+  if (!declaresProxies && !declaresProviders) return
+  if (declaresProxies && !Array.isArray(config.proxies)) {
+    throw new Error('Clash subscription "proxies" must be a list')
+  }
+  const providers = config['proxy-providers']
+  if (
+    declaresProviders &&
+    (!providers || typeof providers !== 'object' || Array.isArray(providers))
+  ) {
+    throw new Error('Clash subscription "proxy-providers" must be a map')
+  }
+  if (!hasUsableClashContent(config)) {
+    throw new Error('Subscription contains no proxy nodes or providers')
+  }
 }
 
 function assertBoundedClashSubscription(config: Dict): void {
@@ -380,6 +440,7 @@ export function normalizeSubscriptionPayload(content: string): NormalizedSubscri
   } catch {
     parsed = undefined
   }
+  assertDeclaredClashShape(parsed)
   if (hasUsableClashContent(parsed)) {
     assertBoundedClashSubscription(parsed)
     return {
@@ -387,11 +448,10 @@ export function normalizeSubscriptionPayload(content: string): NormalizedSubscri
       format: 'clash-yaml'
     }
   }
-
   const directLines = proxyUriLines(content)
   let lines = directLines
   let format: NormalizedSubscription['format'] = 'uri-list'
-  if (!lines.some((line) => /^[a-z][a-z0-9+.-]*:\/\//i.test(line))) {
+  if (!lines.some((line) => /^[a-z][a-z0-9+.-]*:\/\//i.test(line.value))) {
     try {
       lines = proxyUriLines(decodeBase64(content))
       format = 'base64-uri-list'
@@ -403,14 +463,21 @@ export function normalizeSubscriptionPayload(content: string): NormalizedSubscri
   if (lines.length > MAX_SUBSCRIPTION_PROXIES) {
     throw new Error(`Subscription exceeds ${MAX_SUBSCRIPTION_PROXIES} proxy nodes`)
   }
-  if (lines.some((line) => line.length > MAX_SUBSCRIPTION_LINE_LENGTH)) {
+  if (lines.some((line) => line.value.length > MAX_SUBSCRIPTION_LINE_LENGTH)) {
     throw new Error(`Subscription URI exceeds ${MAX_SUBSCRIPTION_LINE_LENGTH} characters`)
   }
-  if (!lines.every((line) => /^[a-z][a-z0-9+.-]*:\/\//i.test(line))) {
+  if (!lines.every((line) => /^[a-z][a-z0-9+.-]*:\/\//i.test(line.value))) {
     throw new Error('Subscription is neither Clash YAML nor a Base64 proxy URI list')
   }
 
-  const proxies = lines.map(parseProxyUri)
+  const proxies = lines.map((line, index) => {
+    try {
+      return parseProxyUri(line.value, index)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(`Subscription URI line ${line.lineNumber}: ${message}`)
+    }
+  })
   const usedNames = new Set<string>()
   for (const proxy of proxies) {
     const original = String(proxy.name || 'Proxy')

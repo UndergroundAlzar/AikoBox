@@ -208,11 +208,46 @@ function fetchWithRediscovery(
   )
 }
 
-// 自动/手动更新（静默，不弹浏览器）
-export async function updatePluginProfile(id: string, force = false): Promise<void> {
+type PluginUpdateFailureCode =
+  | 'PLUGIN_UPDATE_NOT_FOUND'
+  | 'PLUGIN_UPDATE_LOGIN_REQUIRED'
+  | 'PLUGIN_UPDATE_REAUTH_REQUIRED'
+  | 'PLUGIN_UPDATE_BACKOFF'
+  | 'PLUGIN_UPDATE_NETWORK'
+  | 'PLUGIN_UPDATE_FAILED'
+
+const pluginUpdateFailureCodes: ReadonlySet<string> = new Set<PluginUpdateFailureCode>([
+  'PLUGIN_UPDATE_NOT_FOUND',
+  'PLUGIN_UPDATE_LOGIN_REQUIRED',
+  'PLUGIN_UPDATE_REAUTH_REQUIRED',
+  'PLUGIN_UPDATE_BACKOFF',
+  'PLUGIN_UPDATE_NETWORK',
+  'PLUGIN_UPDATE_FAILED'
+])
+
+function strictPluginUpdateFailure(throwOnFailure: boolean, code: PluginUpdateFailureCode): void {
+  if (throwOnFailure) throw new Error(code)
+}
+
+// 自动更新默认静默；显式交互调用可要求按脱敏类别抛错。
+async function updatePluginProfileInternal(
+  id: string,
+  force = false,
+  throwOnFailure = false
+): Promise<void> {
   const record = await getPluginItem(id)
-  if (!record) return
-  if (record.status === 'needs-login' || record.status === 'needs-reauth') return
+  if (!record) {
+    strictPluginUpdateFailure(throwOnFailure, 'PLUGIN_UPDATE_NOT_FOUND')
+    return
+  }
+  if (record.status === 'needs-login') {
+    strictPluginUpdateFailure(throwOnFailure, 'PLUGIN_UPDATE_LOGIN_REQUIRED')
+    return
+  }
+  if (record.status === 'needs-reauth') {
+    strictPluginUpdateFailure(throwOnFailure, 'PLUGIN_UPDATE_REAUTH_REQUIRED')
+    return
+  }
   // active/needs-reauth 态必须有 profileId（spec §10）。损坏/迁移异常导致 active 无 profileId 时，
   // 标 needs-reauth 而非用 undefined 拼出 profiles/undefined.yaml。
   if (!record.profileId) {
@@ -223,9 +258,13 @@ export async function updatePluginProfile(id: string, force = false): Promise<vo
       nextRetryAt: undefined
     })
     notifyRenderer()
+    strictPluginUpdateFailure(throwOnFailure, 'PLUGIN_UPDATE_REAUTH_REQUIRED')
     return
   }
-  if (!force && record.nextRetryAt && Date.now() < record.nextRetryAt) return
+  if (!force && record.nextRetryAt && Date.now() < record.nextRetryAt) {
+    strictPluginUpdateFailure(throwOnFailure, 'PLUGIN_UPDATE_BACKOFF')
+    return
+  }
   const vault = await readVault(id)
   if (!vault) {
     await updatePluginItem({
@@ -235,9 +274,11 @@ export async function updatePluginProfile(id: string, force = false): Promise<vo
       nextRetryAt: undefined
     })
     notifyRenderer()
+    strictPluginUpdateFailure(throwOnFailure, 'PLUGIN_UPDATE_REAUTH_REQUIRED')
     return
   }
   const net = await netOpts()
+  let failureCode: PluginUpdateFailureCode | undefined
   try {
     const content = await fetchWithRediscovery(id, record, vault, net)
     await upsertPluginProfile(
@@ -269,6 +310,7 @@ export async function updatePluginProfile(id: string, force = false): Promise<vo
         lastUpdateErrorAt: now,
         nextRetryAt: undefined
       })
+      failureCode = 'PLUGIN_UPDATE_REAUTH_REQUIRED'
     } else {
       const failureCount = (record.failureCount ?? 0) + 1
       const { nextRetryAt } = computeBackoff(failureCount, now)
@@ -279,9 +321,29 @@ export async function updatePluginProfile(id: string, force = false): Promise<vo
         failureCount,
         nextRetryAt
       })
+      failureCode = e instanceof GatewayError ? 'PLUGIN_UPDATE_NETWORK' : 'PLUGIN_UPDATE_FAILED'
     }
   }
   notifyRenderer()
+  if (failureCode) strictPluginUpdateFailure(throwOnFailure, failureCode)
+}
+
+export async function updatePluginProfile(
+  id: string,
+  force = false,
+  throwOnFailure = false
+): Promise<void> {
+  try {
+    await updatePluginProfileInternal(id, force, throwOnFailure)
+  } catch (error) {
+    // Preserve the legacy contract for unexpected storage/configuration I/O:
+    // background network failures are handled inside the updater, but faults
+    // outside that recovery path must remain observable to their caller.
+    if (!throwOnFailure) throw error
+    const message = error instanceof Error ? error.message : ''
+    if (pluginUpdateFailureCodes.has(message)) throw error
+    throw new Error('PLUGIN_UPDATE_FAILED')
+  }
 }
 
 // 启动审计：active 但 vault 缺失（如 Linux 无 safeStorage 重启）→ needs-reauth

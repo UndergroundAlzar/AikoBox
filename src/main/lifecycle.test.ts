@@ -8,7 +8,10 @@ const mocks = vi.hoisted(() => ({
   quit: vi.fn(),
   exit: vi.fn(),
   showErrorBox: vi.fn(),
-  stopCore: vi.fn(async () => {}),
+  coreRunning: true,
+  stopCore: vi.fn(async () => {
+    mocks.coreRunning = false
+  }),
   cleanupCoreWatcher: vi.fn(),
   beginSystemProxyShutdown: vi.fn(),
   cancelSystemProxyShutdown: vi.fn(),
@@ -69,7 +72,10 @@ describe('Windows session-end lifecycle safety', () => {
     mocks.powerListeners.clear()
     mocks.disableSysProxySync.mockReturnValue(true)
     mocks.triggerSysProxy.mockResolvedValue(undefined)
-    mocks.stopCore.mockResolvedValue(undefined)
+    mocks.coreRunning = true
+    mocks.stopCore.mockImplementation(async () => {
+      mocks.coreRunning = false
+    })
   })
 
   it('blocks query-session-end and keeps the core alive when proxy restore fails', async () => {
@@ -84,6 +90,7 @@ describe('Windows session-end lifecycle safety', () => {
     expect(preventDefault).toHaveBeenCalledOnce()
     expect(mocks.cleanupCoreWatcher).not.toHaveBeenCalled()
     expect(mocks.stopCore).not.toHaveBeenCalled()
+    expect(mocks.coreRunning).toBe(true)
     expect(mocks.cancelSystemProxyShutdown).toHaveBeenCalledOnce()
     expect(mocks.quit).not.toHaveBeenCalled()
   })
@@ -103,6 +110,7 @@ describe('Windows session-end lifecycle safety', () => {
     expect(mocks.triggerSysProxy).toHaveBeenCalledOnce()
     expect(mocks.cleanupCoreWatcher).toHaveBeenCalledOnce()
     expect(mocks.stopCore).toHaveBeenCalledOnce()
+    expect(mocks.coreRunning).toBe(false)
   })
 
   it('exits only after an asynchronously recovered blocked session is safe', async () => {

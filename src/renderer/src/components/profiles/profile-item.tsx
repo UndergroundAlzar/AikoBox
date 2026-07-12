@@ -35,6 +35,7 @@ interface Props {
   removeProfileItem: (id: string) => Promise<void>
   mutateProfileConfig: () => void
   onPress: () => Promise<void>
+  disabled?: boolean
 }
 
 interface MenuItem {
@@ -53,7 +54,8 @@ const ProfileItem: React.FC<Props> = (props) => {
     mutateProfileConfig,
     updateProfileItem,
     onPress,
-    isCurrent
+    isCurrent,
+    disabled = false
   } = props
   const extra = info?.extra
   const usage = (extra?.upload ?? 0) + (extra?.download ?? 0)
@@ -76,7 +78,8 @@ const ProfileItem: React.FC<Props> = (props) => {
     transition,
     isDragging
   } = useSortable({
-    id: info.id
+    id: info.id,
+    disabled
   })
   const transform = tf ? { x: tf.x, y: tf.y, scaleX: 1, scaleY: 1 } : null
   const [isActuallyDragging, setIsActuallyDragging] = useState(false)
@@ -149,6 +152,7 @@ const ProfileItem: React.FC<Props> = (props) => {
   }, [info, t])
 
   const onMenuAction = async (key: Key): Promise<void> => {
+    if (disabled) return
     switch (key) {
       case 'edit-info': {
         setOpenInfoEditor(true)
@@ -189,10 +193,12 @@ const ProfileItem: React.FC<Props> = (props) => {
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
+    if (disabled) return
     setDropdownOpen(true)
   }
 
   const handleMouseDown = (e: React.MouseEvent) => {
+    if (disabled) return
     if (e.button === 0) {
       setClickStartPos({ x: e.clientX, y: e.clientY })
       setIsActuallyDragging(false)
@@ -200,6 +206,7 @@ const ProfileItem: React.FC<Props> = (props) => {
   }
 
   const handleMouseMove = (e: React.MouseEvent) => {
+    if (disabled) return
     if (!clickStartPos) return
 
     const dx = e.clientX - clickStartPos.x
@@ -216,7 +223,7 @@ const ProfileItem: React.FC<Props> = (props) => {
     }
 
     // 只处理左键点击
-    if (e.button !== 0) return cleanup()
+    if (e.button !== 0 || disabled) return cleanup()
 
     // 检查功能按钮点击
     const target = e.target as Element
@@ -276,7 +283,7 @@ const ProfileItem: React.FC<Props> = (props) => {
         fullWidth
         isPressable={false}
         onContextMenu={handleContextMenu}
-        className={`${isCurrent ? 'bg-primary' : ''} cursor-pointer transition-colors duration-150`}
+        className={`${isCurrent ? 'bg-primary' : ''} ${disabled ? 'cursor-wait opacity-70' : 'cursor-pointer'} transition-colors duration-150`}
       >
         <div
           ref={setNodeRef}
@@ -303,7 +310,7 @@ const ProfileItem: React.FC<Props> = (props) => {
                       size="sm"
                       variant="light"
                       color="default"
-                      disabled={updating || (info.type === 'plugin' && !info.pluginId)}
+                      disabled={disabled || updating || (info.type === 'plugin' && !info.pluginId)}
                       onPress={async () => {
                         try {
                           setUpdating(true)
@@ -324,7 +331,13 @@ const ProfileItem: React.FC<Props> = (props) => {
 
                 <Dropdown isOpen={dropdownOpen} onOpenChange={setDropdownOpen}>
                   <DropdownTrigger>
-                    <Button isIconOnly size="sm" variant="light" color="default">
+                    <Button
+                      isIconOnly
+                      size="sm"
+                      variant="light"
+                      color="default"
+                      isDisabled={disabled}
+                    >
                       <IoMdMore
                         color="default"
                         className={`text-[24px] ${isCurrent ? 'text-primary-foreground' : 'text-foreground'}`}

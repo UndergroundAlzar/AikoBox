@@ -44,4 +44,25 @@ describe('core update transaction', () => {
     ).rejects.toBe(failure)
     expect(order).toEqual(['select', 'new', 'restore', 'old'])
   })
+
+  it('reports both failures when the restored core cannot be restarted', async () => {
+    const updateFailure = new Error('new core failed')
+    const recoveryFailure = new Error('old core also failed')
+    const onRecoveryRestartError = vi.fn()
+    const restart = vi
+      .fn()
+      .mockRejectedValueOnce(updateFailure)
+      .mockRejectedValueOnce(recoveryFailure)
+
+    const failure = await runCoreUpdateTransaction({
+      select: async () => 'new',
+      restoreSelection: async () => {},
+      restart,
+      onRecoveryRestartError
+    }).catch((error) => error)
+
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect((failure as AggregateError).errors).toEqual([updateFailure, recoveryFailure])
+    expect(onRecoveryRestartError).toHaveBeenCalledWith(recoveryFailure)
+  })
 })

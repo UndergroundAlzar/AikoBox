@@ -27,7 +27,16 @@ export async function runCoreUpdateTransaction<T>(options: {
     try {
       await options.restart()
     } catch (recoveryError) {
-      options.onRecoveryRestartError?.(recoveryError)
+      const failures: unknown[] = [startError, recoveryError]
+      try {
+        options.onRecoveryRestartError?.(recoveryError)
+      } catch (reportingError) {
+        failures.push(reportingError)
+      }
+      throw new AggregateError(
+        failures,
+        'The new core failed and the restored core could not be restarted'
+      )
     }
     throw startError
   }

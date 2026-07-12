@@ -72,7 +72,88 @@ describe('subscription payload normalization', () => {
     expect(() => normalizeSubscriptionPayload('<html>login</html>')).toThrow(/neither Clash/)
     expect(() => normalizeSubscriptionPayload(base64('hello world'))).toThrow(/neither Clash/)
     expect(() => normalizeSubscriptionPayload(base64('ssr://abc'))).toThrow(/not supported/)
-    expect(() => normalizeSubscriptionPayload('proxies: []\n')).toThrow(/neither Clash/)
+    expect(() => normalizeSubscriptionPayload('proxies: []\n')).toThrow(/no proxy nodes/)
+    expect(() => normalizeSubscriptionPayload('proxies: invalid\n')).toThrow(/must be a list/)
+  })
+
+  it('rejects malformed URI fields with the original source line number', () => {
+    expect(() =>
+      normalizeSubscriptionPayload(
+        '# generated subscription\n\n' +
+          'vless://22222222-2222-2222-2222-222222222222@example.com:443?allowInsecure=maybe#Bad'
+      )
+    ).toThrow(/URI line 3: invalid boolean value/)
+    const malformedDisplayName = normalizeSubscriptionPayload(
+      'trojan://secret@example.com:443#broken%name'
+    )
+    expect(
+      (
+        parse<Record<string, unknown>>(malformedDisplayName.content).proxies as Record<
+          string,
+          unknown
+        >[]
+      )[0].name
+    ).toBe('broken%name')
+    expect(() =>
+      normalizeSubscriptionPayload('tuic://bad%name:password@example.com:443#TUIC')
+    ).toThrow(/URI line 1: invalid percent-encoding/)
+  })
+
+  it('validates every declared Clash root field before accepting another usable field', () => {
+    expect(() =>
+      normalizeSubscriptionPayload(
+        'proxies: invalid\nproxy-providers:\n  remote:\n    type: http\n    url: https://example.invalid/sub\n'
+      )
+    ).toThrow(/"proxies" must be a list/)
+    expect(() =>
+      normalizeSubscriptionPayload('proxies:\n  - { name: One, type: ss }\nproxy-providers: []\n')
+    ).toThrow(/"proxy-providers" must be a map/)
+  })
+
+  it('does not expose decoded VMess payload fragments in parse errors', () => {
+    const secret = 'private-subscription-token'
+    let failure: unknown
+    try {
+      normalizeSubscriptionPayload(`vmess://${base64(`${secret}-not-json`)}`)
+    } catch (error) {
+      failure = error
+    }
+    expect(failure).toBeInstanceOf(Error)
+    expect((failure as Error).message).toContain('VMess URI contains invalid JSON')
+    expect((failure as Error).message).not.toContain(secret.slice(0, 10))
+  })
+
+  it('accepts VMess fragments, boolean TLS flags and VLESS packet-encoding aliases', () => {
+    const vmess = `vmess://${base64(
+      JSON.stringify({
+        add: 'vmess.example',
+        port: 443,
+        id: '11111111-1111-1111-1111-111111111111',
+        net: 'ws',
+        path: '/ws',
+        tls: true,
+        allowInsecure: true
+      })
+    )}#VMess%20Fragment`
+    const vless =
+      'vless://22222222-2222-2222-2222-222222222222@vless.example:443?packet-encoding=xudp#VLESS'
+    const result = normalizeSubscriptionPayload(`${vmess}\n${vless}`)
+    const proxies = parse<Record<string, unknown>>(result.content).proxies as Record<
+      string,
+      unknown
+    >[]
+
+    expect(proxies[0]).toMatchObject({
+      name: 'VMess Fragment',
+      tls: true,
+      'skip-cert-verify': true
+    })
+    expect(proxies[1]['packet-encoding']).toBe('xudp')
+    expect(convertClashToSingbox({ proxies }).errors).toEqual([])
+  })
+
+  it('rejects non-canonical Base64 instead of relying on permissive decoding', () => {
+    expect(() => normalizeSubscriptionPayload('ZE==')).toThrow(/neither Clash/)
   })
 
   it('bounds remote node, provider, group, rule, and URI expansion', () => {
