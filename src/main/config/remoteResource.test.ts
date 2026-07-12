@@ -1,4 +1,12 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs'
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -90,7 +98,7 @@ describe('remote resource safety', () => {
     writeFileSync(join(base, 'inside.yaml'), 'payload: []')
     writeFileSync(join(outside, 'secret.yaml'), 'secret')
     expect(await resolveExistingPathInside(base, 'inside.yaml', 'provider')).toBe(
-      join(base, 'inside.yaml')
+      realpathSync(join(base, 'inside.yaml'))
     )
     await expect(
       resolveExistingPathInside(base, '..\\outside\\secret.yaml', 'provider')
