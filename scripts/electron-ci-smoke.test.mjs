@@ -60,8 +60,24 @@ test('dedicated Electron entrypoint gates before importing Electron and blocks p
   assert.ok(mainSource.indexOf("app.setPath('userData'") < mainSource.indexOf('.whenReady()'))
   assert.match(mainSource, /SAFE_SEND_CHANNELS/)
   assert.match(mainSource, /FORBIDDEN_CHANNELS\.has\(name\)/)
+  assert.match(mainSource, /NOOP_CHANNELS[\s\S]*'changeLanguage'/)
+  assert.doesNotMatch(mainSource, /smokeResponses[\s\S]*\['changeLanguage'/)
   assert.doesNotMatch(mainSource, /require\(['"].*(?:sysproxy|winreg|registry|manager).*['"]\)/i)
   assert.doesNotMatch(mainSource, /sing-box(?:\.exe)?\s+run/i)
+  assert.match(mainSource, /isTrustedRendererNavigation/)
+  assert.doesNotMatch(mainSource, /url\.startsWith\(['"]file:/)
+  assert.match(mainSource, /host-resolver-rules/)
+})
+
+test('outer timeout path terminates only the owned Electron PID tree and awaits close', () => {
+  const runnerSource = fs.readFileSync(path.join(scriptsDirectory, 'electron-ci-smoke.mjs'), 'utf8')
+  assert.match(runnerSource, /taskkill\.exe/)
+  assert.match(runnerSource, /\['\/PID', String\(pid\), '\/T', '\/F'\]/)
+  assert.match(runnerSource, /await terminateOwnedElectronTree\(child\)/)
+  assert.match(runnerSource, /await closePromise/)
+  assert.match(runnerSource, /if \(timeoutId\) clearTimeout\(timeoutId\)/)
+  assert.doesNotMatch(runnerSource, /['"]\/IM['"]/i)
+  assert.doesNotMatch(runnerSource, /['"]electron\.exe['"]/i)
 })
 
 test('smoke preload exposes only an in-memory IPC facade', () => {

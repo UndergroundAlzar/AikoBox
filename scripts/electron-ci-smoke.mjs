@@ -28,6 +28,96 @@ function safeRemoveUserData(runnerTemp, userDataPath) {
   fs.rmSync(userDataPath, { force: true, maxRetries: 3, recursive: true, retryDelay: 100 })
 }
 
+function observeChild(child, timeoutMs) {
+  return new Promise((resolve) => {
+    let settled = false
+    let timeoutId
+    const cleanup = () => {
+      if (timeoutId) clearTimeout(timeoutId)
+      child.removeListener('error', onError)
+      child.removeListener('close', onClose)
+    }
+    const finish = (outcome) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve(outcome)
+    }
+    const onError = (error) => finish({ error, kind: 'error' })
+    const onClose = (code, signal) => finish({ code, kind: 'close', signal })
+    child.once('error', onError)
+    child.once('close', onClose)
+    timeoutId = setTimeout(() => finish({ kind: 'timeout' }), timeoutMs)
+  })
+}
+
+function waitForChildClose(child, timeoutMs) {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
+  return new Promise((resolve, reject) => {
+    let timeoutId
+    const cleanup = () => {
+      if (timeoutId) clearTimeout(timeoutId)
+      child.removeListener('close', onClose)
+      child.removeListener('error', onError)
+    }
+    const onClose = () => {
+      cleanup()
+      resolve()
+    }
+    const onError = (error) => {
+      cleanup()
+      reject(error)
+    }
+    child.once('close', onClose)
+    child.once('error', onError)
+    timeoutId = setTimeout(() => {
+      cleanup()
+      reject(new Error('Electron process tree did not close after termination'))
+    }, timeoutMs)
+  })
+}
+
+async function terminateOwnedElectronTree(child) {
+  const pid = child.pid
+  if (!Number.isSafeInteger(pid) || pid <= 0) return
+  if (child.exitCode !== null || child.signalCode !== null) return
+
+  const closePromise = waitForChildClose(child, 10_000).then(
+    () => ({ kind: 'close' }),
+    (error) => ({ error, kind: 'error' })
+  )
+  let taskkillFailure
+  let killer
+  try {
+    killer = spawn('taskkill.exe', ['/PID', String(pid), '/T', '/F'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true
+    })
+    const outcome = await observeChild(killer, 10_000)
+    if (outcome.kind === 'timeout') {
+      killer.kill()
+      taskkillFailure = new Error('Timed out while terminating the owned Electron process tree')
+    } else if (outcome.kind === 'error') {
+      taskkillFailure = outcome.error
+    } else if (outcome.code !== 0) {
+      taskkillFailure = new Error(`taskkill failed with code ${String(outcome.code)}`)
+    }
+  } catch (error) {
+    taskkillFailure = error
+  }
+
+  const closeOutcome = await closePromise
+  if (closeOutcome.kind === 'error') {
+    if (taskkillFailure) {
+      throw new AggregateError(
+        [taskkillFailure, closeOutcome.error],
+        'Failed to terminate the owned Electron process tree'
+      )
+    }
+    throw closeOutcome.error
+  }
+}
+
 export async function runElectronCiSmoke(env = process.env, platform = process.platform) {
   if (!isGithubWindowsSmokeEnvironment(env, platform)) {
     throw new Error('Refusing to start Electron outside a GitHub-hosted Windows smoke job')
@@ -60,47 +150,42 @@ export async function runElectronCiSmoke(env = process.env, platform = process.p
 
   let stdout = ''
   let stderr = ''
-  let timedOut = false
   try {
-    const result = await new Promise((resolve, reject) => {
-      const child = spawn(
-        electronExecutable,
-        [
-          '--disable-gpu',
-          '--disable-software-rasterizer',
-          '--disable-breakpad',
-          `--user-data-dir=${userDataPath}`,
-          mainPath
-        ],
-        {
-          cwd: repositoryRoot,
-          env: childEnv,
-          stdio: ['ignore', 'pipe', 'pipe'],
-          windowsHide: true
-        }
-      )
-      child.stdout.on('data', (chunk) => {
-        stdout = boundedOutput(stdout, chunk)
-      })
-      child.stderr.on('data', (chunk) => {
-        stderr = boundedOutput(stderr, chunk)
-      })
-      child.once('error', reject)
-
-      const timeout = setTimeout(() => {
-        timedOut = true
-        child.kill()
-      }, 35_000)
-      child.once('close', (code, signal) => {
-        clearTimeout(timeout)
-        resolve({ code, signal })
-      })
+    const child = spawn(
+      electronExecutable,
+      [
+        '--disable-gpu',
+        '--disable-software-rasterizer',
+        '--disable-breakpad',
+        `--user-data-dir=${userDataPath}`,
+        mainPath
+      ],
+      {
+        cwd: repositoryRoot,
+        env: childEnv,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true
+      }
+    )
+    child.stdout.on('data', (chunk) => {
+      stdout = boundedOutput(stdout, chunk)
+    })
+    child.stderr.on('data', (chunk) => {
+      stderr = boundedOutput(stderr, chunk)
     })
 
-    if (timedOut) throw new Error(`Electron smoke timed out\n${stdout}\n${stderr}`)
-    if (result.code !== 0) {
+    const outcome = await observeChild(child, 35_000)
+    if (outcome.kind === 'timeout') {
+      await terminateOwnedElectronTree(child)
+      throw new Error(`Electron smoke timed out\n${stdout}\n${stderr}`)
+    }
+    if (outcome.kind === 'error') {
+      await terminateOwnedElectronTree(child)
+      throw outcome.error
+    }
+    if (outcome.code !== 0) {
       throw new Error(
-        `Electron smoke exited with code ${String(result.code)} signal ${String(result.signal)}\n${stdout}\n${stderr}`
+        `Electron smoke exited with code ${String(outcome.code)} signal ${String(outcome.signal)}\n${stdout}\n${stderr}`
       )
     }
     if (!stdout.includes('AIKOBOX_ELECTRON_SMOKE_OK')) {

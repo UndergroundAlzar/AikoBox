@@ -1,6 +1,7 @@
 'use strict'
 
 const path = require('node:path')
+const { pathToFileURL } = require('node:url')
 
 const SMOKE_TOKEN = 'aikobox-github-windows-electron-smoke-v1'
 
@@ -63,7 +64,12 @@ const FORBIDDEN_CHANNELS = new Set([
   'startSubStoreBackendServer',
   'startSubStoreFrontendServer'
 ])
-const NOOP_CHANNELS = new Set(['applyTheme', 'setNativeTheme', 'setTitleBarOverlay'])
+const NOOP_CHANNELS = new Set([
+  'applyTheme',
+  'changeLanguage',
+  'setNativeTheme',
+  'setTitleBarOverlay'
+])
 const SAFE_SEND_CHANNELS = new Set(['trayIconUpdate', 'updateFloatingWindow', 'updateTrayMenu'])
 const invokedChannels = new Set()
 const unexpectedChannels = []
@@ -114,6 +120,7 @@ function resolveSmokePaths() {
 }
 
 const smokePaths = resolveSmokePaths()
+const trustedRendererUrl = pathToFileURL(smokePaths.rendererPath)
 // Set this before app readiness/session creation; the outer runner also passes
 // --user-data-dir, and the duplicate assertion keeps both boundaries pinned.
 app.setPath('userData', smokePaths.userDataPath)
@@ -138,6 +145,18 @@ function safeResponse(channel) {
   if (NOOP_CHANNELS.has(channel)) return undefined
   unexpectedChannels.push(channel)
   throw new Error(`UNEXPECTED_SMOKE_IPC:${channel}`)
+}
+
+function isTrustedRendererNavigation(rawUrl) {
+  try {
+    const candidate = new URL(rawUrl)
+    candidate.hash = ''
+    const trusted = new URL(trustedRendererUrl.href)
+    trusted.hash = ''
+    return candidate.href === trusted.href
+  } catch {
+    return false
+  }
 }
 
 async function waitForRendererProof(window) {
@@ -202,7 +221,10 @@ async function runSmoke() {
   smokeWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   smokeWindow.webContents.on('will-attach-webview', (event) => event.preventDefault())
   smokeWindow.webContents.on('will-navigate', (event, url) => {
-    if (!url.startsWith('file:')) event.preventDefault()
+    if (!isTrustedRendererNavigation(url)) event.preventDefault()
+  })
+  smokeWindow.webContents.on('will-redirect', (event, url) => {
+    if (!isTrustedRendererNavigation(url)) event.preventDefault()
   })
   smokeWindow.webContents.on('did-fail-load', (_event, code, description) => {
     finish(1, { code, description: String(description).slice(0, 120), stage: 'load' })
@@ -232,7 +254,11 @@ async function runSmoke() {
 app.commandLine.appendSwitch('disable-background-networking')
 app.commandLine.appendSwitch('disable-component-update')
 app.commandLine.appendSwitch('disable-domain-reliability')
-app.commandLine.appendSwitch('disable-features', 'MediaRouter,OptimizationHints,Translate')
+app.commandLine.appendSwitch(
+  'disable-features',
+  'AsyncDns,DnsOverHttps,MediaRouter,OptimizationHints,Translate'
+)
+app.commandLine.appendSwitch('host-resolver-rules', 'MAP * ~NOTFOUND')
 app.commandLine.appendSwitch('disable-sync')
 app.commandLine.appendSwitch('no-proxy-server')
 app.disableHardwareAcceleration()

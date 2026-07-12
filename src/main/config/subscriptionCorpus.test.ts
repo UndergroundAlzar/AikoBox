@@ -53,6 +53,7 @@ describe('offline subscription compatibility corpus', () => {
     })
     expect(proxies[7]).toMatchObject({ version: 3, password: 'secret' })
     expect(converted.errors).toEqual([])
+    expect(converted.warnings).toEqual([])
     const convertedTags = [
       ...((converted.config.outbounds as Dict[]) || []),
       ...((converted.config.endpoints as Dict[]) || [])
@@ -71,6 +72,45 @@ describe('offline subscription compatibility corpus', () => {
       'tuic',
       'shadowtls'
     ])
+    expect(convertedByTag.get(proxies[3].name)).toMatchObject({
+      type: 'vmess',
+      tls: { enabled: true, server_name: 'vmess.example' },
+      transport: {
+        type: 'ws',
+        path: '/ws',
+        headers: { Host: 'cdn.example' }
+      }
+    })
+    expect(convertedByTag.get(proxies[4].name)).toMatchObject({
+      type: 'vless',
+      tls: {
+        enabled: true,
+        server_name: 'www.example.com',
+        utls: { enabled: true, fingerprint: 'chrome' },
+        reality: { enabled: true, public_key: 'public-key', short_id: 'abcd' }
+      },
+      transport: { type: 'grpc', service_name: 'edge' }
+    })
+    expect(convertedByTag.get(proxies[5].name)).toMatchObject({
+      type: 'hysteria2',
+      password: 'secret',
+      obfs: { type: 'salamander', password: 'cover' },
+      tls: { enabled: true, server_name: 'hy2.example', alpn: ['h3'] }
+    })
+    expect(convertedByTag.get(proxies[6].name)).toMatchObject({
+      type: 'tuic',
+      uuid: '33333333-3333-3333-3333-333333333333',
+      password: 'secret',
+      congestion_control: 'bbr',
+      udp_relay_mode: 'native',
+      tls: { enabled: true, server_name: 'tuic.example', alpn: ['h3'] }
+    })
+    expect(convertedByTag.get(proxies[7].name)).toMatchObject({
+      type: 'shadowtls',
+      version: 3,
+      password: 'secret',
+      tls: { enabled: true, server_name: 'www.example.com' }
+    })
 
     const second = normalizeSubscriptionPayload(first.content)
     expect(second.format).toBe('clash-yaml')
@@ -86,7 +126,9 @@ describe('offline subscription compatibility corpus', () => {
       const normalized = normalizeSubscriptionPayload(encoded)
       expect(normalized.format).toBe('base64-uri-list')
       expect(normalized.proxyCount).toBe(2)
-      expect(convertClashToSingbox(parse<Dict>(normalized.content)).errors).toEqual([])
+      const converted = convertClashToSingbox(parse<Dict>(normalized.content))
+      expect(converted.errors).toEqual([])
+      expect(converted.warnings).toEqual([])
     }
   })
 
@@ -137,6 +179,13 @@ describe('offline subscription compatibility corpus', () => {
       ])
     )
     expect(converted.errors).toEqual([])
+    expect(converted.warnings).toEqual([])
+    expect(outbounds.find((outbound) => outbound.tag === 'Provider SG')).toMatchObject({
+      type: 'shadowtls',
+      version: 3,
+      password: 'secret',
+      tls: { enabled: true, server_name: 'www.example.com' }
+    })
   })
 
   it('enforces node, group, rule and port boundaries deterministically', () => {
