@@ -98,7 +98,7 @@ describe('remote resource safety', () => {
     writeFileSync(join(base, 'inside.yaml'), 'payload: []')
     writeFileSync(join(outside, 'secret.yaml'), 'secret')
     expect(await resolveExistingPathInside(base, 'inside.yaml', 'provider')).toBe(
-      realpathSync(join(base, 'inside.yaml'))
+      realpathSync.native(join(base, 'inside.yaml'))
     )
     await expect(
       resolveExistingPathInside(base, '..\\outside\\secret.yaml', 'provider')

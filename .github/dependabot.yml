@@ -1,0 +1,46 @@
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: main
+    schedule:
+      interval: weekly
+      day: monday
+      time: '04:00'
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    rebase-strategy: auto
+    commit-message:
+      prefix: deps
+      include: scope
+    groups:
+      github-actions:
+        patterns:
+          - '*'
+
+  - package-ecosystem: npm
+    directory: /
+    target-branch: main
+    schedule:
+      interval: weekly
+      day: monday
+      time: '04:15'
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    rebase-strategy: auto
+    versioning-strategy: increase-if-necessary
+    commit-message:
+      prefix: deps
+      include: scope
+    groups:
+      production-minor-and-patch:
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+      development-minor-and-patch:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
