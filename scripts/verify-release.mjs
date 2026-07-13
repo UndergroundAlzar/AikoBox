@@ -208,6 +208,15 @@ function verifyPackagedApplication(unpacked, label) {
   if (existsSync(resolve(resources, 'files', 'TrafficMonitor'))) {
     throw new Error(`${label}: Retired TrafficMonitor must not be present in the packaged runtime`)
   }
+  for (const retiredSubStore of [
+    ['files', 'sub-store.bundle.js'],
+    ['files', 'sub-store.bundle.cjs'],
+    ['files', 'sub-store-frontend']
+  ]) {
+    if (existsSync(resolve(resources, ...retiredSubStore))) {
+      throw new Error(`${label}: Retired Sub-Store runtime must not be present in the package`)
+    }
+  }
 
   const asarEntries = listPackage(appAsar).map((entry) => entry.replaceAll('\\', '/'))
   const verifiedResourceLicenseFiles = Object.values(thirdPartyReview.resources).flatMap((item) =>

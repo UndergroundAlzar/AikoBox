@@ -116,6 +116,7 @@ test('release verifier statically pins extraction and never launches an artifact
   assert.match(source, /Retired 7za\.exe must not be present in the packaged runtime/)
   assert.match(source, /Retired enableLoopback\.exe must not be present in the packaged runtime/)
   assert.match(source, /Retired TrafficMonitor must not be present in the packaged runtime/)
+  assert.match(source, /Retired Sub-Store runtime must not be present in the package/)
   assert.match(source, /productionPackageEvidence/)
   assert.match(source, /excluded production package entered app\.asar/)
   assert.match(source, /excluded production package entered app\.asar\.unpacked/)

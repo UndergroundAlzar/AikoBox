@@ -14,6 +14,7 @@ const RETIRED_RESOURCE_OUTPUTS = [
   'extra/files/7za.exe',
   'extra/files/enableLoopback.exe',
   'extra/files/TrafficMonitor',
+  'extra/files/sub-store.bundle.js',
   'extra/files/sub-store.bundle.cjs',
   'extra/files/sub-store-frontend'
 ]
