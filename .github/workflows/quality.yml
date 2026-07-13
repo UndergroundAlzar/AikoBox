@@ -57,6 +57,9 @@ jobs:
       - name: Test the CI-only Electron smoke safety boundary
         run: pnpm run test:electron-smoke
 
+      - name: Test the production Electron smoke safety boundary
+        run: pnpm run test:electron-prod-smoke
+
       - name: Test the locked resource verifier itself
         run: node --test scripts/prepare.test.mjs
 

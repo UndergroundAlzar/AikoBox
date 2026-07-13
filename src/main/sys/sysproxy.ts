@@ -29,6 +29,7 @@ import {
   setHealthyProxyEndpoint,
   setHealthyProxyReady
 } from '../core/healthyProxyEndpoint'
+import { assertIsolatedSmokeAllows } from '../utils/ciIsolatedSmoke'
 import {
   createOwnedSystemProxyRecord,
   isOwnedSystemProxyRecord,
@@ -391,6 +392,7 @@ async function triggerSysProxyInternal(enable: boolean): Promise<void> {
 }
 
 export function triggerSysProxy(enable: boolean): Promise<void> {
+  assertIsolatedSmokeAllows('triggerSysProxy')
   if (enable && systemProxyShutdown) {
     return Promise.reject(new Error('Refusing to enable the system proxy while AikoBox is exiting'))
   }

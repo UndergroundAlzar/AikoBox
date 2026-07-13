@@ -11,6 +11,7 @@ import {
   setLifecycleWindowStateSaver
 } from './lifecycle'
 import { hideDockIcon, showDockIcon } from './resolve/tray'
+import { isCiIsolatedSmokeMode } from './utils/ciIsolatedSmoke'
 import { dataDir } from './utils/dirs'
 import { mainWindowLogger } from './utils/logger'
 import { isTrustedRendererUrl, normalizeExternalHttpUrl } from './utils/electronSecurity'
@@ -147,6 +148,10 @@ async function createWindowInternal(): Promise<void> {
     autoQuitWithoutCoreMode = 'core'
   } = await getAppConfig()
 
+  // Isolated CI smoke must stay fully headless even when silentStart is off or is.dev.
+  const isolatedSmoke = isCiIsolatedSmokeMode()
+  const effectiveSilentStart = isolatedSmoke || silentStart
+
   windowState = ensureVisibleOnScreen(loadWindowState())
   const savedState = windowState
 
@@ -183,12 +188,13 @@ async function createWindowInternal(): Promise<void> {
     }
   })
 
-  if (savedState.isMaximized && !silentStart) {
+  if (savedState.isMaximized && !effectiveSilentStart) {
     mainWindow.maximize()
   }
 
   setupWindowEvents(mainWindow, {
-    silentStart,
+    silentStart: effectiveSilentStart,
+    forceHidden: isolatedSmoke,
     autoQuitWithoutCore,
     autoQuitWithoutCoreDelay,
     autoQuitWithoutCoreMode
@@ -207,21 +213,29 @@ async function createWindowInternal(): Promise<void> {
 
 interface WindowConfig {
   silentStart: boolean
+  /** Isolated CI smoke: never auto-show, even in is.dev. */
+  forceHidden: boolean
   autoQuitWithoutCore: boolean
   autoQuitWithoutCoreDelay: number
   autoQuitWithoutCoreMode: AutoQuitWithoutCoreMode
 }
 
 function setupWindowEvents(window: BrowserWindow, config: WindowConfig): void {
-  const { silentStart, autoQuitWithoutCore, autoQuitWithoutCoreDelay, autoQuitWithoutCoreMode } =
-    config
+  const {
+    silentStart,
+    forceHidden,
+    autoQuitWithoutCore,
+    autoQuitWithoutCoreDelay,
+    autoQuitWithoutCoreMode
+  } = config
 
   window.on('ready-to-show', () => {
     if (autoQuitWithoutCore && !window.isVisible()) {
       scheduleQuitWithoutCore(autoQuitWithoutCoreDelay, autoQuitWithoutCoreMode)
     }
 
-    // 开发模式下始终显示窗口
+    // Isolated CI smoke stays hidden. Otherwise silentStart hides; is.dev always shows.
+    if (forceHidden) return
     if (!silentStart || is.dev) {
       clearQuitTimeout()
       window.show()

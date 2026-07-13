@@ -22,7 +22,8 @@ export function createTourDriver(t: TFunction, navigate: NavigateFunction): void
         popover: {
           title: t('guide.welcome.title'),
           description: t('guide.welcome.description'),
-          side: 'over',
+          // driver.js allows centering without a target element
+          side: 'over' as 'top',
           align: 'center'
         }
       },

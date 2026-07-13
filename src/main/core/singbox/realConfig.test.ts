@@ -9,6 +9,7 @@ import { convertClashToSingbox } from './convert'
 const projectRoot = process.cwd()
 const corePath = join(projectRoot, 'extra', 'sidecar', 'sing-box.exe')
 const fixtureDir = join(projectRoot, 'src', 'main', 'core', 'singbox', 'fixtures')
+const hasSidecar = existsSync(corePath)
 let workDir = ''
 
 beforeAll(() => {
@@ -19,7 +20,7 @@ afterAll(() => {
   rmSync(workDir, { recursive: true, force: true })
 })
 
-describe('real sing-box configuration gate', () => {
+describe.skipIf(!hasSidecar)('real sing-box configuration gate', () => {
   it('keeps the pinned Windows sidecar available for schema verification', () => {
     expect(existsSync(corePath)).toBe(true)
   })

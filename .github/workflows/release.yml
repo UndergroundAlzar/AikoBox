@@ -92,6 +92,12 @@ jobs:
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: node scripts/prepare.mjs --x64
       - run: node --test scripts/prepare.test.mjs
+      - name: Test CI Electron smoke safety boundaries
+        run: |
+          pnpm run test:electron-smoke
+          pnpm run test:electron-prod-smoke
+      - name: Test final release extraction safety logic
+        run: pnpm run test:verify-release
       - name: Audit third-party redistribution evidence
         shell: pwsh
         env:

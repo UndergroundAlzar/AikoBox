@@ -34,6 +34,7 @@ import {
   matchesProcessIdentity,
   parseProcessIdentityRecord
 } from '../utils/processIdentity'
+import { assertIsolatedSmokeAllows } from '../utils/ciIsolatedSmoke'
 import {
   startMihomoTraffic,
   startMihomoConnections,
@@ -887,6 +888,7 @@ export async function startCore(
   reportCandidateFallback = false,
   requiredProxyEndpoint?: RequiredProxyEndpoint
 ): Promise<Promise<void>[]> {
+  assertIsolatedSmokeAllows('startCore')
   let config: CoreConfig
   let preparationError: unknown
   try {
@@ -1159,6 +1161,7 @@ export function rollbackCoreUpdate(): Promise<CoreUpdateResult> {
 }
 
 export async function setTunEnabled(enable: boolean): Promise<void> {
+  assertIsolatedSmokeAllows('setTunEnabled')
   const current = await getControledMihomoConfig()
   const previousTunEnabled = current.tun?.enable ?? false
   const previousDnsEnabled = current.dns?.enable ?? false

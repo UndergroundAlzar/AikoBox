@@ -1,10 +1,14 @@
 import { readFileSync, writeFileSync } from 'fs'
+import path from 'path'
+import { fileURLToPath } from 'url'
 import { getProcessedVersion, isDevBuild } from './version-utils.mjs'
+
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 // 更新package.json中的版本号
 function updatePackageVersion() {
   try {
-    const packagePath = 'package.json'
+    const packagePath = path.join(repositoryRoot, 'package.json')
     const packageContent = readFileSync(packagePath, 'utf-8')
     const packageData = JSON.parse(packageContent)
 

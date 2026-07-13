@@ -1,5 +1,9 @@
 import { execSync } from 'child_process'
 import { readFileSync } from 'fs'
+import { dirname, join } from 'path'
+import { fileURLToPath } from 'url'
+
+const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 // 获取Git commit hash
 export function getGitCommitHash(short = true) {
@@ -20,17 +24,30 @@ export function getCurrentMonthDate() {
   return `${month}${day}`
 }
 
-// 从package.json读取基础版本号
+// 从仓库根目录 package.json 读取基础版本号（失败时抛错，不回退默认值）
 export function getBaseVersion() {
+  const packageJsonPath = join(repositoryRoot, 'package.json')
+  let raw
   try {
-    const pkg = readFileSync('package.json', 'utf-8')
-    const { version } = JSON.parse(pkg)
-    // 移除dev版本格式后缀
-    return version.replace(/-d\d{2,4}\.[a-f0-9]{7}$/, '')
+    raw = readFileSync(packageJsonPath, 'utf-8')
   } catch (error) {
-    console.error('Failed to read package.json:', error.message)
-    return '1.0.0'
+    throw new Error(`Failed to read package.json at ${packageJsonPath}: ${error.message}`)
   }
+
+  let parsed
+  try {
+    parsed = JSON.parse(raw)
+  } catch (error) {
+    throw new Error(`Failed to parse package.json at ${packageJsonPath}: ${error.message}`)
+  }
+
+  const { version } = parsed
+  if (typeof version !== 'string' || version.trim() === '') {
+    throw new Error(`package.json at ${packageJsonPath} is missing a valid version field`)
+  }
+
+  // 移除dev版本格式后缀
+  return version.replace(/-d\d{2,4}\.[a-f0-9]{7}$/, '')
 }
 
 // 生成dev版本号

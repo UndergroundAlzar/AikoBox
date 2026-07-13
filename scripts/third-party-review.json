@@ -142,7 +142,37 @@
             "sourceUrl": "https://raw.githubusercontent.com/SagerNet/sing-box/25a600db24f7680ad9806ce5427bd0ab8afe1114/LICENSE",
             "upstreamSha256": "650d5e3b99a446fb38e820fa87a49562e0c79eab868fff58618ac487a58e554c"
           }
-        ]
+        ],
+        "sourceIdentityFiles": [
+          {
+            "kind": "go.mod",
+            "path": "licenses/sing-box-1.13.14/go.mod",
+            "size": 9387,
+            "sha256": "d0b353be0205774084936bae4114a2efa52381cd0860c704ff6172e4b8b50d2d",
+            "sourceUrl": "https://raw.githubusercontent.com/SagerNet/sing-box/25a600db24f7680ad9806ce5427bd0ab8afe1114/go.mod"
+          },
+          {
+            "kind": "go.sum",
+            "path": "licenses/sing-box-1.13.14/go.sum",
+            "size": 39961,
+            "sha256": "6bfa03cfa6f352a203c8bc077776112223f84c54ee5144fa0806932c4caae7ab",
+            "sourceUrl": "https://raw.githubusercontent.com/SagerNet/sing-box/25a600db24f7680ad9806ce5427bd0ab8afe1114/go.sum"
+          }
+        ],
+        "buildinfoInventory": {
+          "path": "licenses/sing-box-1.13.14/buildinfo-modules.txt",
+          "size": 10271,
+          "sha256": "2d8d0819f63f2e5f54ab86d5c3775d49544189fa3df7f570f68f3ce379a03029",
+          "method": "go version -m extra/sidecar/sing-box.exe",
+          "goVersion": "go1.26.4",
+          "mainModule": "github.com/sagernet/sing-box",
+          "mainVersion": "v1.13.14",
+          "depCount": 100,
+          "binarySha256": "db0d779948214cf761011d154c3a5da36df20394fa01a9fc798f1dc39fe9d183",
+          "tsvPath": "licenses/sing-box-1.13.14/static-modules.tsv",
+          "tsvSize": 9668,
+          "tsvSha256": "e926925f14833b3c358015eacfb7b27bdc6db609063f0be96ef74c50fb098e38"
+        }
       }
     },
     "notoColorEmoji": {
@@ -209,6 +239,22 @@
             "sha256": "e3dee6d5b240791312cd89333a5cc62e6f65be66bff8ab6903dc9a67bbe84263",
             "sourceUrl": "https://raw.githubusercontent.com/mihomo-party-org/sysproxy-rs-opti/ce9463d95ed5839a43c6a0d7cccf3b3fb892de3a/LICENSE",
             "upstreamSha256": "e3dee6d5b240791312cd89333a5cc62e6f65be66bff8ab6903dc9a67bbe84263"
+          }
+        ],
+        "sourceIdentityFiles": [
+          {
+            "kind": "Cargo.toml",
+            "path": "licenses/sysproxy-rs-opti/Cargo.toml",
+            "size": 3323,
+            "sha256": "2f05cf8e93c64654e623bbf41f53d334b9cb3520b697a45527da4f84c25cd401",
+            "sourceUrl": "https://raw.githubusercontent.com/mihomo-party-org/sysproxy-rs-opti/ce9463d95ed5839a43c6a0d7cccf3b3fb892de3a/Cargo.toml"
+          },
+          {
+            "kind": "package.json",
+            "path": "licenses/sysproxy-rs-opti/package.json",
+            "size": 661,
+            "sha256": "170374b6a195c4a1ba617463f98b9e951e7879865a3c6d32f03d5d511c78027e",
+            "sourceUrl": "https://raw.githubusercontent.com/mihomo-party-org/sysproxy-rs-opti/ce9463d95ed5839a43c6a0d7cccf3b3fb892de3a/package.json"
           }
         ]
       }
