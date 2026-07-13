@@ -7,7 +7,9 @@ import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import {
+  extractReviewedLicenseSection,
   getResourceNoticeSection,
+  isRecognizedRootLicenseFileName,
   readSfntNameMetadata,
   resolveEvidenceFile
 } from './audit-licenses.mjs'
@@ -63,7 +65,12 @@ test('offline audit covers dependencies and explicitly tracked resource blockers
   const result = runAudit('--allow-known-blockers')
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
   assert.match(result.stdout, /production dependency versions use reviewed license expressions/)
-  assert.match(result.stderr, /Production packages without a root license file/)
+  assert.match(result.stdout, /5 exact production package evidence records passed/)
+  assert.match(result.stderr, /Production packages without reviewed license evidence/)
+  assert.match(
+    result.stderr,
+    /@nodable\/entities@2\.2\.0, byte-length@1\.0\.2, sysproxy-rs@0\.4\.0, xml-naming@0\.1\.0/
+  )
   assert.match(result.stderr, /\[BLOCKED\].*singBox.*subStoreBackend.*subStoreFrontend.*sysproxy/)
   assert.doesNotMatch(result.stderr, /\[BLOCKED\].*notoColorEmoji/)
   assert.doesNotMatch(
@@ -78,6 +85,101 @@ test('release-gate mode fails closed while redistribution evidence is unresolved
   assert.match(
     result.stderr,
     /Runtime resource licensing is unresolved for: singBox, subStoreBackend, subStoreFrontend, sysproxy/
+  )
+})
+
+test('five exact npm package evidence cases close mechanically and enter the package gate', () => {
+  const review = JSON.parse(
+    fs.readFileSync(path.join(repositoryRoot, 'scripts', 'third-party-review.json'), 'utf8')
+  )
+  const evidence = review.productionPackageEvidence
+  assert.deepEqual(Object.keys(evidence).sort(), [
+    '@electron-internal/extract-zip@1.0.3',
+    'agent-base@6.0.2',
+    'base-64@1.0.0',
+    'data-uri-to-buffer@4.0.1',
+    'https-proxy-agent@5.0.1'
+  ])
+  assert.deepEqual(review.productionPackagesWithoutLicenseFiles, [
+    '@nodable/entities@2.2.0',
+    'byte-length@1.0.2',
+    'sysproxy-rs@0.4.0',
+    'xml-naming@0.1.0'
+  ])
+
+  assert.equal(isRecognizedRootLicenseFileName('LICENSE-MIT.txt'), true)
+  assert.equal(isRecognizedRootLicenseFileName('LICENCE.md'), true)
+  assert.equal(isRecognizedRootLicenseFileName('LICENSE-unknown.txt'), false)
+  assert.equal(isRecognizedRootLicenseFileName('README.md'), false)
+
+  const expected = {
+    'agent-base@6.0.2': {
+      disposition: 'packaged-readme-section',
+      sourceSha256: 'f1425c3b72330fe4fb2aa5a2fb152e939bdf534692a32b5f0b38f74147b98556',
+      packagedSha256: 'b3681ff73335c04770aa0367aa4ca72e77e5ca55007fc0bcb9d564d00cce20f4'
+    },
+    'base-64@1.0.0': {
+      disposition: 'packaged-license-file',
+      sourceSha256: '483acb265f182907d1caf6cff9c16c96f31325ed23792832cc5d8b12d5f88c8a',
+      packagedSha256: '483acb265f182907d1caf6cff9c16c96f31325ed23792832cc5d8b12d5f88c8a'
+    },
+    'data-uri-to-buffer@4.0.1': {
+      disposition: 'packaged-readme-section',
+      sourceSha256: 'a7cc4332acfa1f9b6530e01aac77fefe74f2efa32579215fddaa473013f9a25c',
+      packagedSha256: '3072ef4a004c4f92b37eae61cdc3e27225c0a7d2f5e144700e40b9c5a5a7a9b9'
+    },
+    'https-proxy-agent@5.0.1': {
+      disposition: 'packaged-readme-section',
+      sourceSha256: '32f0856d2c43df7d05cca960fdee84e1e38ab545bd7b2186433dfa41aa90a712',
+      packagedSha256: 'b3681ff73335c04770aa0367aa4ca72e77e5ca55007fc0bcb9d564d00cce20f4'
+    }
+  }
+  for (const [identity, pinned] of Object.entries(expected)) {
+    const item = evidence[identity]
+    assert.equal(item.license, 'MIT')
+    assert.equal(item.disposition, pinned.disposition)
+    assert.equal(item.sourceSha256, pinned.sourceSha256)
+    assert.equal(item.licenseFile.sha256, pinned.packagedSha256)
+    const contents = fs.readFileSync(path.join(repositoryRoot, ...item.licenseFile.path.split('/')))
+    assert.equal(contents.length, item.licenseFile.size)
+    assert.equal(createHash('sha256').update(contents).digest('hex'), item.licenseFile.sha256)
+    assert.match(contents.toString('utf8'), /Permission is hereby granted/)
+  }
+
+  assert.deepEqual(evidence['@electron-internal/extract-zip@1.0.3'], {
+    license: 'BSD-2-Clause',
+    disposition: 'excluded-from-application',
+    sourceFile: 'package.json',
+    sourceSize: 2095,
+    sourceSha256: '45d97af150605251f517c98e14bf456dc780cfa9956794547cd3e57172927662',
+    forbiddenAsarPath: '/node_modules/@electron-internal/extract-zip'
+  })
+
+  const builder = fs.readFileSync(path.join(repositoryRoot, 'electron-builder.yml'), 'utf8')
+  const verifier = fs.readFileSync(
+    path.join(repositoryRoot, 'scripts', 'verify-release.mjs'),
+    'utf8'
+  )
+  assert.match(builder, /['"]licenses\/\*\*\/\*['"]/)
+  assert.match(verifier, /productionPackageEvidence/)
+  assert.match(verifier, /excluded production package entered app\.asar/)
+})
+
+test('README license extraction is exact and rejects ambiguous markers', () => {
+  const source = Buffer.from('intro\n(The MIT License)\nbody\nEND\nreferences\n')
+  assert.equal(
+    extractReviewedLicenseSection(source, '(The MIT License)\n', 'END\n', 'fixture').toString(),
+    '(The MIT License)\nbody\nEND\n'
+  )
+  assert.throws(
+    () =>
+      extractReviewedLicenseSection(
+        Buffer.from('(The MIT License)\none\n(The MIT License)\ntwo\nEND\n'),
+        '(The MIT License)\n',
+        'END\n',
+        'fixture'
+      ),
+    /ambiguous/
   )
 })
 

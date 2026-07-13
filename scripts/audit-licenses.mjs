@@ -20,6 +20,38 @@ function sha256(contents) {
   return createHash('sha256').update(contents).digest('hex')
 }
 
+export function isRecognizedRootLicenseFileName(name) {
+  return (
+    /^(?:license|licence|copying|notice)(?:\.|$)/i.test(name) || /^licen[cs]e-mit\.txt$/i.test(name)
+  )
+}
+
+export function extractReviewedLicenseSection(contents, startMarker, endMarker, label) {
+  invariant(Buffer.isBuffer(contents), `${label}: source contents must be a buffer`)
+  invariant(
+    typeof startMarker === 'string' && startMarker.length > 0,
+    `${label}: section start marker is missing`
+  )
+  invariant(
+    typeof endMarker === 'string' && endMarker.length > 0,
+    `${label}: section end marker is missing`
+  )
+  const start = contents.indexOf(Buffer.from(startMarker, 'utf8'))
+  invariant(start >= 0, `${label}: section start marker was not found`)
+  invariant(
+    contents.indexOf(Buffer.from(startMarker, 'utf8'), start + 1) === -1,
+    `${label}: section start marker is ambiguous`
+  )
+  const endMarkerBuffer = Buffer.from(endMarker, 'utf8')
+  const end = contents.indexOf(endMarkerBuffer, start)
+  invariant(end >= 0, `${label}: section end marker was not found`)
+  invariant(
+    contents.indexOf(endMarkerBuffer, end + 1) === -1,
+    `${label}: section end marker is ambiguous`
+  )
+  return contents.subarray(start, end + endMarkerBuffer.length)
+}
+
 function comparableFsPath(filePath) {
   const normalized = path.normalize(filePath).replace(/^\\\\\?\\/, '')
   return process.platform === 'win32' ? normalized.toLowerCase() : normalized
@@ -432,13 +464,17 @@ function inspectResourceReview() {
   return {
     blockers,
     reviewedLicenseExpressions: review.reviewedProductionLicenseExpressions,
-    expectedPackagesWithoutLicenseFiles: review.productionPackagesWithoutLicenseFiles
+    expectedPackagesWithoutLicenseFiles: review.productionPackagesWithoutLicenseFiles,
+    productionPackageEvidence: review.productionPackageEvidence,
+    thirdPartyNotice: notice
   }
 }
 
 function inspectProductionDependencyMetadata(
   reviewedLicenseExpressions,
-  expectedPackagesWithoutLicenseFiles
+  expectedPackagesWithoutLicenseFiles,
+  productionPackageEvidence,
+  thirdPartyNotice
 ) {
   const command =
     process.platform === 'win32'
@@ -466,6 +502,12 @@ function inspectProductionDependencyMetadata(
 
   let packages = 0
   const packagesWithoutLicenseFiles = []
+  const reviewedEvidence = new Set()
+  const reviewedLicensePaths = new Set()
+  invariant(
+    productionPackageEvidence && typeof productionPackageEvidence === 'object',
+    'Production package evidence is missing'
+  )
   for (const [expression, entries] of Object.entries(inventory)) {
     invariant(Array.isArray(entries) && entries.length > 0, `${expression}: empty inventory group`)
     for (const entry of entries) {
@@ -479,25 +521,145 @@ function inspectProductionDependencyMetadata(
 
       for (const packagePath of entry.paths) {
         const metadata = JSON.parse(fs.readFileSync(path.join(packagePath, 'package.json'), 'utf8'))
+        const identity = `${metadata.name}@${metadata.version}`
+        const evidence = productionPackageEvidence[identity]
         const hasLicenseFile = fs
           .readdirSync(packagePath, { withFileTypes: true })
-          .some(
-            (item) => item.isFile() && /^(license|licence|copying|notice)(\.|$)/i.test(item.name)
+          .some((item) => item.isFile() && isRecognizedRootLicenseFileName(item.name))
+
+        if (evidence) {
+          invariant(
+            !reviewedEvidence.has(identity),
+            `${identity}: duplicate installed evidence root`
           )
-        if (!hasLicenseFile)
-          packagesWithoutLicenseFiles.push(`${metadata.name}@${metadata.version}`)
+          reviewedEvidence.add(identity)
+          invariant(
+            evidence.license === expression,
+            `${identity}: reviewed license differs from inventory`
+          )
+          invariant(
+            [
+              'packaged-license-file',
+              'packaged-readme-section',
+              'excluded-from-application'
+            ].includes(evidence.disposition),
+            `${identity}: invalid evidence disposition`
+          )
+          invariant(
+            Number.isSafeInteger(evidence.sourceSize) && evidence.sourceSize > 0,
+            `${identity}: source evidence size is invalid`
+          )
+          invariant(
+            /^[a-f0-9]{64}$/.test(evidence.sourceSha256),
+            `${identity}: source evidence SHA-256 is invalid`
+          )
+          const sourcePath = resolveEvidenceFile(
+            evidence.sourceFile,
+            `${identity}: installed source evidence`,
+            packagePath
+          )
+          const sourceContents = fs.readFileSync(sourcePath)
+          invariant(
+            sourceContents.length === evidence.sourceSize &&
+              sha256(sourceContents) === evidence.sourceSha256,
+            `${identity}: installed source evidence differs from review`
+          )
+          for (const required of [identity, evidence.sourceSha256]) {
+            invariant(
+              thirdPartyNotice.includes(required),
+              `${identity}: ${required} is absent from third-party notice`
+            )
+          }
+
+          if (evidence.disposition === 'excluded-from-application') {
+            invariant(
+              evidence.licenseFile === undefined,
+              `${identity}: excluded package has a license file`
+            )
+            invariant(
+              typeof evidence.forbiddenAsarPath === 'string' &&
+                /^\/node_modules\/(?:@[^/]+\/)?[^/]+$/.test(evidence.forbiddenAsarPath),
+              `${identity}: forbidden app.asar path is invalid`
+            )
+            invariant(
+              thirdPartyNotice.includes(evidence.forbiddenAsarPath),
+              `${identity}: exclusion path is absent from third-party notice`
+            )
+          } else {
+            const licenseFile = evidence.licenseFile
+            invariant(
+              licenseFile && typeof licenseFile === 'object',
+              `${identity}: license file is missing`
+            )
+            invariant(
+              !reviewedLicensePaths.has(licenseFile.path),
+              `${identity}: duplicate reviewed license path`
+            )
+            reviewedLicensePaths.add(licenseFile.path)
+            invariant(
+              Number.isSafeInteger(licenseFile.size) && licenseFile.size > 0,
+              `${identity}: packaged license size is invalid`
+            )
+            invariant(
+              /^[a-f0-9]{64}$/.test(licenseFile.sha256),
+              `${identity}: packaged license SHA-256 is invalid`
+            )
+            const packagedPath = resolveEvidenceFile(
+              licenseFile.path,
+              `${identity}: packaged license evidence`
+            )
+            const packagedContents = fs.readFileSync(packagedPath)
+            invariant(
+              packagedContents.length === licenseFile.size &&
+                sha256(packagedContents) === licenseFile.sha256,
+              `${identity}: packaged license differs from review`
+            )
+            const reviewedContents =
+              evidence.disposition === 'packaged-readme-section'
+                ? extractReviewedLicenseSection(
+                    sourceContents,
+                    evidence.sectionStart,
+                    evidence.sectionEnd,
+                    identity
+                  )
+                : sourceContents
+            invariant(
+              reviewedContents.equals(packagedContents),
+              `${identity}: packaged license differs from installed source evidence`
+            )
+            for (const required of [licenseFile.path, licenseFile.sha256]) {
+              invariant(
+                thirdPartyNotice.includes(required),
+                `${identity}: ${required} is absent from third-party notice`
+              )
+            }
+          }
+        } else if (!hasLicenseFile) {
+          packagesWithoutLicenseFiles.push(identity)
+        }
       }
     }
   }
+
+  const expectedEvidence = Object.keys(productionPackageEvidence).sort()
+  invariant(
+    JSON.stringify([...reviewedEvidence].sort()) === JSON.stringify(expectedEvidence),
+    `Reviewed production package evidence differs from the frozen install. Found: ${[...reviewedEvidence].sort().join(', ')}`
+  )
 
   packagesWithoutLicenseFiles.sort()
   const expectedMissing = [...expectedPackagesWithoutLicenseFiles].sort()
   invariant(
     JSON.stringify(packagesWithoutLicenseFiles) === JSON.stringify(expectedMissing),
-    `Production packages without root license files changed; review required. Found: ${packagesWithoutLicenseFiles.join(', ')}`
+    `Production packages without reviewed license evidence changed; review required. Found: ${packagesWithoutLicenseFiles.join(', ')}`
   )
 
-  return { expressions, packages, packagesWithoutLicenseFiles }
+  return {
+    expressions,
+    packages,
+    packagesWithoutLicenseFiles,
+    reviewedEvidence: [...reviewedEvidence].sort()
+  }
 }
 
 export function runAudit() {
@@ -505,16 +667,21 @@ export function runAudit() {
     const resourceReview = inspectResourceReview()
     const production = inspectProductionDependencyMetadata(
       resourceReview.reviewedLicenseExpressions,
-      resourceReview.expectedPackagesWithoutLicenseFiles
+      resourceReview.expectedPackagesWithoutLicenseFiles,
+      resourceReview.productionPackageEvidence,
+      resourceReview.thirdPartyNotice
     )
 
     console.log(
       `[OK] ${production.packages} production dependency versions use reviewed license expressions: ${production.expressions.join(', ')}`
     )
+    console.log(
+      `[OK] ${production.reviewedEvidence.length} exact production package evidence records passed: ${production.reviewedEvidence.join(', ')}`
+    )
 
     if (production.packagesWithoutLicenseFiles.length > 0) {
       console.error(
-        `[BLOCKED] Production packages without a root license file: ${production.packagesWithoutLicenseFiles.join(', ')}`
+        `[BLOCKED] Production packages without reviewed license evidence: ${production.packagesWithoutLicenseFiles.join(', ')}`
       )
     }
 

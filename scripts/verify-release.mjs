@@ -206,9 +206,31 @@ function verifyPackagedApplication(unpacked, label) {
   }
 
   const asarEntries = listPackage(appAsar).map((entry) => entry.replaceAll('\\', '/'))
-  const verifiedLicenseFiles = Object.values(thirdPartyReview.resources)
+  const verifiedResourceLicenseFiles = Object.values(thirdPartyReview.resources)
     .filter((item) => item.status === 'verified')
     .flatMap((item) => item.licenseFiles)
+  const productionPackageEvidence = Object.values(thirdPartyReview.productionPackageEvidence)
+  const productionPackageLicenseFiles = productionPackageEvidence
+    .map((item) => item.licenseFile)
+    .filter(Boolean)
+  const verifiedLicenseFiles = [...verifiedResourceLicenseFiles, ...productionPackageLicenseFiles]
+  for (const evidence of productionPackageEvidence) {
+    if (evidence.disposition !== 'excluded-from-application') continue
+    const forbidden = evidence.forbiddenAsarPath
+    if (asarEntries.some((entry) => entry === forbidden || entry.startsWith(`${forbidden}/`))) {
+      throw new Error(`${label}: excluded production package entered app.asar: ${forbidden}`)
+    }
+    const unpackedForbidden = resolve(
+      resources,
+      'app.asar.unpacked',
+      ...forbidden.slice(1).split('/')
+    )
+    if (existsSync(unpackedForbidden)) {
+      throw new Error(
+        `${label}: excluded production package entered app.asar.unpacked: ${forbidden}`
+      )
+    }
+  }
   for (const required of [
     '/LICENSE',
     '/THIRD_PARTY_NOTICES.md',
