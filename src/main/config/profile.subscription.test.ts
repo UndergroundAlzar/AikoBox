@@ -31,10 +31,6 @@ vi.mock('../utils/template', () => ({ defaultProfile: { proxies: [] } }))
 vi.mock('../../shared/appConfig', () => ({
   DEFAULT_MIHOMO_PORTS: { mixed: 7890, socks: 7891, http: 7892 }
 }))
-vi.mock('../resolve/server', () => ({
-  subStorePort: 38324,
-  subStoreBackendPrefix: '/aikobox-test-capability'
-}))
 vi.mock('../core/mihomoApi', () => ({
   mihomoCloseAllConnections: vi.fn(),
   mihomoHotReloadConfig: mocks.hotReload
@@ -122,26 +118,6 @@ describe('remote profile subscriptions', () => {
       /unsupported protocol/
     )
     expect(readFileSync(savedPath, 'utf8')).toBe(firstSaved)
-  })
-
-  it('routes Sub-Store downloads through the protected backend prefix', async () => {
-    mocks.axiosGet.mockResolvedValueOnce(response(200, clashYaml, { 'content-type': 'text/yaml' }))
-    const { createProfile } = await import('./profile')
-    await createProfile({
-      id: 'substore-1',
-      type: 'remote',
-      name: 'Sub-Store',
-      substore: true,
-      url: '/download/demo?target=ClashMeta'
-    })
-    expect(mocks.axiosGet.mock.calls[0][0]).toMatch(
-      /^http:\/\/127\.0\.0\.1:38324\/aikobox-test-capability\/download\/demo\?/
-    )
-    expect(() =>
-      mocks.axiosGet.mock.calls[0][1].beforeRedirect({
-        href: 'https://unexpected.example/download/demo'
-      })
-    ).toThrow(/sensitive headers may not redirect across origins/)
   })
 
   it('does not forward URL credentials across redirect origins', async () => {

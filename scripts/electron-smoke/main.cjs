@@ -59,9 +59,7 @@ const FORBIDDEN_CHANNELS = new Set([
   'restartCore',
   'quitWithoutCore',
   'installCoreUpdate',
-  'rollbackCoreUpdate',
-  'startSubStoreBackendServer',
-  'startSubStoreFrontendServer'
+  'rollbackCoreUpdate'
 ])
 const NOOP_CHANNELS = new Set([
   'applyTheme',
@@ -88,7 +86,6 @@ const smokeResponses = new Map([
       enableTrafficLogger: false,
       rememberSelectedSiderCard: false,
       sysProxy: { enable: false },
-      useSubStore: false,
       useWindowFrame: true
     }
   ],

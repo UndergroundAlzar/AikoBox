@@ -15,7 +15,6 @@ export const SIDER_CARD_ROUTES: Record<SiderCardKey, string> = {
   dns: '/dns',
   sniff: '/sniffer',
   log: '/logs',
-  substore: '/substore',
   network: '/network',
   usage: '/traffic'
 }

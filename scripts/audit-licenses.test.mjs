@@ -71,7 +71,7 @@ test('offline audit covers dependencies and explicitly tracked resource blockers
     result.stderr,
     /@nodable\/entities@2\.2\.0, byte-length@1\.0\.2, sysproxy-rs@0\.4\.0, xml-naming@0\.1\.0/
   )
-  assert.match(result.stderr, /\[BLOCKED\].*singBox.*subStoreBackend.*subStoreFrontend.*sysproxy/)
+  assert.match(result.stderr, /\[BLOCKED\].*singBox.*sysproxy/)
   assert.doesNotMatch(result.stderr, /\[BLOCKED\].*notoColorEmoji/)
   assert.doesNotMatch(
     result.stdout + result.stderr,
@@ -82,10 +82,7 @@ test('offline audit covers dependencies and explicitly tracked resource blockers
 test('release-gate mode fails closed while redistribution evidence is unresolved', () => {
   const result = runAudit()
   assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
-  assert.match(
-    result.stderr,
-    /Runtime resource licensing is unresolved for: singBox, subStoreBackend, subStoreFrontend, sysproxy/
-  )
+  assert.match(result.stderr, /Runtime resource licensing is unresolved for: singBox, sysproxy/)
 })
 
 test('five exact npm package evidence cases close mechanically and enter the package gate', () => {

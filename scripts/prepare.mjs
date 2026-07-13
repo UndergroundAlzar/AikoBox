@@ -9,17 +9,13 @@ const REPOSITORY_ROOT = path.resolve(SCRIPT_DIR, '..')
 const TEMP_DIR = path.join(REPOSITORY_ROOT, 'node_modules', '.temp')
 const LOCK_PATH = path.join(SCRIPT_DIR, 'resources-lock.json')
 const SHA256_PATTERN = /^[a-f0-9]{64}$/
-const EXPECTED_RESOURCES = [
-  'notoColorEmoji',
-  'singBox',
-  'subStoreBackend',
-  'subStoreFrontend',
-  'sysproxy'
-]
+const EXPECTED_RESOURCES = ['notoColorEmoji', 'singBox', 'sysproxy']
 const RETIRED_RESOURCE_OUTPUTS = [
   'extra/files/7za.exe',
   'extra/files/enableLoopback.exe',
-  'extra/files/TrafficMonitor'
+  'extra/files/TrafficMonitor',
+  'extra/files/sub-store.bundle.cjs',
+  'extra/files/sub-store-frontend'
 ]
 const cliArguments = new Set(process.argv.slice(2))
 const unknownArguments = [...cliArguments].filter(
@@ -718,13 +714,7 @@ async function main() {
     fs.rmSync(retiredPath, { force: true, recursive: true })
     console.log(`[INFO] Removed retired runtime resource ${retiredOutput}`)
   }
-  const resourceOrder = [
-    'singBox',
-    'notoColorEmoji',
-    'sysproxy',
-    'subStoreBackend',
-    'subStoreFrontend'
-  ]
+  const resourceOrder = ['singBox', 'notoColorEmoji', 'sysproxy']
 
   console.log(
     `[INFO] Preparing locked Windows x64 resources${OFFLINE ? ' (offline verification)' : ''}`

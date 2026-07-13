@@ -38,27 +38,6 @@
       "output": "extra/sidecar/sysproxy.win32-x64-msvc.node",
       "size": 574464,
       "sha256": "f17d99976218cb32aab0cc150e4e0fd40bcc4b237cd8af9f184e0ce4703e4995"
-    },
-    "subStoreBackend": {
-      "type": "file",
-      "version": "2.34.0",
-      "downloadUrl": "https://github.com/sub-store-org/Sub-Store/releases/download/2.34.0/sub-store.bundle.js",
-      "cacheFile": "sub-store/2.34.0/sub-store.bundle.js",
-      "output": "extra/files/sub-store.bundle.cjs",
-      "size": 3030709,
-      "sha256": "7deaa5a24b5626e1120be65109b36e9457e45b00c0687e2670e55511188f1d42"
-    },
-    "subStoreFrontend": {
-      "type": "zip-directory",
-      "version": "2.28.5",
-      "downloadUrl": "https://github.com/sub-store-org/Sub-Store-Front-End/releases/download/2.28.5/dist.zip",
-      "cacheFile": "substore-frontend/dist.zip",
-      "archiveSize": 2424499,
-      "archiveSha256": "1fae258b7797110d5da0a672e6466b94af5bbe3f4e0ecf07bb3191090a633633",
-      "archiveRoot": "dist",
-      "output": "extra/files/sub-store-frontend",
-      "fileCount": 160,
-      "directorySha256": "8e732156c12e29f36ddf864e3c0739e2ef2de3d4c5180bc8e8aeead0b0de6ff8"
     }
   }
 }

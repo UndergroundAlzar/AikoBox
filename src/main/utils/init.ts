@@ -1,16 +1,18 @@
-import { mkdir, writeFile, rm, readdir, cp, stat, rename } from 'fs/promises'
+import { mkdir, writeFile, rm, readdir, stat } from 'fs/promises'
 import { existsSync } from 'fs'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 import path from 'path'
 import { app, dialog } from 'electron'
-import { startSubStoreBackendServer, startSubStoreFrontendServer } from '../resolve/server'
 import {
   getAppConfig,
   getControledMihomoConfig,
+  getProfileConfig,
   patchAppConfig,
-  patchControledMihomoConfig
+  patchControledMihomoConfig,
+  setProfileConfig
 } from '../config'
+import { migrateLegacySubStoreProfiles } from '../config/legacySubStoreMigration'
 import { startSSIDCheck } from '../sys/ssid'
 import i18next, { resources } from '../../shared/i18n'
 import {
@@ -38,9 +40,7 @@ import {
   profileConfigPath,
   profilePath,
   profilesDir,
-  resourcesFilesDir,
   rulesDir,
-  subStoreDir,
   themesDir
 } from './dirs'
 import { initLogger } from './logger'
@@ -86,15 +86,6 @@ async function fixDataDirPermissions(): Promise<void> {
   }
 }
 
-async function isSourceNewer(sourcePath: string, targetPath: string): Promise<boolean> {
-  try {
-    const [sourceStats, targetStats] = await Promise.all([stat(sourcePath), stat(targetPath)])
-    return sourceStats.mtime > targetStats.mtime
-  } catch {
-    return true
-  }
-}
-
 async function initDirs(): Promise<void> {
   await fixDataDirPermissions()
 
@@ -106,8 +97,7 @@ async function initDirs(): Promise<void> {
     rulesDir(),
     mihomoWorkDir(),
     logDir(),
-    mihomoTestDir(),
-    subStoreDir()
+    mihomoTestDir()
   ]
 
   await Promise.all(
@@ -141,60 +131,6 @@ async function initConfig(): Promise<void> {
   )
 }
 
-async function initFiles(): Promise<void> {
-  const copyFile = async (file: string, targetDirs: string[]): Promise<void> => {
-    const sourcePath = path.join(resourcesFilesDir(), file)
-    if (!existsSync(sourcePath)) return
-
-    const targets = targetDirs.map((dir) => path.join(dir, file))
-
-    await Promise.all(
-      targets.map(async (targetPath) => {
-        const shouldCopy = !existsSync(targetPath) || (await isSourceNewer(sourcePath, targetPath))
-        if (!shouldCopy) return
-
-        try {
-          await cp(sourcePath, targetPath, { recursive: true, force: true })
-        } catch (error: unknown) {
-          const code = (error as NodeJS.ErrnoException).code
-          // 文件被占用或权限问题，如果目标已存在则跳过
-          if (
-            (code === 'EPERM' || code === 'EBUSY' || code === 'EACCES') &&
-            existsSync(targetPath)
-          ) {
-            await initLogger.warn(`Skipping ${file}: file is in use or permission denied`)
-            return
-          }
-          throw error
-        }
-      })
-    )
-  }
-
-  const files = [
-    {
-      name: 'sub-store.bundle.cjs',
-      targetDirs: [mihomoWorkDir()]
-    },
-    {
-      name: 'sub-store-frontend',
-      targetDirs: [mihomoWorkDir()]
-    }
-  ]
-
-  const results = await Promise.allSettled(
-    files.map(({ name, targetDirs }) => copyFile(name, targetDirs))
-  )
-
-  for (let i = 0; i < results.length; i++) {
-    const result = results[i]
-    if (result.status === 'rejected') {
-      const file = files[i].name
-      await initLogger.error(`Failed to copy ${file}`, result.reason)
-    }
-  }
-}
-
 async function cleanup(): Promise<void> {
   const [dataFiles, logFiles] = await Promise.all([readdir(dataDir()), readdir(logDir())])
 
@@ -221,24 +157,31 @@ async function cleanup(): Promise<void> {
   await Promise.all([...cacheCleanup, ...logCleanup])
 }
 
-async function migrateSubStoreFiles(): Promise<void> {
-  const oldJsPath = path.join(mihomoWorkDir(), 'sub-store.bundle.js')
-  const newCjsPath = path.join(mihomoWorkDir(), 'sub-store.bundle.cjs')
-
-  if (existsSync(oldJsPath) && !existsSync(newCjsPath)) {
-    try {
-      await rename(oldJsPath, newCjsPath)
-    } catch (error) {
-      await initLogger.error('Failed to rename sub-store.bundle.js to sub-store.bundle.cjs', error)
-    }
-  }
+async function cleanupRetiredSubStoreRuntimeFiles(): Promise<void> {
+  await Promise.all(
+    ['sub-store.bundle.js', 'sub-store.bundle.cjs', 'sub-store-frontend'].map((name) =>
+      rm(path.join(mihomoWorkDir(), name), { recursive: true, force: true }).catch((error) =>
+        initLogger.warn(`Failed to remove retired runtime file ${name}`, error)
+      )
+    )
+  )
 }
 
-// 迁移：添加 substore 到侧边栏
-async function migrateSiderOrder(): Promise<void> {
-  const { siderOrder = [], useSubStore = true } = await getAppConfig()
-  if (useSubStore && !siderOrder.includes('substore')) {
-    await patchAppConfig({ siderOrder: [...siderOrder, 'substore'] })
+async function migrateRetiredSubStoreProfiles(): Promise<void> {
+  const current = await getProfileConfig(true)
+  const migrated = migrateLegacySubStoreProfiles(current)
+  if (migrated.changed) await setProfileConfig(migrated.config)
+}
+
+async function migrateRetiredSiderOrder(): Promise<void> {
+  const { siderOrder = [], lastSelectedSiderCard } = await getAppConfig()
+  const nextOrder = siderOrder.filter((item) => item !== 'substore')
+  const persistedLastSelected = lastSelectedSiderCard as string | undefined
+  if (nextOrder.length !== siderOrder.length || persistedLastSelected === 'substore') {
+    await patchAppConfig({
+      siderOrder: nextOrder,
+      lastSelectedSiderCard: persistedLastSelected === 'substore' ? 'proxy' : lastSelectedSiderCard
+    })
   }
 }
 
@@ -319,7 +262,7 @@ async function migrateMihomoConfig(): Promise<void> {
 
 async function migration(): Promise<void> {
   await Promise.all([
-    migrateSiderOrder(),
+    migrateRetiredSiderOrder(),
     migrateAppTheme(),
     migrateEnvType(),
     migrateTraySettings(),
@@ -344,8 +287,9 @@ export async function initBasic(): Promise<void> {
   initBasicPromise = (async () => {
     await initDirs()
     await initConfig()
+    await migrateRetiredSubStoreProfiles()
+    await cleanupRetiredSubStoreRuntimeFiles()
     await migration()
-    await migrateSubStoreFiles()
 
     isInitBasicCompleted = true
   })()
@@ -363,7 +307,6 @@ export async function ensureRuntimeFiles(): Promise<void> {
 
   runtimeFilesPromise = (async () => {
     await initBasic()
-    await initFiles()
     await cleanup()
     isRuntimeFilesCompleted = true
   })()
@@ -380,12 +323,4 @@ export async function init(): Promise<void> {
   // The main process applies it only after sing-box passes its API health check.
   await Promise.all([ensureRuntimeFiles(), startSSIDCheck()])
   initDeeplink()
-}
-
-export async function startSubStoreServices(): Promise<void> {
-  await ensureRuntimeFiles()
-  // Backend CORS is pinned to the actual random frontend origin, so the
-  // frontend must bind first.
-  await startSubStoreFrontendServer()
-  await startSubStoreBackendServer()
 }

@@ -56,31 +56,6 @@ The official `v2.051` license permits the unmodified font to be bundled with sof
 
 The `src/native/sysproxy/package.json` MIT declaration applies to that shim's metadata; it is not evidence for the separately downloaded native binary.
 
-<!-- resource:subStoreBackend -->
-
-### Sub-Store backend — `BLOCKED`
-
-- Version: `2.34.0`
-- Packaged path: `extra/files/sub-store.bundle.cjs`
-- Project: https://github.com/sub-store-org/Sub-Store
-- Locked download: https://github.com/sub-store-org/Sub-Store/releases/download/2.34.0/sub-store.bundle.js
-- Packaged payload: 3,030,709 bytes; SHA-256 `7deaa5a24b5626e1120be65109b36e9457e45b00c0687e2670e55511188f1d42`
-- Release blocker: The generated bundle preserves some dependency comments but no locally verifiable top-level license grant, full required license set, copyright inventory, or corresponding source record is shipped.
-
-Generated comments are useful evidence but do not replace complete license texts or the project's own license grant. Preserve the upstream bundle unchanged and add the exact release's source and notice material.
-
-<!-- resource:subStoreFrontend -->
-
-### Sub-Store Front-End — `BLOCKED`
-
-- Version: `2.28.5`
-- Packaged directory: `extra/files/sub-store-frontend`
-- Project: https://github.com/sub-store-org/Sub-Store-Front-End
-- Locked download: https://github.com/sub-store-org/Sub-Store-Front-End/releases/download/2.28.5/dist.zip
-- Archive: 2,424,499 bytes; SHA-256 `1fae258b7797110d5da0a672e6466b94af5bbe3f4e0ecf07bb3191090a633633`
-- Extracted tree: 160 files; directory SHA-256 `8e732156c12e29f36ddf864e3c0739e2ef2de3d4c5180bc8e8aeead0b0de6ff8`
-- Release blocker: The extracted frontend directory has no top-level license, dependency notices, copyright inventory, or source revision tied to the locked release archive.
-
 ## JavaScript and Electron dependencies
 
 Run the offline audit from a complete frozen install:
@@ -89,7 +64,7 @@ Run the offline audit from a complete frozen install:
 node scripts/audit-licenses.mjs
 ```
 
-The audit compares all five runtime resources with the lock and this notice, then inventories production dependency metadata through `pnpm licenses list --prod --json`. At the current lock, the locally declared production license expressions are `Apache-2.0`, `BSD-2-Clause`, `BSD-3-Clause`, `GPL-3.0`, `ISC`, `MIT`, `Python-2.0`, and `Unlicense`.
+The audit compares all three runtime resources with the lock and this notice, then inventories production dependency metadata through `pnpm licenses list --prod --json`. At the current lock, the locally declared production license expressions are `Apache-2.0`, `BSD-2-Clause`, `BSD-3-Clause`, `GPL-3.0`, `ISC`, `MIT`, `Python-2.0`, and `Unlicense`.
 
 Five exact installed-package cases have mechanical evidence:
 

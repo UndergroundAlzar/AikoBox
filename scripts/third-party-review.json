@@ -134,16 +134,6 @@
       "status": "blocked",
       "project": "https://github.com/mihomo-party-org/sysproxy-rs-opti",
       "blocker": "The local JavaScript shim declares MIT, but no license/copyright file or source revision tied to the packaged native .node binary is present."
-    },
-    "subStoreBackend": {
-      "status": "blocked",
-      "project": "https://github.com/sub-store-org/Sub-Store",
-      "blocker": "The generated bundle preserves some dependency comments but no locally verifiable top-level license grant, full required license set, copyright inventory, or corresponding source record is shipped."
-    },
-    "subStoreFrontend": {
-      "status": "blocked",
-      "project": "https://github.com/sub-store-org/Sub-Store-Front-End",
-      "blocker": "The extracted frontend directory has no top-level license, dependency notices, copyright inventory, or source revision tied to the locked release archive."
     }
   }
 }

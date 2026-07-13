@@ -8,7 +8,6 @@ import MihomoConfig from '@renderer/components/settings/mihomo-config'
 import Actions from '@renderer/components/settings/actions'
 import ShortcutConfig from '@renderer/components/settings/shortcut-config'
 import SiderConfig from '@renderer/components/settings/sider-config'
-import SubStoreConfig from '@renderer/components/settings/substore-config'
 import LocalBackupConfig from '@renderer/components/settings/local-backup-config'
 import { useTranslation } from 'react-i18next'
 
@@ -48,7 +47,6 @@ const Settings: React.FC = () => {
       }
     >
       <GeneralConfig />
-      <SubStoreConfig />
       <SiderConfig />
       <WebdavConfig />
       <MihomoConfig />

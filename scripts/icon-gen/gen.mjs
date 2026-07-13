@@ -4,8 +4,8 @@
  * Source artwork: a 640x963 portrait illustration (face in the top third, vivid
  * yellow background). This script square-crops it (top-biased so the face is
  * well framed), renders a 1024x1024 master, and overwrites every app icon in
- * build/ and resources/ (except resources/subStoreIcon.png and
- * build/background.png, which are intentionally left alone).
+ * build/ and resources/ (except build/background.png, which is intentionally
+ * left alone).
  *
  * Usage:  node gen.mjs [--top N]     (N = source-pixel Y offset of the square
  *                                     crop, default CROP_TOP below)
