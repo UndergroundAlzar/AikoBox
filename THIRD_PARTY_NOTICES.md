@@ -65,9 +65,10 @@ The official `v2.051` license permits the unmodified font to be bundled with sof
 - Upstream license: `MIT`; `Copyright (c) 2022 zzzgydi`
 - Packaged upstream license: [`licenses/sysproxy-rs-opti/MIT.txt`](./licenses/sysproxy-rs-opti/MIT.txt), 1,064 bytes, SHA-256 `e3dee6d5b240791312cd89333a5cc62e6f65be66bff8ab6903dc9a67bbe84263`
 - Exact upstream license: https://raw.githubusercontent.com/mihomo-party-org/sysproxy-rs-opti/ce9463d95ed5839a43c6a0d7cccf3b3fb892de3a/LICENSE, SHA-256 `e3dee6d5b240791312cd89333a5cc62e6f65be66bff8ab6903dc9a67bbe84263`
+- Pinned source identity (manifest only, not a reproducible lockfile): [`licenses/sysproxy-rs-opti/Cargo.toml`](./licenses/sysproxy-rs-opti/Cargo.toml), 3,323 bytes, SHA-256 `2f05cf8e93c64654e623bbf41f53d334b9cb3520b697a45527da4f84c25cd401` from https://raw.githubusercontent.com/mihomo-party-org/sysproxy-rs-opti/ce9463d95ed5839a43c6a0d7cccf3b3fb892de3a/Cargo.toml
 - Release blocker: The native release tag, payload SHA-256, source revision, and upstream MIT text are pinned, but that revision has no Cargo.lock and the packaged static Rust dependency graph still lacks a complete reproducible license/notice inventory.
 
-The JavaScript loader in `src/native/sysproxy` is AikoBox-owned code under `GPL-3.0-only`, independently of the native module. Its installed `index.js` is 3,605 bytes with SHA-256 `bfa9d0f66702286ac824203b9c8add8b665ed6ae56082ee2479853ed94bc02f0`; the packaged project [`LICENSE`](./LICENSE) is 35,149 bytes with SHA-256 `3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986`. This local ownership evidence does not clear the separately downloaded native module.
+The JavaScript loader in `src/native/sysproxy` is AikoBox-owned code under `GPL-3.0-only`, independently of the native module. Its installed `index.js` is 3,605 bytes with SHA-256 `bfa9d0f66702286ac824203b9c8add8b665ed6ae56082ee2479853ed94bc02f0`; the packaged project [`LICENSE`](./LICENSE) is 35,149 bytes with SHA-256 `3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986`. This local ownership evidence does not clear the separately downloaded native module. The pinned `Cargo.toml` records declared crate ranges for future self-build work; without `Cargo.lock` and a rebuilt `.node`, redistribution remains blocked.
 
 ## JavaScript and Electron dependencies
 

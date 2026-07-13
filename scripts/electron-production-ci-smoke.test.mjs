@@ -71,7 +71,8 @@ test('production bootstrap gates before tripwires and refuses non-isolated loads
   assert.match(bootstrapSource, /SYSTEM_SIDE_EFFECT_BLOCKED/)
   assert.match(bootstrapSource, /AIKOBOX_CI_ISOLATED_SMOKE/)
   assert.match(bootstrapSource, /out\/main\/index\.js/)
-  assert.match(bootstrapSource, /not implemented yet/)
+  assert.match(bootstrapSource, /isolation hooks exist/)
+  assert.match(bootstrapSource, /fail-closed/)
   assert.doesNotMatch(bootstrapSource, /sing-box(?:\.exe)?\s+run/i)
   assert.doesNotMatch(bootstrapSource, /require\(['"].*(?:sysproxy|manager).*['"]\)/i)
 })
@@ -94,6 +95,18 @@ test('package scripts and quality workflow wire static production smoke tests on
     packageJson.scripts['smoke:electron:prod:ci'],
     'node scripts/electron-production-ci-smoke.mjs'
   )
-  assert.match(qualityWorkflow, /test:electron-prod-smoke/)
-  assert.doesNotMatch(qualityWorkflow, /smoke:electron:prod:ci/)
+  const packageWorkflow = fs.readFileSync(
+    path.join(repositoryRoot, '.github', 'workflows', 'package.yml'),
+    'utf8'
+  )
+  const releaseWorkflow = fs.readFileSync(
+    path.join(repositoryRoot, '.github', 'workflows', 'release.yml'),
+    'utf8'
+  )
+  for (const workflow of [qualityWorkflow, packageWorkflow, releaseWorkflow]) {
+    assert.match(workflow, /test:electron-prod-smoke/)
+    assert.doesNotMatch(workflow, /smoke:electron:prod:ci/)
+  }
+  assert.doesNotMatch(packageWorkflow, /smoke:electron:ci/)
+  assert.doesNotMatch(releaseWorkflow, /smoke:electron:ci/)
 })

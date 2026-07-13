@@ -240,6 +240,15 @@
             "sourceUrl": "https://raw.githubusercontent.com/mihomo-party-org/sysproxy-rs-opti/ce9463d95ed5839a43c6a0d7cccf3b3fb892de3a/LICENSE",
             "upstreamSha256": "e3dee6d5b240791312cd89333a5cc62e6f65be66bff8ab6903dc9a67bbe84263"
           }
+        ],
+        "sourceIdentityFiles": [
+          {
+            "kind": "Cargo.toml",
+            "path": "licenses/sysproxy-rs-opti/Cargo.toml",
+            "size": 3323,
+            "sha256": "2f05cf8e93c64654e623bbf41f53d334b9cb3520b697a45527da4f84c25cd401",
+            "sourceUrl": "https://raw.githubusercontent.com/mihomo-party-org/sysproxy-rs-opti/ce9463d95ed5839a43c6a0d7cccf3b3fb892de3a/Cargo.toml"
+          }
         ]
       }
     }

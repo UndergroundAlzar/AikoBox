@@ -54,8 +54,9 @@ if (!mainPath.replace(/\\/g, '/').endsWith('/out/main/index.js')) {
   throw new Error('Production main path must resolve to out/main/index.js')
 }
 
-// Until production main honors AIKOBOX_CI_ISOLATED_SMOKE with safe stubs, refuse
-// to load it so a partially wired CI job cannot touch sysproxy/core/TUN.
+// Production main now has isCiIsolatedSmokeMode() gates for core/sysproxy/admin
+// recovery, but tray/window/init still need a full tripwire-compatible path.
+// Refuse to load until that path is complete so a partial job cannot touch OS state.
 throw new Error(
-  'Production main isolation mode is not implemented yet; bootstrap tripwires are armed and fail closed'
+  'Production main isolation hooks exist; full bootstrap load remains fail-closed until tray/init are isolation-safe'
 )

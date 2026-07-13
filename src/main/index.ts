@@ -41,8 +41,12 @@ import {
   recoverStaleSystemProxy,
   triggerSysProxy
 } from './sys/sysproxy'
+import { isCiIsolatedSmokeMode } from './utils/ciIsolatedSmoke'
+
+const ciIsolatedSmoke = isCiIsolatedSmokeMode()
 
 function getWindowsPowerShellMajorVersion(): number | null {
+  if (ciIsolatedSmoke) return 5
   // 仅 PS 3.0+ 写入 \3\ 键（\1\ 键恒为 2.0，不可用）。
   try {
     const stdout = execFileSync(
@@ -89,7 +93,8 @@ async function waitForPreviousAikoBoxInstance(): Promise<void> {
 }
 
 // PowerShell 版本过低必须在 app 启动前提示并退出，因此保持同步执行
-if (process.platform === 'win32') {
+// Isolated CI smoke never shells out to reg/mshta.
+if (process.platform === 'win32' && !ciIsolatedSmoke) {
   try {
     const major = getWindowsPowerShellMajorVersion()
     if (major !== null && major < 5) {
@@ -173,17 +178,26 @@ const initPromise = (async () => {
 
   await initBasic()
 
-  try {
-    await recoverStaleSystemProxy()
-  } catch (error) {
-    proxySafetyReady = false
-    staleProxyCoreEndpoint = getStaleSystemProxyCoreEndpoint()
-    mainLogger.error('System proxy recovery failed; automatic proxy activation is disabled', error)
-    safeShowErrorBox('common.error.initFailed', `${error}`)
+  if (!ciIsolatedSmoke) {
+    try {
+      await recoverStaleSystemProxy()
+    } catch (error) {
+      proxySafetyReady = false
+      staleProxyCoreEndpoint = getStaleSystemProxyCoreEndpoint()
+      mainLogger.error(
+        'System proxy recovery failed; automatic proxy activation is disabled',
+        error
+      )
+      safeShowErrorBox('common.error.initFailed', `${error}`)
+    }
+  } else {
+    mainLogger.info('CI isolated smoke: skipping system proxy recovery')
   }
 
   const adminPromise: Promise<boolean> =
-    process.platform === 'win32' ? checkAdminPrivileges().catch(() => false) : Promise.resolve(true)
+    process.platform === 'win32' && !ciIsolatedSmoke
+      ? checkAdminPrivileges().catch(() => false)
+      : Promise.resolve(true)
 
   const appConfigPromise = (async () => {
     try {
@@ -205,7 +219,7 @@ const initPromise = (async () => {
   await adminPromise
   await initAdminStatus()
 
-  if (process.platform === 'win32') {
+  if (process.platform === 'win32' && !ciIsolatedSmoke) {
     const isAdmin = await adminPromise
     if (!isAdmin) {
       try {
@@ -264,6 +278,10 @@ app.whenReady().then(async () => {
 
   let coreStarted = false
   const coreStartPromise = (async (): Promise<void> => {
+    if (ciIsolatedSmoke) {
+      mainLogger.info('CI isolated smoke: refusing to start core, TUN, or system proxy')
+      return
+    }
     try {
       initCoreWatcher()
       // Resolve persisted/elevated TUN intent before any core process starts.

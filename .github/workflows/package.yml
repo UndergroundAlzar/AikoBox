@@ -34,6 +34,12 @@ jobs:
         run: node --test scripts/prepare.test.mjs
       - name: Test the fail-closed third-party license audit
         run: pnpm run test:licenses
+      - name: Test CI Electron smoke safety boundaries
+        run: |
+          pnpm run test:electron-smoke
+          pnpm run test:electron-prod-smoke
+      - name: Test final release extraction safety logic
+        run: pnpm run test:verify-release
       - name: Require complete third-party redistribution evidence before packaging
         run: pnpm run audit:licenses
       - name: Rebuild native dependencies for Electron

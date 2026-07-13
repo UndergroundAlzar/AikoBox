@@ -266,6 +266,19 @@ test('blocked native resources retain pinned partial evidence without weakening 
   assert.equal(parsed.depCount, 100)
   assert.equal(parsed.goVersion, 'go1.26.4')
   assert.equal(parsed.mainModule, 'github.com/sagernet/sing-box')
+
+  const sysproxy = review.resources.sysproxy.partialEvidence
+  assert.equal(sysproxy.sourceIdentityFiles.length, 1)
+  assert.equal(sysproxy.sourceIdentityFiles[0].kind, 'Cargo.toml')
+  const cargo = fs.readFileSync(
+    path.join(repositoryRoot, ...sysproxy.sourceIdentityFiles[0].path.split('/'))
+  )
+  assert.equal(cargo.length, sysproxy.sourceIdentityFiles[0].size)
+  assert.equal(
+    createHash('sha256').update(cargo).digest('hex'),
+    sysproxy.sourceIdentityFiles[0].sha256
+  )
+  assert.match(cargo.toString('utf8'), /name = "sysproxy"/)
 })
 
 test('Noto Color Emoji evidence is tag-pinned, packaged, and hash-reviewed', () => {
