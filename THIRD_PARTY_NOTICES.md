@@ -29,16 +29,19 @@ The repository's root GPL text covers AikoBox itself. It must not be presented a
 - Packaged path: `src/renderer/src/assets/NotoColorEmoji.ttf`
 - Project: https://github.com/googlefonts/noto-emoji
 - Locked download: https://raw.githubusercontent.com/googlefonts/noto-emoji/v2.051/fonts/NotoColorEmoji.ttf
-- Source: tag `v2.051`, commit `8998f5dd683424a73e2314a8c1f1e359c19e8742`, https://github.com/googlefonts/noto-emoji/tree/v2.051
+- Release: tag `v2.051`; tag commit `8998f5dd683424a73e2314a8c1f1e359c19e8742`; https://github.com/googlefonts/noto-emoji/tree/v2.051
+- Embedded font metadata: version `2.051`; build date `20250818`; build revision `e92753bfa55fd449e427d4d325f9c8c40408c74e`; `Copyright 2022 Google Inc.`
 - Packaged payload: 10,673,480 bytes; SHA-256 `72a635cb3d2f3524c51620cdde406b217204e8a6a06c6a096ff8ed4b5fd6e27b`
-- License: `OFL-1.1`; `Copyright 2013 Google LLC`
+- License: `OFL-1.1`; OFL file copyright `Copyright 2013 Google LLC`
 - Packaged license: [`licenses/noto-color-emoji/OFL-1.1.txt`](./licenses/noto-color-emoji/OFL-1.1.txt), SHA-256 `ae5c450cf4361bb474aec3cf67ecaaf29c4134f821f4ac6127904e876d0f93c8`
+- Upstream license: https://raw.githubusercontent.com/googlefonts/noto-emoji/v2.051/LICENSE, SHA-256 `500bb1ccf43df7bbb522112f9133a52b16e1c35e809632f5d8609b179152de5b`
+- Packaged-license normalization: Normalized one redundant blank line and one trailing ASCII space; the legal text is unchanged.
 - Official release evidence: https://github.com/googlefonts/noto-emoji/releases/tag/v2.051
 - Official font evidence: https://github.com/googlefonts/noto-emoji/blob/v2.051/fonts/NotoColorEmoji.ttf
 - Official license evidence: https://github.com/googlefonts/noto-emoji/blob/v2.051/LICENSE
 - Official version metadata: https://github.com/googlefonts/noto-emoji/blob/v2.051/NotoColorEmoji.tmpl.ttx.tmpl
 
-The official `v2.051` license permits the unmodified font to be bundled with software when every copy retains the copyright notice and complete OFL-1.1 text. No Reserved Font Name is specified after the copyright statement in that license. AikoBox ships the font unmodified, preserves the upstream font name and metadata, and does not claim Google endorsement. The audit binds the exact font size and SHA-256 to the tagged source and requires the complete reviewed upstream license text to enter `app.asar`.
+The official `v2.051` license permits the unmodified font to be bundled with software when every copy retains the copyright notice and complete OFL-1.1 text. No Reserved Font Name is specified after the copyright statement in that license. The release tag commit identifies the upstream release tree; the separate embedded build revision identifies the exact revision recorded by the packaged font itself. AikoBox ships the font unmodified, preserves both the embedded `Copyright 2022 Google Inc.` metadata and the OFL file's `Copyright 2013 Google LLC` notice, and does not claim Google endorsement. The audit binds the exact font size and SHA-256 to the tagged release, parses the packaged TTF metadata offline, and requires the complete reviewed upstream license text to enter `app.asar`.
 
 <!-- resource:enableLoopback -->
 

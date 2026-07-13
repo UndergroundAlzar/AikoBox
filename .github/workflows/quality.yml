@@ -63,6 +63,9 @@ jobs:
       - name: Test the fail-closed third-party license audit
         run: pnpm run test:licenses
 
+      - name: Test final release extraction safety logic
+        run: pnpm run test:verify-release
+
       - name: Compile Electron application
         run: pnpm run build
 

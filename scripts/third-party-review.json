@@ -31,11 +31,17 @@
       "status": "verified",
       "project": "https://github.com/googlefonts/noto-emoji",
       "license": "OFL-1.1",
-      "copyright": "Copyright 2013 Google LLC",
-      "source": {
+      "licenseCopyright": "Copyright 2013 Google LLC",
+      "release": {
         "tag": "v2.051",
-        "commit": "8998f5dd683424a73e2314a8c1f1e359c19e8742",
+        "tagCommit": "8998f5dd683424a73e2314a8c1f1e359c19e8742",
         "url": "https://github.com/googlefonts/noto-emoji/tree/v2.051"
+      },
+      "fontMetadata": {
+        "version": "2.051",
+        "buildDate": "20250818",
+        "buildRevision": "e92753bfa55fd449e427d4d325f9c8c40408c74e",
+        "copyright": "Copyright 2022 Google Inc."
       },
       "evidence": [
         {
@@ -58,7 +64,10 @@
       "licenseFiles": [
         {
           "path": "licenses/noto-color-emoji/OFL-1.1.txt",
-          "sha256": "ae5c450cf4361bb474aec3cf67ecaaf29c4134f821f4ac6127904e876d0f93c8"
+          "sha256": "ae5c450cf4361bb474aec3cf67ecaaf29c4134f821f4ac6127904e876d0f93c8",
+          "sourceUrl": "https://raw.githubusercontent.com/googlefonts/noto-emoji/v2.051/LICENSE",
+          "upstreamSha256": "500bb1ccf43df7bbb522112f9133a52b16e1c35e809632f5d8609b179152de5b",
+          "transformation": "Normalized one redundant blank line and one trailing ASCII space; the legal text is unchanged."
         }
       ]
     },

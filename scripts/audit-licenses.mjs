@@ -20,18 +20,159 @@ function sha256(contents) {
   return createHash('sha256').update(contents).digest('hex')
 }
 
-function resolveEvidenceFile(relativePath, label) {
+function comparableFsPath(filePath) {
+  const normalized = path.normalize(filePath).replace(/^\\\\\?\\/, '')
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized
+}
+
+export function resolveEvidenceFile(relativePath, label, root = repositoryRoot) {
   invariant(typeof relativePath === 'string' && relativePath.length > 0, `${label}: empty path`)
+  invariant(!relativePath.includes('\0'), `${label}: path contains a NUL byte`)
   invariant(!relativePath.includes('\\'), `${label}: path must use forward slashes`)
-  invariant(!path.posix.isAbsolute(relativePath), `${label}: path must be repository-relative`)
-  invariant(!relativePath.split('/').includes('..'), `${label}: path escapes the repository`)
-  const absolutePath = path.resolve(repositoryRoot, ...relativePath.split('/'))
-  const relative = path.relative(repositoryRoot, absolutePath)
+  invariant(
+    !path.posix.isAbsolute(relativePath) && !path.win32.isAbsolute(relativePath),
+    `${label}: path must be repository-relative`
+  )
+  const segments = relativePath.split('/')
+  invariant(
+    segments.every(
+      (segment) =>
+        segment.length > 0 && segment !== '.' && segment !== '..' && !segment.includes(':')
+    ),
+    `${label}: path must be canonical and must not escape the repository`
+  )
+
+  const absoluteRoot = path.resolve(root)
+  invariant(fs.existsSync(absoluteRoot), `${label}: repository root is missing`)
+  const realRoot = fs.realpathSync.native(absoluteRoot)
+  const absolutePath = path.resolve(absoluteRoot, ...segments)
+  const relative = path.relative(absoluteRoot, absolutePath)
   invariant(
     relative && !relative.startsWith('..') && !path.isAbsolute(relative),
     `${label}: path escapes the repository`
   )
+
+  let lexicalPath = absoluteRoot
+  let expectedRealPath = realRoot
+  for (const segment of segments) {
+    lexicalPath = path.join(lexicalPath, segment)
+    expectedRealPath = path.join(expectedRealPath, segment)
+    invariant(fs.existsSync(lexicalPath), `${label}: path component is missing`)
+    const stat = fs.lstatSync(lexicalPath)
+    invariant(!stat.isSymbolicLink(), `${label}: path passes through a symbolic link or junction`)
+    const actualRealPath = fs.realpathSync.native(lexicalPath)
+    invariant(
+      comparableFsPath(actualRealPath) === comparableFsPath(expectedRealPath),
+      `${label}: path passes through a symbolic link or junction`
+    )
+  }
+
+  const realPath = fs.realpathSync.native(absolutePath)
+  const realRelative = path.relative(realRoot, realPath)
+  invariant(
+    realRelative && !realRelative.startsWith('..') && !path.isAbsolute(realRelative),
+    `${label}: resolved path escapes the repository`
+  )
   return absolutePath
+}
+
+export function getResourceNoticeSection(notice, name) {
+  const marker = `<!-- resource:${name} -->`
+  const start = notice.indexOf(marker)
+  invariant(start >= 0, `${name}: notice marker is missing`)
+  invariant(notice.lastIndexOf(marker) === start, `${name}: notice marker is duplicated`)
+  const candidates = [
+    notice.indexOf('<!-- resource:', start + marker.length),
+    notice.indexOf('\n## ', start + marker.length)
+  ].filter((offset) => offset >= 0)
+  const end = candidates.length > 0 ? Math.min(...candidates) : notice.length
+  return notice.slice(start, end)
+}
+
+function assertBufferRange(contents, offset, length, label) {
+  invariant(
+    Number.isSafeInteger(offset) &&
+      Number.isSafeInteger(length) &&
+      offset >= 0 &&
+      length >= 0 &&
+      offset + length <= contents.length,
+    `${label}: invalid or truncated font table`
+  )
+}
+
+function decodeSfntNameString(contents, platformId) {
+  if (platformId !== 0 && platformId !== 3) return contents.toString('latin1')
+  invariant(contents.length % 2 === 0, 'Font name record has invalid UTF-16BE length')
+  let value = ''
+  for (let offset = 0; offset < contents.length; offset += 2) {
+    value += String.fromCharCode(contents.readUInt16BE(offset))
+  }
+  return value
+}
+
+export function readSfntNameMetadata(filePath) {
+  const contents = fs.readFileSync(filePath)
+  assertBufferRange(contents, 0, 12, 'SFNT header')
+  const tableCount = contents.readUInt16BE(4)
+  assertBufferRange(contents, 12, tableCount * 16, 'SFNT table directory')
+
+  let nameTable
+  for (let index = 0; index < tableCount; index += 1) {
+    const recordOffset = 12 + index * 16
+    if (contents.toString('ascii', recordOffset, recordOffset + 4) !== 'name') continue
+    nameTable = {
+      offset: contents.readUInt32BE(recordOffset + 8),
+      length: contents.readUInt32BE(recordOffset + 12)
+    }
+    break
+  }
+  invariant(nameTable, 'Font has no SFNT name table')
+  assertBufferRange(contents, nameTable.offset, nameTable.length, 'SFNT name table')
+  invariant(nameTable.length >= 6, 'SFNT name table header is truncated')
+
+  const recordCount = contents.readUInt16BE(nameTable.offset + 2)
+  const stringOffset = contents.readUInt16BE(nameTable.offset + 4)
+  invariant(6 + recordCount * 12 <= nameTable.length, 'SFNT name records are truncated')
+  invariant(stringOffset <= nameTable.length, 'SFNT name string storage is invalid')
+
+  const values = new Map()
+  for (let index = 0; index < recordCount; index += 1) {
+    const recordOffset = nameTable.offset + 6 + index * 12
+    const platformId = contents.readUInt16BE(recordOffset)
+    const nameId = contents.readUInt16BE(recordOffset + 6)
+    if (nameId !== 0 && nameId !== 5) continue
+    const length = contents.readUInt16BE(recordOffset + 8)
+    const offset = contents.readUInt16BE(recordOffset + 10)
+    const valueOffset = nameTable.offset + stringOffset + offset
+    assertBufferRange(contents, valueOffset, length, 'SFNT name value')
+    invariant(
+      valueOffset + length <= nameTable.offset + nameTable.length,
+      'SFNT name value escapes its table'
+    )
+    const value = decodeSfntNameString(
+      contents.subarray(valueOffset, valueOffset + length),
+      platformId
+    )
+    if (!values.has(nameId)) values.set(nameId, new Set())
+    values.get(nameId).add(value)
+  }
+
+  const copyrightValues = [...(values.get(0) ?? [])]
+  const versionValues = [...(values.get(5) ?? [])]
+  invariant(copyrightValues.length === 1, 'Font must contain one unique copyright record')
+  invariant(versionValues.length === 1, 'Font must contain one unique version record')
+  const versionRecord = versionValues[0]
+  const match = /^Version ([0-9]+\.[0-9]+);GOOG;noto-emoji:([0-9]{8}):([a-f0-9]{40})$/.exec(
+    versionRecord
+  )
+  invariant(match, 'Font version record does not contain pinned noto-emoji build metadata')
+  return {
+    version: match[1],
+    buildDate: match[2],
+    buildRevision: match[3],
+    copyright: copyrightValues[0],
+    versionRecord
+  }
 }
 
 function inspectResourceReview() {
@@ -48,24 +189,44 @@ function inspectResourceReview() {
     JSON.stringify(reviewNames) === JSON.stringify(lockNames),
     'The third-party review must cover exactly every locked runtime resource'
   )
+  const noticeMarkerNames = [...notice.matchAll(/<!-- resource:([A-Za-z0-9_-]+) -->/g)].map(
+    (match) => match[1]
+  )
+  invariant(
+    new Set(noticeMarkerNames).size === noticeMarkerNames.length,
+    'Third-party notice contains a duplicate resource marker'
+  )
+  invariant(
+    JSON.stringify([...noticeMarkerNames].sort()) === JSON.stringify(lockNames),
+    'The third-party notice must contain exactly one section for every locked runtime resource'
+  )
 
   const blockers = []
   for (const name of lockNames) {
     const resource = lock.resources[name]
     const item = review.resources[name]
+    const noticeSection = getResourceNoticeSection(notice, name)
     invariant(item.status === 'blocked' || item.status === 'verified', `${name}: invalid status`)
     invariant(/^https:\/\//.test(item.project), `${name}: project URL must use HTTPS`)
-    invariant(notice.includes(`<!-- resource:${name} -->`), `${name}: notice marker is missing`)
-    invariant(notice.includes(resource.version), `${name}: locked version is absent from notice`)
-    invariant(notice.includes(item.project), `${name}: reviewed project URL is absent from notice`)
+    invariant(
+      noticeSection.includes(resource.version),
+      `${name}: locked version is absent from notice`
+    )
+    invariant(
+      noticeSection.includes(item.project),
+      `${name}: reviewed project URL is absent from notice`
+    )
 
     const locator = resource.downloadUrl ?? resource.source
-    invariant(notice.includes(locator), `${name}: locked source locator is absent from notice`)
+    invariant(
+      noticeSection.includes(locator),
+      `${name}: locked source locator is absent from notice`
+    )
 
     for (const hashField of ['sha256', 'archiveSha256', 'directorySha256']) {
       if (resource[hashField]) {
         invariant(
-          notice.includes(resource[hashField]),
+          noticeSection.includes(resource[hashField]),
           `${name}: ${hashField} is absent from notice`
         )
       }
@@ -73,7 +234,10 @@ function inspectResourceReview() {
 
     if (item.status === 'blocked') {
       invariant(item.blocker.length >= 40, `${name}: release blocker is not specific enough`)
-      invariant(notice.includes(item.blocker), `${name}: release blocker is absent from notice`)
+      invariant(
+        noticeSection.includes(item.blocker),
+        `${name}: release blocker is absent from notice`
+      )
       blockers.push(name)
     } else {
       invariant(
@@ -81,25 +245,87 @@ function inspectResourceReview() {
         `${name}: verified license expression is missing`
       )
       invariant(
-        typeof item.copyright === 'string' && item.copyright.length > 0,
-        `${name}: verified copyright notice is missing`
+        typeof item.licenseCopyright === 'string' && item.licenseCopyright.length > 0,
+        `${name}: verified license copyright notice is missing`
       )
       invariant(item.blocker === undefined, `${name}: verified item still declares a blocker`)
-      invariant(item.source && typeof item.source === 'object', `${name}: source is missing`)
-      invariant(/^https:\/\//.test(item.source.url), `${name}: source URL must use HTTPS`)
-      invariant(/^v?\d/.test(item.source.tag), `${name}: source tag is invalid`)
-      invariant(/^[a-f0-9]{40}$/.test(item.source.commit), `${name}: source commit is invalid`)
-      invariant(resource.sourceTag === item.source.tag, `${name}: source tag differs from lock`)
+      invariant(item.release && typeof item.release === 'object', `${name}: release is missing`)
+      invariant(/^https:\/\//.test(item.release.url), `${name}: release URL must use HTTPS`)
+      invariant(/^v?\d/.test(item.release.tag), `${name}: release tag is invalid`)
       invariant(
-        resource.sourceCommit === item.source.commit,
-        `${name}: source commit differs from lock`
+        /^[a-f0-9]{40}$/.test(item.release.tagCommit),
+        `${name}: release tag commit is invalid`
+      )
+      invariant(resource.releaseTag === item.release.tag, `${name}: release tag differs from lock`)
+      invariant(
+        resource.releaseTagCommit === item.release.tagCommit,
+        `${name}: release tag commit differs from lock`
       )
 
-      invariant(notice.includes(item.license), `${name}: license is absent from notice`)
-      invariant(notice.includes(item.copyright), `${name}: copyright is absent from notice`)
-      invariant(notice.includes(item.source.url), `${name}: source URL is absent from notice`)
-      invariant(notice.includes(item.source.tag), `${name}: source tag is absent from notice`)
-      invariant(notice.includes(item.source.commit), `${name}: source commit is absent from notice`)
+      invariant(noticeSection.includes(item.license), `${name}: license is absent from notice`)
+      invariant(
+        noticeSection.includes(item.licenseCopyright),
+        `${name}: license copyright is absent from notice`
+      )
+      invariant(
+        noticeSection.includes(item.release.url),
+        `${name}: release URL is absent from notice`
+      )
+      invariant(
+        noticeSection.includes(item.release.tag),
+        `${name}: release tag is absent from notice`
+      )
+      invariant(
+        noticeSection.includes(item.release.tagCommit),
+        `${name}: release tag commit is absent from notice`
+      )
+
+      if (resource.fontMetadata !== undefined || item.fontMetadata !== undefined) {
+        invariant(
+          resource.fontMetadata && item.fontMetadata,
+          `${name}: font metadata must be present in both lock and review`
+        )
+        invariant(
+          JSON.stringify(resource.fontMetadata) === JSON.stringify(item.fontMetadata),
+          `${name}: reviewed font metadata differs from lock`
+        )
+        invariant(
+          resource.version === item.fontMetadata.version,
+          `${name}: font metadata version differs from locked version`
+        )
+        invariant(/^[0-9]{8}$/.test(item.fontMetadata.buildDate), `${name}: build date is invalid`)
+        invariant(
+          /^[a-f0-9]{40}$/.test(item.fontMetadata.buildRevision),
+          `${name}: embedded build revision is invalid`
+        )
+        invariant(
+          typeof item.fontMetadata.copyright === 'string' && item.fontMetadata.copyright.length > 0,
+          `${name}: embedded font copyright is missing`
+        )
+
+        const fontPath = resolveEvidenceFile(resource.output, `${name}: packaged font`)
+        const fontStat = fs.lstatSync(fontPath)
+        invariant(
+          fontStat.isFile() && !fontStat.isSymbolicLink(),
+          `${name}: font path is not a file`
+        )
+        const fontContents = fs.readFileSync(fontPath)
+        invariant(
+          fontContents.length === resource.size && sha256(fontContents) === resource.sha256,
+          `${name}: local font does not match its locked size and SHA-256`
+        )
+        const embedded = readSfntNameMetadata(fontPath)
+        for (const field of ['version', 'buildDate', 'buildRevision', 'copyright']) {
+          invariant(
+            embedded[field] === item.fontMetadata[field],
+            `${name}: embedded font ${field} differs from reviewed metadata`
+          )
+          invariant(
+            noticeSection.includes(item.fontMetadata[field]),
+            `${name}: embedded font ${field} is absent from notice`
+          )
+        }
+      }
 
       invariant(
         Array.isArray(item.evidence) && item.evidence.length > 0,
@@ -117,7 +343,10 @@ function inspectResourceReview() {
         invariant(!evidenceUrls.has(evidence.url), `${name}: duplicate evidence URL`)
         evidenceTypes.add(evidence.type)
         evidenceUrls.add(evidence.url)
-        invariant(notice.includes(evidence.url), `${name}: evidence URL is absent from notice`)
+        invariant(
+          noticeSection.includes(evidence.url),
+          `${name}: evidence URL is absent from notice`
+        )
       }
 
       invariant(
@@ -129,6 +358,18 @@ function inspectResourceReview() {
         invariant(
           licenseFile && /^[a-f0-9]{64}$/.test(licenseFile.sha256),
           `${name}: license file SHA-256 is invalid`
+        )
+        invariant(
+          /^https:\/\//.test(licenseFile.sourceUrl),
+          `${name}: license source URL must use HTTPS`
+        )
+        invariant(
+          /^[a-f0-9]{64}$/.test(licenseFile.upstreamSha256),
+          `${name}: upstream license SHA-256 is invalid`
+        )
+        invariant(
+          typeof licenseFile.transformation === 'string' && licenseFile.transformation.length >= 40,
+          `${name}: license normalization record is missing`
         )
         invariant(!licensePaths.has(licenseFile.path), `${name}: duplicate license file`)
         licensePaths.add(licenseFile.path)
@@ -142,13 +383,28 @@ function inspectResourceReview() {
           `${name}: license file does not match its reviewed SHA-256`
         )
         invariant(
-          contents.toString('utf8').includes(item.copyright),
-          `${name}: license file omits the reviewed copyright`
+          contents.toString('utf8').includes(item.licenseCopyright),
+          `${name}: license file omits the reviewed license copyright`
         )
-        invariant(notice.includes(licenseFile.path), `${name}: license path is absent from notice`)
         invariant(
-          notice.includes(licenseFile.sha256),
+          noticeSection.includes(licenseFile.path),
+          `${name}: license path is absent from notice`
+        )
+        invariant(
+          noticeSection.includes(licenseFile.sha256),
           `${name}: license file SHA-256 is absent from notice`
+        )
+        invariant(
+          noticeSection.includes(licenseFile.sourceUrl),
+          `${name}: license source URL is absent from notice`
+        )
+        invariant(
+          noticeSection.includes(licenseFile.upstreamSha256),
+          `${name}: upstream license SHA-256 is absent from notice`
+        )
+        invariant(
+          noticeSection.includes(licenseFile.transformation),
+          `${name}: license normalization record is absent from notice`
         )
       }
     }
@@ -225,38 +481,48 @@ function inspectProductionDependencyMetadata(
   return { expressions, packages, packagesWithoutLicenseFiles }
 }
 
-try {
-  const resourceReview = inspectResourceReview()
-  const production = inspectProductionDependencyMetadata(
-    resourceReview.reviewedLicenseExpressions,
-    resourceReview.expectedPackagesWithoutLicenseFiles
-  )
-
-  console.log(
-    `[OK] ${production.packages} production dependency versions use reviewed license expressions: ${production.expressions.join(', ')}`
-  )
-
-  if (production.packagesWithoutLicenseFiles.length > 0) {
-    console.error(
-      `[BLOCKED] Production packages without a root license file: ${production.packagesWithoutLicenseFiles.join(', ')}`
+export function runAudit() {
+  try {
+    const resourceReview = inspectResourceReview()
+    const production = inspectProductionDependencyMetadata(
+      resourceReview.reviewedLicenseExpressions,
+      resourceReview.expectedPackagesWithoutLicenseFiles
     )
-  }
 
-  if (resourceReview.blockers.length > 0) {
-    console.error(
-      `[BLOCKED] Runtime resource licensing is unresolved for: ${resourceReview.blockers.join(', ')}`
+    console.log(
+      `[OK] ${production.packages} production dependency versions use reviewed license expressions: ${production.expressions.join(', ')}`
     )
-  } else {
-    console.log('[OK] Every locked runtime resource has verified redistribution evidence')
-  }
 
-  if (
-    !allowKnownBlockers &&
-    (resourceReview.blockers.length > 0 || production.packagesWithoutLicenseFiles.length > 0)
-  ) {
+    if (production.packagesWithoutLicenseFiles.length > 0) {
+      console.error(
+        `[BLOCKED] Production packages without a root license file: ${production.packagesWithoutLicenseFiles.join(', ')}`
+      )
+    }
+
+    if (resourceReview.blockers.length > 0) {
+      console.error(
+        `[BLOCKED] Runtime resource licensing is unresolved for: ${resourceReview.blockers.join(', ')}`
+      )
+    } else {
+      console.log('[OK] Every locked runtime resource has verified redistribution evidence')
+    }
+
+    if (
+      !allowKnownBlockers &&
+      (resourceReview.blockers.length > 0 || production.packagesWithoutLicenseFiles.length > 0)
+    ) {
+      process.exitCode = 1
+    }
+  } catch (error) {
+    console.error(`[FATAL] License audit failed: ${error instanceof Error ? error.message : error}`)
     process.exitCode = 1
   }
-} catch (error) {
-  console.error(`[FATAL] License audit failed: ${error instanceof Error ? error.message : error}`)
-  process.exitCode = 1
+}
+
+const entrypoint = process.argv[1] && path.resolve(process.argv[1])
+if (
+  entrypoint &&
+  comparableFsPath(entrypoint) === comparableFsPath(fileURLToPath(import.meta.url))
+) {
+  runAudit()
 }

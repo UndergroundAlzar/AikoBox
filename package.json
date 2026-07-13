@@ -41,6 +41,7 @@
     "prepare:dev": "pnpm run hooks:install && node scripts/update-version.mjs && node scripts/prepare.mjs",
     "checksum": "node scripts/checksum.mjs",
     "verify:release": "node scripts/verify-release.mjs",
+    "test:verify-release": "node --test scripts/verify-release.test.mjs",
     "audit:licenses": "node scripts/audit-licenses.mjs",
     "test:licenses": "node --test scripts/audit-licenses.test.mjs",
     "dev": "electron-vite dev",
