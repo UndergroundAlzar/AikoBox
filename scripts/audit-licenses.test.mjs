@@ -10,6 +10,7 @@ import {
   extractReviewedLicenseSection,
   getResourceNoticeSection,
   isRecognizedRootLicenseFileName,
+  parseGoBuildinfoModules,
   readSfntNameMetadata,
   resolveEvidenceFile
 } from './audit-licenses.mjs'
@@ -237,6 +238,34 @@ test('blocked native resources retain pinned partial evidence without weakening 
     assert.equal(createHash('sha256').update(contents).digest('hex'), licenseFile.sha256)
     assert.equal(licenseFile.sha256, licenseFile.upstreamSha256)
   }
+
+  const singBox = review.resources.singBox.partialEvidence
+  assert.equal(singBox.sourceIdentityFiles.length, 2)
+  assert.deepEqual(singBox.sourceIdentityFiles.map((entry) => entry.kind).sort(), [
+    'go.mod',
+    'go.sum'
+  ])
+  for (const identity of singBox.sourceIdentityFiles) {
+    const contents = fs.readFileSync(path.join(repositoryRoot, ...identity.path.split('/')))
+    assert.equal(contents.length, identity.size)
+    assert.equal(createHash('sha256').update(contents).digest('hex'), identity.sha256)
+    assert.match(identity.sourceUrl, /\/25a600db24f7680ad9806ce5427bd0ab8afe1114\//)
+  }
+  const inventory = singBox.buildinfoInventory
+  assert.equal(inventory.depCount, 100)
+  assert.equal(inventory.binarySha256, lock.resources.singBox.sha256)
+  assert.equal(inventory.goVersion, 'go1.26.4')
+  assert.equal(inventory.mainModule, 'github.com/sagernet/sing-box')
+  assert.equal(inventory.mainVersion, 'v1.13.14')
+  const buildinfoText = fs.readFileSync(
+    path.join(repositoryRoot, ...inventory.path.split('/')),
+    'utf8'
+  )
+  assert.equal(createHash('sha256').update(buildinfoText).digest('hex'), inventory.sha256)
+  const parsed = parseGoBuildinfoModules(buildinfoText)
+  assert.equal(parsed.depCount, 100)
+  assert.equal(parsed.goVersion, 'go1.26.4')
+  assert.equal(parsed.mainModule, 'github.com/sagernet/sing-box')
 })
 
 test('Noto Color Emoji evidence is tag-pinned, packaged, and hash-reviewed', () => {

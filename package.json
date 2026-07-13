@@ -23,10 +23,12 @@
   "author": "UndergroundAlzar",
   "scripts": {
     "test": "vitest run",
-    "test:ci": "vitest run --exclude src/main/core/singbox/realConfig.test.ts",
+    "test:ci": "vitest run",
     "smoke:runtime": "node --import tsx scripts/runtime-smoke.mjs",
     "test:electron-smoke": "node --test scripts/electron-ci-smoke.test.mjs",
+    "test:electron-prod-smoke": "node --test scripts/electron-production-ci-smoke.test.mjs",
     "smoke:electron:ci": "node scripts/electron-ci-smoke.mjs",
+    "smoke:electron:prod:ci": "node scripts/electron-production-ci-smoke.mjs",
     "test:watch": "vitest",
     "format": "prettier --write .",
     "format:check": "prettier --list-different .",

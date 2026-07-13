@@ -19,7 +19,7 @@ AikoBox targets **Windows 10/11 x64 only**. Its interface and subscription workf
 ## Highlights
 
 - Imports Clash YAML subscriptions and converts them to sing-box JSON before startup.
-- Supports common proxy protocols, `proxy-providers`, `rule-providers`, and the bundled Sub-Store workflow.
+- Supports common proxy protocols, `proxy-providers`, and `rule-providers`.
 - Rejects unsafe conversion fallbacks instead of silently routing affected traffic directly.
 - Provides explicit sing-box core updates with upstream SHA-256 verification, platform/version checks, candidate validation, and automatic rollback.
 - Preserves the previous system-proxy state transactionally and keeps the core alive when Windows may still depend on its loopback endpoint.

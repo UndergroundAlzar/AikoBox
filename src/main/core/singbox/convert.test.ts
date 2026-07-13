@@ -812,7 +812,9 @@ describe('proxy groups', () => {
       })
     )
     expect(errors.join('\n')).toMatch(/proxy-providers.*no inline proxies/)
-    expect(errors.join('\n')).toMatch(/cannot be converted safely/)
+    expect(errors.join('\n')).toMatch(
+      /unresolved proxy-providers \(use\) must be resolved before conversion/
+    )
   })
 })
 

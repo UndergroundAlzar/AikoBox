@@ -18,7 +18,7 @@ AikoBox 是一款仅面向 **Windows x64** 的 sing-box 桌面客户端，界面
 
 ## 特性
 
-- 订阅、覆写和 Sub-Store 保持 Clash YAML 使用方式，启动内核前转换为 sing-box JSON
+- 订阅和覆写保持 Clash YAML 使用方式，启动内核前转换为 sing-box JSON
 - sing-box 是唯一代理内核，并通过 Clash API 兼容层向界面提供运行状态
 - 支持普通节点、`proxy-providers` 和 `rule-providers`；无法安全转换的关键配置会拒绝生效
 - 保留 `clash://`、`mihomo://` 导入协议，并提供 `aikobox://`
@@ -64,6 +64,7 @@ $actual -ceq $expected
 ```powershell
 corepack enable
 pnpm install --frozen-lockfile
+node scripts/prepare.mjs --x64
 pnpm run review
 pnpm test
 pnpm run build:win

@@ -1010,7 +1010,7 @@ function resolveGroupMembers(
   }
   if (toStrArray(group.use).length > 0) {
     errors.push(
-      `group "${groupName}": proxy-providers (use) cannot be converted safely; refusing direct fallback`
+      `group "${groupName}": unresolved proxy-providers (use) must be resolved before conversion`
     )
   }
 
@@ -1405,7 +1405,7 @@ function convertRules(rules: string[], knownOutbounds: Set<string>): RulesBuild 
     }
 
     if (upper === 'RULE-SET') {
-      errors.push(`rule "${ruleStr}": Clash rule-providers cannot be converted safely yet`)
+      errors.push(`rule "${ruleStr}": unresolved rule-providers must be resolved before conversion`)
       continue
     }
     if (upper === 'SUB-RULE') {
@@ -1574,8 +1574,10 @@ const IGNORED_TOP_LEVEL_KEYS: Record<string, string> = {
   'geo-auto-update': 'geo-auto-update is mihomo-specific, ignored',
   'geox-url': 'geox-url is mihomo-specific, ignored',
   'keep-alive-interval': 'keep-alive-interval is mihomo-specific, ignored',
-  'proxy-providers': 'Clash proxy-providers are not supported yet, ignored',
-  'rule-providers': 'Clash rule-providers are not supported yet, ignored',
+  'proxy-providers':
+    'Clash proxy-providers must be resolved before conversion; unresolved entries are refused',
+  'rule-providers':
+    'Clash rule-providers must be resolved before conversion; unresolved entries are refused',
   listeners: 'Clash listeners are not supported, ignored',
   tunnels: 'Clash tunnels are not supported, ignored'
 }

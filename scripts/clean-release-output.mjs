@@ -23,7 +23,16 @@ if (!fs.existsSync(distDirectory)) {
   process.exit(0)
 }
 
-const removableNames = new Set(['SHA256SUMS.txt', 'win-unpacked'])
+// Allowlisted leftovers only: package artifacts, unpacked dir, and known electron-builder metadata.
+const removableNames = new Set([
+  'SHA256SUMS.txt',
+  'win-unpacked',
+  'latest.yml',
+  'latest-mac.yml',
+  'latest-linux.yml',
+  'builder-debug.yml',
+  'builder-effective-config.yaml'
+])
 let removed = 0
 for (const entry of fs.readdirSync(distDirectory, { withFileTypes: true })) {
   if (!removableNames.has(entry.name) && !/^aikobox-windows-/i.test(entry.name)) continue

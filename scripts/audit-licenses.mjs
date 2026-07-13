@@ -136,6 +136,189 @@ export function getResourceNoticeSection(notice, name) {
   return notice.slice(start, end)
 }
 
+export function parseGoBuildinfoModules(text) {
+  invariant(typeof text === 'string' && text.length > 0, 'buildinfo text is empty')
+  const lines = text.replace(/\r\n?/g, '\n').split('\n')
+  let goVersion = ''
+  let mainModule = ''
+  let mainVersion = ''
+  const deps = []
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/^\t/, '')
+    const goMatch = /: (go\d+\.\d+(?:\.\d+)?)\s*$/.exec(rawLine)
+    if (
+      goMatch &&
+      !rawLine.startsWith('\t') &&
+      !rawLine.startsWith('dep') &&
+      !rawLine.startsWith('mod')
+    ) {
+      goVersion = goMatch[1]
+      continue
+    }
+    if (line.startsWith('mod\t')) {
+      const parts = line.slice(4).split('\t')
+      mainModule = parts[0] ?? ''
+      mainVersion = parts[1] ?? ''
+      continue
+    }
+    if (line.startsWith('dep\t')) {
+      const parts = line.slice(4).split('\t')
+      if (parts[0]) deps.push({ path: parts[0], version: parts[1] ?? '', sum: parts[2] ?? '' })
+    }
+  }
+  invariant(goVersion, 'buildinfo is missing the Go toolchain version')
+  invariant(mainModule && mainVersion, 'buildinfo is missing the main module identity')
+  invariant(deps.length > 0, 'buildinfo contains no static dependency entries')
+  return { goVersion, mainModule, mainVersion, depCount: deps.length, deps }
+}
+
+function assertSourceIdentityFiles(name, partial, noticeSection) {
+  invariant(
+    Array.isArray(partial.sourceIdentityFiles) && partial.sourceIdentityFiles.length > 0,
+    `${name}: source identity files are missing`
+  )
+  for (const identity of partial.sourceIdentityFiles) {
+    invariant(
+      typeof identity.kind === 'string' && identity.kind.length > 0,
+      `${name}: source identity kind is missing`
+    )
+    invariant(
+      Number.isSafeInteger(identity.size) && identity.size > 0,
+      `${name}: source identity size is invalid`
+    )
+    invariant(/^[a-f0-9]{64}$/.test(identity.sha256), `${name}: source identity SHA-256 is invalid`)
+    invariant(
+      /^https:\/\/raw\.githubusercontent\.com\//.test(identity.sourceUrl) &&
+        identity.sourceUrl.includes(`/${partial.release.tagCommit}/`),
+      `${name}: source identity URL is not pinned to the release commit`
+    )
+    const absolutePath = resolveEvidenceFile(identity.path, `${name}: source identity file`)
+    const contents = fs.readFileSync(absolutePath)
+    invariant(
+      contents.length === identity.size && sha256(contents) === identity.sha256,
+      `${name}: source identity file differs from review`
+    )
+    for (const required of [identity.path, identity.sha256, identity.sourceUrl]) {
+      invariant(
+        noticeSection.includes(required),
+        `${name}: source identity evidence is absent from notice`
+      )
+    }
+  }
+}
+
+function assertBuildinfoInventory(name, partial, resource, noticeSection) {
+  const inventory = partial.buildinfoInventory
+  invariant(inventory && typeof inventory === 'object', `${name}: buildinfo inventory is missing`)
+  invariant(
+    Number.isSafeInteger(inventory.size) && inventory.size > 0,
+    `${name}: buildinfo inventory size is invalid`
+  )
+  invariant(
+    /^[a-f0-9]{64}$/.test(inventory.sha256),
+    `${name}: buildinfo inventory SHA-256 is invalid`
+  )
+  invariant(
+    inventory.binarySha256 === resource.sha256,
+    `${name}: buildinfo inventory is not bound to the locked binary SHA-256`
+  )
+  invariant(
+    Number.isSafeInteger(inventory.depCount) && inventory.depCount > 0,
+    `${name}: buildinfo dependency count is invalid`
+  )
+  const absolutePath = resolveEvidenceFile(inventory.path, `${name}: buildinfo inventory`)
+  const contents = fs.readFileSync(absolutePath)
+  invariant(
+    contents.length === inventory.size && sha256(contents) === inventory.sha256,
+    `${name}: buildinfo inventory differs from review`
+  )
+  const parsed = parseGoBuildinfoModules(contents.toString('utf8'))
+  invariant(
+    parsed.goVersion === inventory.goVersion,
+    `${name}: buildinfo Go version differs from review`
+  )
+  invariant(
+    parsed.mainModule === inventory.mainModule && parsed.mainVersion === inventory.mainVersion,
+    `${name}: buildinfo main module differs from review`
+  )
+  invariant(
+    parsed.depCount === inventory.depCount,
+    `${name}: buildinfo dependency count differs from review`
+  )
+  if (inventory.tsvPath) {
+    invariant(
+      Number.isSafeInteger(inventory.tsvSize) && inventory.tsvSize > 0,
+      `${name}: buildinfo TSV size is invalid`
+    )
+    invariant(
+      /^[a-f0-9]{64}$/.test(inventory.tsvSha256),
+      `${name}: buildinfo TSV SHA-256 is invalid`
+    )
+    const tsvPath = resolveEvidenceFile(inventory.tsvPath, `${name}: buildinfo TSV`)
+    const tsvContents = fs.readFileSync(tsvPath)
+    invariant(
+      tsvContents.length === inventory.tsvSize && sha256(tsvContents) === inventory.tsvSha256,
+      `${name}: buildinfo TSV differs from review`
+    )
+  }
+  for (const required of [
+    inventory.path,
+    inventory.sha256,
+    inventory.goVersion,
+    inventory.mainModule,
+    inventory.mainVersion,
+    String(inventory.depCount),
+    inventory.binarySha256
+  ]) {
+    invariant(
+      noticeSection.includes(required),
+      `${name}: buildinfo inventory evidence is absent from notice`
+    )
+  }
+
+  // When the locked sidecar is present, re-extract build-info offline and
+  // compare normalized module identity (never runs the proxy service).
+  if (resource.output && typeof resource.output === 'string') {
+    const binaryPath = resolveEvidenceFile(
+      resource.output,
+      `${name}: sidecar binary`,
+      repositoryRoot,
+      true
+    )
+    if (fs.existsSync(binaryPath)) {
+      const binaryContents = fs.readFileSync(binaryPath)
+      invariant(
+        binaryContents.length === resource.size && sha256(binaryContents) === resource.sha256,
+        `${name}: local sidecar binary does not match the lock`
+      )
+      const probe = spawnSync('go', ['version', '-m', binaryPath], {
+        cwd: repositoryRoot,
+        encoding: 'utf8',
+        windowsHide: true
+      })
+      if (probe.error?.code === 'ENOENT') {
+        // Go toolchain is optional on hosts that only run the audit.
+        return
+      }
+      invariant(probe.status === 0, `${name}: go version -m failed for the locked sidecar`)
+      const live = parseGoBuildinfoModules(String(probe.stdout))
+      invariant(
+        live.goVersion === parsed.goVersion &&
+          live.mainModule === parsed.mainModule &&
+          live.mainVersion === parsed.mainVersion &&
+          live.depCount === parsed.depCount,
+        `${name}: live go version -m identity differs from packaged buildinfo inventory`
+      )
+      const packagedKeys = new Set(parsed.deps.map((dep) => `${dep.path}@${dep.version}`))
+      const liveKeys = new Set(live.deps.map((dep) => `${dep.path}@${dep.version}`))
+      invariant(
+        packagedKeys.size === liveKeys.size && [...packagedKeys].every((key) => liveKeys.has(key)),
+        `${name}: live go version -m dependency set differs from packaged buildinfo inventory`
+      )
+    }
+  }
+}
+
 function assertBufferRange(contents, offset, length, label) {
   invariant(
     Number.isSafeInteger(offset) &&
@@ -367,6 +550,12 @@ function inspectResourceReview() {
               `${name}: partial evidence is absent from notice`
             )
           }
+        }
+        if (partial.sourceIdentityFiles !== undefined) {
+          assertSourceIdentityFiles(name, partial, noticeSection)
+        }
+        if (partial.buildinfoInventory !== undefined) {
+          assertBuildinfoInventory(name, partial, resource, noticeSection)
         }
       }
       blockers.push(name)
