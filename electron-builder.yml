@@ -14,6 +14,8 @@ extraResources:
     filter:
       - 'files/**/*'
       - '!files/7za.exe'
+      - '!files/enableLoopback.exe'
+      - '!files/TrafficMonitor/**/*'
       - 'sidecar/**/*'
 protocols:
   name: 'AikoBox URI Scheme'

@@ -6,7 +6,7 @@ import SettingItem from '@renderer/components/base/base-setting-item'
 import PacEditorModal from '@renderer/components/sysproxy/pac-editor-modal'
 import { useAppConfig } from '@renderer/hooks/use-app-config'
 import { platform } from '@renderer/utils/init'
-import { openUWPTool, triggerSysProxy } from '@renderer/utils/ipc'
+import { triggerSysProxy } from '@renderer/utils/ipc'
 import React, { Key, useState } from 'react'
 import { MdDeleteForever } from 'react-icons/md'
 import { useTranslation } from 'react-i18next'
@@ -155,19 +155,6 @@ const Sysproxy: React.FC = () => {
             <Tab key="auto" title={t('sysproxy.mode.pac')} />
           </Tabs>
         </SettingItem>
-        {platform === 'win32' && (
-          <SettingItem title={t('sysproxy.uwp.title')} divider>
-            <Button
-              size="sm"
-              onPress={async () => {
-                await openUWPTool()
-              }}
-            >
-              {t('sysproxy.uwp.open')}
-            </Button>
-          </SettingItem>
-        )}
-
         {values.mode === 'auto' && (
           <SettingItem title={t('sysproxy.mode.title')}>
             <Button size="sm" onPress={() => setOpenPacEditor(true)} variant="bordered">

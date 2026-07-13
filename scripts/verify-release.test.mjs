@@ -113,5 +113,8 @@ test('release verifier statically pins extraction and never launches an artifact
   assert.match(source, /actual\.totalBytes !== expected\.totalBytes/)
   assert.match(source, /actual\.sha256 !== expected\.sha256/)
   assert.match(source, /extracted application tree differs from dist\/win-unpacked/)
+  assert.match(source, /Retired 7za\.exe must not be present in the packaged runtime/)
+  assert.match(source, /Retired enableLoopback\.exe must not be present in the packaged runtime/)
+  assert.match(source, /Retired TrafficMonitor must not be present in the packaged runtime/)
   assert.doesNotMatch(source, /spawnSync\(\s*absoluteArtifact/)
 })

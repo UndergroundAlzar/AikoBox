@@ -15,7 +15,6 @@ import {
 } from '../config'
 import { dataDir, coreLogPath, mihomoProfileWorkDir, mihomoWorkDir } from '../utils/dirs'
 import { uploadRuntimeConfigIfChanged } from '../resolve/gistApi'
-import { startMonitor } from '../resolve/trafficMonitor'
 import { ensureRuntimeFiles, safeShowErrorBox } from '../utils/init'
 import i18next from '../../shared/i18n'
 import { managerLogger } from '../utils/logger'
@@ -1216,7 +1215,6 @@ export async function quitWithoutCore(): Promise<void> {
 
   managerLogger.info(`Starting lightweight mode on platform: ${process.platform}`)
   await keepCoreAlive()
-  await startMonitor(true)
   managerLogger.info('Exiting main process, core will continue running in background')
   app.exit()
 }

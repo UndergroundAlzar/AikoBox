@@ -184,6 +184,14 @@ function verifyPackagedApplication(unpacked, label) {
   if (existsSync(resolve(resources, 'files', '7za.exe'))) {
     throw new Error(`${label}: Retired 7za.exe must not be present in the packaged runtime`)
   }
+  if (existsSync(resolve(resources, 'files', 'enableLoopback.exe'))) {
+    throw new Error(
+      `${label}: Retired enableLoopback.exe must not be present in the packaged runtime`
+    )
+  }
+  if (existsSync(resolve(resources, 'files', 'TrafficMonitor'))) {
+    throw new Error(`${label}: Retired TrafficMonitor must not be present in the packaged runtime`)
+  }
 
   const asarEntries = listPackage(appAsar).map((entry) => entry.replaceAll('\\', '/'))
   const verifiedLicenseFiles = Object.values(thirdPartyReview.resources)

@@ -86,7 +86,6 @@ import {
   getFilePath,
   grantSelectedFileCapability,
   openFile,
-  openUWPTool,
   readImageFileDataURL,
   readTextFile,
   resetAppConfig,
@@ -123,7 +122,6 @@ import {
 } from '../resolve/theme'
 import { subStoreCollections, subStoreSubs } from '../core/subStoreApi'
 import { exportGistAgeSecretKey, generateGistAgeKeyPair, getGistUrl } from '../resolve/gistApi'
-import { startMonitor } from '../resolve/trafficMonitor'
 import { closeFloatingWindow, showContextMenu, showFloatingWindow } from '../resolve/floatingWindow'
 import { addProfileUpdater, removeProfileUpdater } from '../core/profileUpdater'
 import {
@@ -290,7 +288,6 @@ const asyncHandlers: Record<string, AsyncFn> = {
   // Core
   restartCore,
   mihomoHotReloadConfig,
-  startMonitor,
   quitWithoutCore,
   // System
   triggerSysProxy,
@@ -305,7 +302,6 @@ const asyncHandlers: Record<string, AsyncFn> = {
   checkHighPrivilegeCore,
   showTunPermissionDialog,
   showErrorDialog,
-  openUWPTool,
   setupFirewall,
   copyEnv,
   // Update

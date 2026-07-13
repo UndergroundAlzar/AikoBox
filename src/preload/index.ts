@@ -72,7 +72,6 @@ const validInvokeChannels = [
   // Core
   'restartCore',
   'mihomoHotReloadConfig',
-  'startMonitor',
   'quitWithoutCore',
   // System
   'triggerSysProxy',
@@ -87,7 +86,6 @@ const validInvokeChannels = [
   'checkHighPrivilegeCore',
   'showTunPermissionDialog',
   'showErrorDialog',
-  'openUWPTool',
   'setupFirewall',
   'getInterfaces',
   'setNativeTheme',

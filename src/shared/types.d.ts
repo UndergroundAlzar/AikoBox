@@ -367,7 +367,6 @@ interface IAppConfig {
   controlDns?: boolean
   controlSniff?: boolean
   useDockIcon?: boolean
-  showTraffic?: boolean
   disableTrayIconColor?: boolean
   customTrayIcon?: string
   customTrayIcons?: ICustomTrayIcons

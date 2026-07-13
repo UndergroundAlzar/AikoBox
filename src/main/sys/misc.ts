@@ -1,4 +1,4 @@
-import { exec, execFile, spawn } from 'child_process'
+import { exec, spawn } from 'child_process'
 import { randomBytes } from 'crypto'
 import { readFile, stat } from 'fs/promises'
 import { existsSync, realpathSync } from 'fs'
@@ -6,9 +6,7 @@ import path from 'path'
 import { promisify } from 'util'
 import { app, dialog, nativeImage, nativeTheme, shell } from 'electron'
 import i18next from 'i18next'
-import { dataDir, exePath, overridePath, profilePath, resourcesDir } from '../utils/dirs'
-import { checkAdminPrivileges } from '../core/admin'
-import { isTrustedWindowsInstallation } from '../core/permissions'
+import { dataDir, exePath, overridePath, profilePath } from '../utils/dirs'
 import { singboxCorePath } from '../core/singbox'
 import { stopCore } from '../core/manager'
 import { triggerSysProxy } from './sysproxy'
@@ -112,28 +110,6 @@ export async function openFile(
   // Never ShellExecute a user-writable config from an elevated process. File
   // associations (especially .js) can execute code; Explorer selection cannot.
   shell.showItemInFolder(target)
-}
-
-export async function openUWPTool(): Promise<void> {
-  const execPromise = promisify(exec)
-  const execFilePromise = promisify(execFile)
-  const uwpToolPath = path.join(resourcesDir(), 'files', 'enableLoopback.exe')
-
-  const isAdmin = await checkAdminPrivileges()
-
-  if (!isAdmin) {
-    if (!(await isTrustedWindowsInstallation())) {
-      throw new Error(
-        'The elevated loopback helper is available only in the installed AikoBox under Program Files'
-      )
-    }
-    const escapedPath = uwpToolPath.replace(/'/g, "''")
-    const command = `powershell -NoProfile -Command "Start-Process -FilePath '${escapedPath}' -Verb RunAs -Wait"`
-
-    await execPromise(command, { windowsHide: true })
-    return
-  }
-  await execFilePromise(uwpToolPath)
 }
 
 export async function setupFirewall(): Promise<void> {
