@@ -182,7 +182,7 @@ function verifyPackagedApplication(unpacked, label) {
     }
   }
   if (existsSync(resolve(resources, 'files', '7za.exe'))) {
-    throw new Error(`${label}: retired 7za.exe must not be present in the packaged runtime`)
+    throw new Error(`${label}: Retired 7za.exe must not be present in the packaged runtime`)
   }
 
   const asarEntries = listPackage(appAsar).map((entry) => entry.replaceAll('\\', '/'))
