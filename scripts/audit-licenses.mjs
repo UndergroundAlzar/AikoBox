@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13,6 +14,24 @@ function readJson(relativePath) {
 
 function invariant(condition, message) {
   if (!condition) throw new Error(message)
+}
+
+function sha256(contents) {
+  return createHash('sha256').update(contents).digest('hex')
+}
+
+function resolveEvidenceFile(relativePath, label) {
+  invariant(typeof relativePath === 'string' && relativePath.length > 0, `${label}: empty path`)
+  invariant(!relativePath.includes('\\'), `${label}: path must use forward slashes`)
+  invariant(!path.posix.isAbsolute(relativePath), `${label}: path must be repository-relative`)
+  invariant(!relativePath.split('/').includes('..'), `${label}: path escapes the repository`)
+  const absolutePath = path.resolve(repositoryRoot, ...relativePath.split('/'))
+  const relative = path.relative(repositoryRoot, absolutePath)
+  invariant(
+    relative && !relative.startsWith('..') && !path.isAbsolute(relative),
+    `${label}: path escapes the repository`
+  )
+  return absolutePath
 }
 
 function inspectResourceReview() {
@@ -56,6 +75,82 @@ function inspectResourceReview() {
       invariant(item.blocker.length >= 40, `${name}: release blocker is not specific enough`)
       invariant(notice.includes(item.blocker), `${name}: release blocker is absent from notice`)
       blockers.push(name)
+    } else {
+      invariant(
+        typeof item.license === 'string' && item.license.length > 0,
+        `${name}: verified license expression is missing`
+      )
+      invariant(
+        typeof item.copyright === 'string' && item.copyright.length > 0,
+        `${name}: verified copyright notice is missing`
+      )
+      invariant(item.blocker === undefined, `${name}: verified item still declares a blocker`)
+      invariant(item.source && typeof item.source === 'object', `${name}: source is missing`)
+      invariant(/^https:\/\//.test(item.source.url), `${name}: source URL must use HTTPS`)
+      invariant(/^v?\d/.test(item.source.tag), `${name}: source tag is invalid`)
+      invariant(/^[a-f0-9]{40}$/.test(item.source.commit), `${name}: source commit is invalid`)
+      invariant(resource.sourceTag === item.source.tag, `${name}: source tag differs from lock`)
+      invariant(
+        resource.sourceCommit === item.source.commit,
+        `${name}: source commit differs from lock`
+      )
+
+      invariant(notice.includes(item.license), `${name}: license is absent from notice`)
+      invariant(notice.includes(item.copyright), `${name}: copyright is absent from notice`)
+      invariant(notice.includes(item.source.url), `${name}: source URL is absent from notice`)
+      invariant(notice.includes(item.source.tag), `${name}: source tag is absent from notice`)
+      invariant(notice.includes(item.source.commit), `${name}: source commit is absent from notice`)
+
+      invariant(
+        Array.isArray(item.evidence) && item.evidence.length > 0,
+        `${name}: verified evidence is missing`
+      )
+      const evidenceTypes = new Set()
+      const evidenceUrls = new Set()
+      for (const evidence of item.evidence) {
+        invariant(
+          evidence && typeof evidence.type === 'string' && evidence.type.length > 0,
+          `${name}: evidence type is missing`
+        )
+        invariant(/^https:\/\//.test(evidence.url), `${name}: evidence URL must use HTTPS`)
+        invariant(!evidenceTypes.has(evidence.type), `${name}: duplicate evidence type`)
+        invariant(!evidenceUrls.has(evidence.url), `${name}: duplicate evidence URL`)
+        evidenceTypes.add(evidence.type)
+        evidenceUrls.add(evidence.url)
+        invariant(notice.includes(evidence.url), `${name}: evidence URL is absent from notice`)
+      }
+
+      invariant(
+        Array.isArray(item.licenseFiles) && item.licenseFiles.length > 0,
+        `${name}: verified license files are missing`
+      )
+      const licensePaths = new Set()
+      for (const licenseFile of item.licenseFiles) {
+        invariant(
+          licenseFile && /^[a-f0-9]{64}$/.test(licenseFile.sha256),
+          `${name}: license file SHA-256 is invalid`
+        )
+        invariant(!licensePaths.has(licenseFile.path), `${name}: duplicate license file`)
+        licensePaths.add(licenseFile.path)
+        const absolutePath = resolveEvidenceFile(licenseFile.path, `${name}: license file`)
+        invariant(fs.existsSync(absolutePath), `${name}: license file is missing`)
+        const stat = fs.lstatSync(absolutePath)
+        invariant(stat.isFile() && !stat.isSymbolicLink(), `${name}: license path is not a file`)
+        const contents = fs.readFileSync(absolutePath)
+        invariant(
+          sha256(contents) === licenseFile.sha256,
+          `${name}: license file does not match its reviewed SHA-256`
+        )
+        invariant(
+          contents.toString('utf8').includes(item.copyright),
+          `${name}: license file omits the reviewed copyright`
+        )
+        invariant(notice.includes(licenseFile.path), `${name}: license path is absent from notice`)
+        invariant(
+          notice.includes(licenseFile.sha256),
+          `${name}: license file SHA-256 is absent from notice`
+        )
+      }
     }
   }
 

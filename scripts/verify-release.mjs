@@ -9,6 +9,9 @@ const packageJson = JSON.parse(readFileSync(resolve(projectRoot, 'package.json')
 const resourceLock = JSON.parse(
   readFileSync(resolve(projectRoot, 'scripts', 'resources-lock.json'), 'utf8')
 )
+const thirdPartyReview = JSON.parse(
+  readFileSync(resolve(projectRoot, 'scripts', 'third-party-review.json'), 'utf8')
+)
 const releaseTag = process.env.AIKOBOX_RELEASE_TAG || process.env.GITHUB_REF_NAME
 const expectedTag = `v${packageJson.version}`
 
@@ -119,8 +122,27 @@ function verifyPackagedApplication() {
   }
 
   const asarEntries = listPackage(appAsar).map((entry) => entry.replaceAll('\\', '/'))
-  for (const required of ['/LICENSE', '/THIRD_PARTY_NOTICES.md']) {
+  const verifiedLicenseFiles = Object.values(thirdPartyReview.resources)
+    .filter((item) => item.status === 'verified')
+    .flatMap((item) => item.licenseFiles)
+  for (const required of [
+    '/LICENSE',
+    '/THIRD_PARTY_NOTICES.md',
+    ...verifiedLicenseFiles.map((item) => `/${item.path}`)
+  ]) {
     if (!asarEntries.includes(required)) throw new Error(`app.asar is missing ${required}`)
+  }
+
+  for (const licenseFile of verifiedLicenseFiles) {
+    const archivePath = licenseFile.path.replaceAll('/', sep)
+    const packagedContents = extractFile(appAsar, archivePath)
+    const reviewedContents = readFileSync(resolve(projectRoot, ...licenseFile.path.split('/')))
+    if (
+      sha256Buffer(packagedContents) !== licenseFile.sha256 ||
+      !packagedContents.equals(reviewedContents)
+    ) {
+      throw new Error(`Packaged license evidence does not match ${licenseFile.path}`)
+    }
   }
 
   for (const [name, resource] of Object.entries(resourceLock.resources)) {

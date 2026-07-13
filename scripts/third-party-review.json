@@ -28,9 +28,39 @@
       "blocker": "The packaged sing-box binary has no component copyright notice, exact license declaration, complete license text tied to this binary, or corresponding-source offer in the release payload."
     },
     "notoColorEmoji": {
-      "status": "blocked",
+      "status": "verified",
       "project": "https://github.com/googlefonts/noto-emoji",
-      "blocker": "The packaged font has no accompanying upstream license text, copyright notice, or Reserved Font Name information in the release payload."
+      "license": "OFL-1.1",
+      "copyright": "Copyright 2013 Google LLC",
+      "source": {
+        "tag": "v2.051",
+        "commit": "8998f5dd683424a73e2314a8c1f1e359c19e8742",
+        "url": "https://github.com/googlefonts/noto-emoji/tree/v2.051"
+      },
+      "evidence": [
+        {
+          "type": "release",
+          "url": "https://github.com/googlefonts/noto-emoji/releases/tag/v2.051"
+        },
+        {
+          "type": "font",
+          "url": "https://github.com/googlefonts/noto-emoji/blob/v2.051/fonts/NotoColorEmoji.ttf"
+        },
+        {
+          "type": "license",
+          "url": "https://github.com/googlefonts/noto-emoji/blob/v2.051/LICENSE"
+        },
+        {
+          "type": "version-metadata",
+          "url": "https://github.com/googlefonts/noto-emoji/blob/v2.051/NotoColorEmoji.tmpl.ttx.tmpl"
+        }
+      ],
+      "licenseFiles": [
+        {
+          "path": "licenses/noto-color-emoji/OFL-1.1.txt",
+          "sha256": "ae5c450cf4361bb474aec3cf67ecaaf29c4134f821f4ac6127904e876d0f93c8"
+        }
+      ]
     },
     "enableLoopback": {
       "status": "blocked",

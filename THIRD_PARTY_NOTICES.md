@@ -2,7 +2,7 @@
 
 AikoBox is derived from [Clash Party](https://github.com/mihomo-party-org/clash-party) and is distributed under `GPL-3.0-only`; the project license is in [LICENSE](./LICENSE). Release packages also contain independently maintained software and data whose own terms continue to apply.
 
-This document records what the current repository can prove offline. **It is not yet a redistribution clearance.** Every item marked `BLOCKED` must be resolved before publishing a binary release: obtain the authoritative license/copyright material for the exact locked artifact, preserve all required notices, record source provenance, satisfy any source-code obligations, and include the required files in the packaged application. A project URL or npm `license` field is not a substitute for the applicable license text.
+This document records what the current repository can prove offline. An item marked `VERIFIED` has exact source and license evidence plus locally packaged notice files enforced by the release audit. **The repository as a whole is not yet cleared for redistribution while any item remains `BLOCKED`.** Every blocked item must be resolved before publishing a binary release: obtain the authoritative license/copyright material for the exact locked artifact, preserve all required notices, record source provenance, satisfy any source-code obligations, and include the required files in the packaged application. A project URL or npm `license` field is not a substitute for the applicable license text.
 
 The resource identities below come from `scripts/resources-lock.json` and target Windows x64 only. For files, SHA-256 identifies the packaged payload. For directory resources, the archive SHA-256 identifies the download and `AIKOBOX-DIR-SHA256-v1` identifies the normalized extracted tree.
 
@@ -23,16 +23,22 @@ The repository's root GPL text covers AikoBox itself. It must not be presented a
 
 <!-- resource:notoColorEmoji -->
 
-### Noto Color Emoji — `BLOCKED`
+### Noto Color Emoji — `VERIFIED`
 
-- Version: `2.051 (noto-emoji commit e92753bfa55fd449e427d4d325f9c8c40408c74e)`
+- Version: `2.051`
 - Packaged path: `src/renderer/src/assets/NotoColorEmoji.ttf`
 - Project: https://github.com/googlefonts/noto-emoji
-- Locked download: https://raw.githubusercontent.com/googlefonts/noto-emoji/e92753bfa55fd449e427d4d325f9c8c40408c74e/fonts/NotoColorEmoji.ttf
+- Locked download: https://raw.githubusercontent.com/googlefonts/noto-emoji/v2.051/fonts/NotoColorEmoji.ttf
+- Source: tag `v2.051`, commit `8998f5dd683424a73e2314a8c1f1e359c19e8742`, https://github.com/googlefonts/noto-emoji/tree/v2.051
 - Packaged payload: 10,673,480 bytes; SHA-256 `72a635cb3d2f3524c51620cdde406b217204e8a6a06c6a096ff8ed4b5fd6e27b`
-- Release blocker: The packaged font has no accompanying upstream license text, copyright notice, or Reserved Font Name information in the release payload.
+- License: `OFL-1.1`; `Copyright 2013 Google LLC`
+- Packaged license: [`licenses/noto-color-emoji/OFL-1.1.txt`](./licenses/noto-color-emoji/OFL-1.1.txt), SHA-256 `ae5c450cf4361bb474aec3cf67ecaaf29c4134f821f4ac6127904e876d0f93c8`
+- Official release evidence: https://github.com/googlefonts/noto-emoji/releases/tag/v2.051
+- Official font evidence: https://github.com/googlefonts/noto-emoji/blob/v2.051/fonts/NotoColorEmoji.ttf
+- Official license evidence: https://github.com/googlefonts/noto-emoji/blob/v2.051/LICENSE
+- Official version metadata: https://github.com/googlefonts/noto-emoji/blob/v2.051/NotoColorEmoji.tmpl.ttx.tmpl
 
-The commonly associated SIL Open Font License must be confirmed from the pinned upstream revision and shipped verbatim; this repository currently contains no such evidence.
+The official `v2.051` license permits the unmodified font to be bundled with software when every copy retains the copyright notice and complete OFL-1.1 text. No Reserved Font Name is specified after the copyright statement in that license. AikoBox ships the font unmodified, preserves the upstream font name and metadata, and does not claim Google endorsement. The audit binds the exact font size and SHA-256 to the tagged source and requires the complete reviewed upstream license text to enter `app.asar`.
 
 <!-- resource:enableLoopback -->
 
