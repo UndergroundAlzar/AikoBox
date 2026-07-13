@@ -1,4 +1,4 @@
-name: Signed Windows release
+name: Windows release
 
 on:
   push:
@@ -7,16 +7,24 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  build-signed:
+  build:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
+    outputs:
+      is_prerelease: ${{ steps.release_policy.outputs.is_prerelease }}
+      signing_status: ${{ steps.release_policy.outputs.signing_status }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Require an exact package-version tag
+      - name: Require an exact package-version tag and release notes
+        id: release_version
         shell: pwsh
         env:
           RELEASE_TAG: ${{ github.ref_name }}
@@ -25,12 +33,21 @@ jobs:
           if ($env:RELEASE_TAG -cne "v$version") {
             throw "Tag $env:RELEASE_TAG must exactly equal package version v$version"
           }
+          if ($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
+            throw "Package version $version is not a supported release version"
+          }
+          $notes = "docs/releases/$($env:RELEASE_TAG).md"
+          if (-not (Test-Path -LiteralPath $notes -PathType Leaf)) {
+            throw "Missing bilingual release notes: $notes"
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "notes=$notes" >> $env:GITHUB_OUTPUT
       - name: Require the tagged commit to belong to main
         shell: pwsh
         run: |
           git merge-base --is-ancestor $env:GITHUB_SHA origin/main
           if ($LASTEXITCODE -ne 0) {
-            throw 'Signed release tags must point to a commit contained in origin/main'
+            throw 'Release tags must point to a commit contained in origin/main'
           }
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
@@ -40,33 +57,79 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - name: Require signing identity secrets
+      - name: Select signed or explicitly unsigned beta policy
+        id: release_policy
         shell: pwsh
         env:
           CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
           EXPECTED_THUMBPRINT: ${{ secrets.WINDOWS_CERTIFICATE_THUMBPRINT }}
           EXPECTED_SUBJECT: ${{ secrets.WINDOWS_CERTIFICATE_SUBJECT }}
+          RELEASE_VERSION: ${{ steps.release_version.outputs.version }}
         run: |
-          if (-not $env:CSC_LINK -or -not $env:CSC_KEY_PASSWORD -or -not $env:EXPECTED_THUMBPRINT -or -not $env:EXPECTED_SUBJECT) {
-            throw 'Signed releases require the certificate, password, expected thumbprint, and exact subject secrets'
+          $configured = @(
+            [bool]$env:CSC_LINK,
+            [bool]$env:CSC_KEY_PASSWORD,
+            [bool]$env:EXPECTED_THUMBPRINT,
+            [bool]$env:EXPECTED_SUBJECT
+          )
+          $configuredCount = @($configured | Where-Object { $_ }).Count
+          $isPrerelease = $env:RELEASE_VERSION.Contains('-')
+          if ($configuredCount -ne 0 -and $configuredCount -ne 4) {
+            throw 'Windows signing is only partially configured; set all four signing secrets or remove all four'
           }
+          if ($configuredCount -eq 0 -and -not $isPrerelease) {
+            throw 'Unsigned publication is permitted only for an explicitly versioned prerelease'
+          }
+          if ($configuredCount -eq 4) {
+            "signing_status=signed" >> $env:GITHUB_OUTPUT
+            "signing_enabled=true" >> $env:GITHUB_OUTPUT
+          } else {
+            "signing_status=unsigned-beta" >> $env:GITHUB_OUTPUT
+            "signing_enabled=false" >> $env:GITHUB_OUTPUT
+          }
+          "is_prerelease=$($isPrerelease.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: node scripts/prepare.mjs --x64
       - run: node --test scripts/prepare.test.mjs
-      - name: Require complete third-party redistribution evidence
-        run: pnpm run audit:licenses
+      - name: Audit third-party redistribution evidence
+        shell: pwsh
+        env:
+          IS_PRERELEASE: ${{ steps.release_policy.outputs.is_prerelease }}
+        run: |
+          $arguments = @('run', 'audit:licenses')
+          if ($env:IS_PRERELEASE -eq 'true') {
+            $arguments += @('--', '--allow-known-blockers')
+          }
+          $auditOutput = @(& pnpm @arguments 2>&1 | ForEach-Object { "$_" })
+          $auditExitCode = $LASTEXITCODE
+          $header = @(
+            "AikoBox third-party license audit for $env:GITHUB_REF_NAME",
+            "Commit: $env:GITHUB_SHA",
+            "Policy: $(if ($env:IS_PRERELEASE -eq 'true') { 'known blockers disclosed for prerelease' } else { 'zero blockers required for stable release' })",
+            ''
+          )
+          @($header + $auditOutput) | Set-Content -LiteralPath "$env:RUNNER_TEMP/THIRD_PARTY-LICENSE-AUDIT.txt" -Encoding utf8
+          $auditOutput | ForEach-Object { Write-Host $_ }
+          if ($auditExitCode -ne 0) {
+            throw "Third-party license audit failed with exit code $auditExitCode"
+          }
+          if ($env:IS_PRERELEASE -eq 'true' -and ($auditOutput -match '^\[BLOCKED\]')) {
+            Write-Warning 'This prerelease contains known redistribution-evidence blockers; they will be published verbatim with the release.'
+          }
       - run: pnpm exec electron-builder install-app-deps
       - run: pnpm run review
       - run: pnpm run test
-      - name: Build and sign the two Windows x64 distributions
+      - name: Build both Windows x64 distributions
         env:
-          CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+          CSC_LINK: ${{ steps.release_policy.outputs.signing_enabled == 'true' && secrets.WINDOWS_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ steps.release_policy.outputs.signing_enabled == 'true' && secrets.WINDOWS_CSC_KEY_PASSWORD || '' }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ steps.release_policy.outputs.signing_enabled == 'true' && 'true' || 'false' }}
         run: pnpm run build:win
-      - name: Require the expected signer and a timestamp on every AikoBox executable
+      - name: Verify the declared Authenticode policy
         shell: pwsh
         env:
+          SIGNING_ENABLED: ${{ steps.release_policy.outputs.signing_enabled }}
           EXPECTED_THUMBPRINT: ${{ secrets.WINDOWS_CERTIFICATE_THUMBPRINT }}
           EXPECTED_SUBJECT: ${{ secrets.WINDOWS_CERTIFICATE_SUBJECT }}
         run: |
@@ -75,49 +138,130 @@ jobs:
           $inner = Get-Item -LiteralPath 'dist/win-unpacked/AikoBox.exe'
           foreach ($artifact in (@($outer) + @($inner))) {
             $signature = Get-AuthenticodeSignature -LiteralPath $artifact.FullName
-            if ($signature.Status -ne 'Valid') {
-              throw "$($artifact.Name) signature is $($signature.Status), expected Valid"
-            }
-            if ($signature.SignerCertificate.Thumbprint -cne $env:EXPECTED_THUMBPRINT) {
-              throw "$($artifact.Name) was signed by an unexpected certificate"
-            }
-            if ($signature.SignerCertificate.Subject -cne $env:EXPECTED_SUBJECT) {
-              throw "$($artifact.Name) has an unexpected signer subject"
-            }
-            if ($null -eq $signature.TimeStamperCertificate) {
-              throw "$($artifact.Name) has no Authenticode timestamp"
+            if ($env:SIGNING_ENABLED -eq 'true') {
+              if ($signature.Status -ne 'Valid') {
+                throw "$($artifact.Name) signature is $($signature.Status), expected Valid"
+              }
+              if ($signature.SignerCertificate.Thumbprint -cne $env:EXPECTED_THUMBPRINT) {
+                throw "$($artifact.Name) was signed by an unexpected certificate"
+              }
+              if ($signature.SignerCertificate.Subject -cne $env:EXPECTED_SUBJECT) {
+                throw "$($artifact.Name) has an unexpected signer subject"
+              }
+              if ($null -eq $signature.TimeStamperCertificate) {
+                throw "$($artifact.Name) has no Authenticode timestamp"
+              }
+            } elseif ($signature.Status -ne 'NotSigned') {
+              throw "$($artifact.Name) unexpectedly has Authenticode status $($signature.Status)"
             }
           }
       - name: Verify the exact artifact set and checksums
         env:
           AIKOBOX_RELEASE_TAG: ${{ github.ref_name }}
         run: pnpm run verify:release
+      - name: Create the exact bilingual GitHub release body
+        shell: pwsh
+        env:
+          RELEASE_NOTES: ${{ steps.release_version.outputs.notes }}
+          SIGNING_STATUS: ${{ steps.release_policy.outputs.signing_status }}
+        run: |
+          Copy-Item -LiteralPath $env:RELEASE_NOTES -Destination dist/RELEASE_NOTES.md
+          Add-Content -LiteralPath dist/RELEASE_NOTES.md -Value "`n---`n"
+          if ($env:SIGNING_STATUS -eq 'signed') {
+            Add-Content -LiteralPath dist/RELEASE_NOTES.md -Value @'
+          ## 构建签名状态 / Code-signing status
+
+          此版本的安装包、便携版和内部主程序均已通过发布工作流验证：Authenticode 签名有效、证书主体和指纹符合仓库配置，并带有时间戳。
+
+          The release workflow verified valid, timestamped Authenticode signatures and the configured certificate identity on the installer, portable executable, and packaged application.
+          '@
+          } else {
+            Add-Content -LiteralPath dist/RELEASE_NOTES.md -Value @'
+          ## ⚠ 未签名 Beta / UNSIGNED BETA
+
+          仓库尚未配置受信任的 Windows 代码签名证书。发布工作流已确认安装包、便携版和内部主程序均为未签名，并已对最终文件执行静态内容与 SHA-256 校验。Windows 可能显示“未知发布者”或 Microsoft Defender SmartScreen 提示；只应从本仓库 Release 下载并先核对 SHA-256。此说明不代表文件获得了 Windows 信任签名。
+
+          A trusted Windows code-signing certificate is not configured. The workflow confirmed that the installer, portable executable, and packaged application are unsigned, then performed static payload and SHA-256 verification. Windows may show Unknown publisher or Microsoft Defender SmartScreen. Download only from this repository's Releases and verify SHA-256 first. This notice does not claim that the files are trusted or signed.
+          '@
+          }
+          Add-Content -LiteralPath dist/RELEASE_NOTES.md -Value @'
+
+          ## 第三方许可审计 / Third-party license audit
+
+          本次构建的完整审计输出作为 `THIRD_PARTY-LICENSE-AUDIT.txt` 随 Release 发布。Beta 允许继续发布已被准确记录的已知许可证据缺口；这不表示这些缺口已经解决。正式版本仍要求零缺口。
+
+          The complete audit output is attached as `THIRD_PARTY-LICENSE-AUDIT.txt`. A beta may proceed only with accurately recorded and disclosed known evidence gaps; this does not mean those gaps are resolved. Stable releases still require zero blockers.
+          '@
+      - name: Write the public asset manifest
+        shell: pwsh
+        env:
+          SIGNING_STATUS: ${{ steps.release_policy.outputs.signing_status }}
+        run: |
+          Copy-Item -LiteralPath "$env:RUNNER_TEMP/THIRD_PARTY-LICENSE-AUDIT.txt" -Destination dist/THIRD_PARTY-LICENSE-AUDIT.txt
+          $authenticode = if ($env:SIGNING_STATUS -eq 'signed') { 'Valid, identity and timestamp verified' } else { 'NotSigned (unsigned prerelease)' }
+          $manifest = @(
+            "AikoBox release asset manifest",
+            "Tag: $env:GITHUB_REF_NAME",
+            "Commit: $env:GITHUB_SHA",
+            "Authenticode: $authenticode",
+            "Target: Windows x64",
+            ''
+          )
+          $payloads = @(Get-ChildItem -LiteralPath dist -File | Where-Object { $_.Name -match '(-setup\.exe|-portable\.exe|\.exe\.sha256$|^SHA256SUMS\.txt$)' } | Sort-Object Name)
+          foreach ($payload in $payloads) {
+            $digest = (Get-FileHash -LiteralPath $payload.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            $manifest += "$digest  $($payload.Length)  $($payload.Name)"
+          }
+          $manifest | Set-Content -LiteralPath dist/RELEASE-MANIFEST.txt -Encoding utf8
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: signed-aikobox-${{ github.ref_name }}
+          name: aikobox-${{ github.ref_name }}-${{ steps.release_policy.outputs.signing_status }}
           path: |
             dist/*-setup.exe
             dist/*-portable.exe
             dist/*.sha256
             dist/SHA256SUMS.txt
+            dist/RELEASE-MANIFEST.txt
+            dist/RELEASE_NOTES.md
+            dist/THIRD_PARTY-LICENSE-AUDIT.txt
           if-no-files-found: error
           retention-days: 7
 
   publish:
-    needs: build-signed
+    needs: build
     runs-on: windows-latest
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: signed-aikobox-${{ github.ref_name }}
+          name: aikobox-${{ github.ref_name }}-${{ needs.build.outputs.signing_status }}
           path: dist
-      - name: Publish the immutable, signed release set
+      - name: Publish the verified release set
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
+          IS_PRERELEASE: ${{ needs.build.outputs.is_prerelease }}
+          SIGNING_STATUS: ${{ needs.build.outputs.signing_status }}
         run: |
-          gh release create $env:RELEASE_TAG --verify-tag --generate-notes dist/*-setup.exe dist/*-portable.exe dist/*.sha256 dist/SHA256SUMS.txt
+          $assets = @(
+            Get-ChildItem -LiteralPath dist -File |
+              Where-Object { $_.Name -match '(-setup\.exe|-portable\.exe|\.exe\.sha256|^SHA256SUMS\.txt|^RELEASE-MANIFEST\.txt|^THIRD_PARTY-LICENSE-AUDIT\.txt)$' } |
+              Sort-Object Name |
+              ForEach-Object FullName
+          )
+          if ($assets.Count -ne 7) { throw "Expected exactly seven release assets, found $($assets.Count)" }
+          $titleSuffix = if ($env:SIGNING_STATUS -eq 'signed') { 'signed' } else { 'UNSIGNED beta' }
+          $arguments = @(
+            'release', 'create', $env:RELEASE_TAG,
+            '--verify-tag',
+            '--title', "AikoBox $env:RELEASE_TAG ($titleSuffix)",
+            '--notes-file', 'dist/RELEASE_NOTES.md',
+            '--latest=false'
+          )
+          if ($env:IS_PRERELEASE -eq 'true') { $arguments += '--prerelease' }
+          $arguments += $assets
+          & gh @arguments
+          if ($LASTEXITCODE -ne 0) { throw "gh release create failed with exit code $LASTEXITCODE" }

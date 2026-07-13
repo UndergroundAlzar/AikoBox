@@ -14,7 +14,7 @@
 
 AikoBox targets **Windows 10/11 x64 only**. Its interface and subscription workflow are derived from Clash Party, while sing-box is the sole proxy core. Aiko, the white-haired and red-eyed mascot, represents the project.
 
-> AikoBox is currently a `0.x` source preview. Official binary releases remain blocked until the third-party redistribution audit is clear and the Windows artifacts carry a trusted Authenticode signature.
+> AikoBox is currently a `0.x` beta. Prereleases must pass the third-party redistribution audit and static artifact verification. Until a trusted Windows certificate is configured, a prerelease may ship only when it is clearly labeled as an unsigned beta.
 
 ## Highlights
 

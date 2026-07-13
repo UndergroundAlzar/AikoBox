@@ -14,7 +14,7 @@
 
 AikoBox 是一款仅面向 **Windows x64** 的 sing-box 桌面客户端，界面与订阅工作流源自 Clash Party。Aiko 是项目的白毛红瞳看板娘。
 
-> 项目仍处于 `0.x` 阶段。目前公开仓库以源码预览为主；正式二进制 Release 必须先通过第三方许可审计与 Windows 代码签名门禁。在系统代理或 TUN 成为唯一联网路径前，请先保留可恢复的网络方案。
+> 项目仍处于 `0.x` Beta 阶段。预发行版必须通过第三方许可审计和静态产物校验；若尚未配置受信任的 Windows 代码签名证书，Release 会明确标注“未签名 Beta”。在系统代理或 TUN 成为唯一联网路径前，请先保留可恢复的网络方案。
 
 ## 特性
 
@@ -44,12 +44,12 @@ AikoBox 是一款仅面向 **Windows x64** 的 sing-box 桌面客户端，界面
 请只从本项目的 GitHub Releases 下载。可在 PowerShell 中核对单个文件：
 
 ```powershell
-$actual = (Get-FileHash .\aikobox-windows-0.1.0-x64-setup.exe -Algorithm SHA256).Hash.ToLower()
-$expected = ((Get-Content .\aikobox-windows-0.1.0-x64-setup.exe.sha256) -split '\s+')[0]
+$actual = (Get-FileHash .\aikobox-windows-0.1.0-beta.1-x64-setup.exe -Algorithm SHA256).Hash.ToLower()
+$expected = ((Get-Content .\aikobox-windows-0.1.0-beta.1-x64-setup.exe.sha256) -split '\s+')[0]
 $actual -ceq $expected
 ```
 
-结果必须为 `True`。正式 GitHub tag 发布工作流会拒绝未通过 Authenticode 验证的产物；本地开发包没有发布证书，Windows 显示未知发布者时不要绕过来源和校验检查。
+结果必须为 `True`。正式版本会拒绝未签名产物；预发行版在证书尚未配置时允许发布，但发布页必须明确标注“未签名 Beta”，且工作流会确认产物确实未签名。Windows 显示未知发布者或 SmartScreen 提示时，不要绕过来源和校验检查。
 
 ## 配置说明
 
