@@ -542,7 +542,7 @@
   "profiles.newProfile": "新建订阅",
   "profiles.error.unsupportedFileType": "不支持的文件类型",
   "profiles.error.urlParamMissing": "缺少参数 url",
-  "profiles.error.importFailed": "订阅导入失败",
+  "profiles.error.importFailed": "订阅导入失败 — 请检查链接、访问令牌或网络超时",
   "profiles.emptyProfile": "空白订阅",
   "profiles.viewRuntimeConfig": "查看当前运行时配置",
   "profiles.neverExpire": "长期有效",

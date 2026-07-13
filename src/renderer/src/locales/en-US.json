@@ -542,7 +542,7 @@
   "profiles.newProfile": "New Profile",
   "profiles.error.unsupportedFileType": "Unsupported file type",
   "profiles.error.urlParamMissing": "Missing parameter: url",
-  "profiles.error.importFailed": "Subscription import failed",
+  "profiles.error.importFailed": "Subscription import failed — check the link, login token, or network timeout",
   "profiles.emptyProfile": "Empty Profile",
   "profiles.viewRuntimeConfig": "View Current Runtime Config",
   "profiles.neverExpire": "Never Expire",

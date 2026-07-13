@@ -155,7 +155,9 @@ describe('remote profile subscriptions', () => {
     const savedPath = join(mocks.root, 'profiles', 'remote-2.yaml')
     const previous = readFileSync(savedPath, 'utf8')
 
-    await expect(createProfile(item)).rejects.toThrow(/returned HTML/)
+    await expect(createProfile(item)).rejects.toThrow(
+      /web page instead of a subscription|returned HTML/
+    )
     expect(readFileSync(savedPath, 'utf8')).toBe(previous)
   })
 
@@ -175,8 +177,37 @@ describe('remote profile subscriptions', () => {
         type: 'remote',
         url: 'https://example.invalid/sub'
       })
-    ).rejects.toThrow(/status code 503/)
+    ).rejects.toThrow(/subscription server error \(HTTP 503\)/)
     expect(existsSync(join(mocks.root, 'profiles', 'status-error.yaml'))).toBe(false)
+  })
+
+  it('maps auth failures and timeouts to clear user-facing messages', async () => {
+    mocks.axiosGet
+      .mockResolvedValueOnce(response(401, 'nope', { 'content-type': 'text/plain' }))
+      .mockResolvedValueOnce(response(401, 'nope', { 'content-type': 'text/plain' }))
+    const { createProfile, formatSubscriptionUserError, formatSubscriptionHttpStatusError } =
+      await import('./profile')
+
+    expect(formatSubscriptionHttpStatusError(401)).toMatch(/login or access was rejected/)
+    expect(
+      formatSubscriptionUserError(Object.assign(new Error('aborted'), { code: 'ECONNABORTED' }))
+    ).toMatch(/timed out/)
+    expect(formatSubscriptionUserError(new Error('Subscription URL is not a valid URL'))).toMatch(
+      /not a valid http\(s\) URL/
+    )
+    expect(
+      formatSubscriptionUserError(
+        new Error('Subscription failed: login or access was rejected by the subscription server')
+      )
+    ).toMatch(/login or access was rejected/)
+
+    await expect(
+      createProfile({
+        id: 'auth-error',
+        type: 'remote',
+        url: 'https://example.invalid/sub'
+      })
+    ).rejects.toThrow(/login or access was rejected/)
   })
 
   it('reports both direct and proxy fallback failures without leaking URLs', async () => {
@@ -199,7 +230,7 @@ describe('remote profile subscriptions', () => {
     }
     expect(failure).toBeInstanceOf(AggregateError)
     expect((failure as Error).message).toMatch(
-      /failed directly \(network request failed\) and through the local proxy \(Subscription failed: Request status code 502\)/
+      /failed directly \(Subscription failed: network request failed\) and through the local proxy \(Subscription failed: subscription server error \(HTTP 502\)\)/
     )
     expect((failure as Error).message).not.toContain('token=secret')
     expect((failure as Error).message).not.toContain('private-path-token')
@@ -231,7 +262,7 @@ describe('remote profile subscriptions', () => {
     )
     await expect(
       createProfile({ id: 'bad-url', type: 'remote', url: 'file:///C:/Windows/win.ini' })
-    ).rejects.toThrow(/http or https/)
+    ).rejects.toThrow(/not a valid http\(s\) URL|must use http or https/)
     expect(existsSync(join(mocks.root, 'profiles', 'bad-url.yaml'))).toBe(false)
     await expect(
       createProfile({ id: '..\\escape', type: 'remote', url: 'https://example.invalid/sub' })

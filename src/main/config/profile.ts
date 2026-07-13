@@ -375,26 +375,114 @@ function redactSubscriptionUrl(url: string): string {
   }
 }
 
-function subscriptionAttemptErrorMessage(error: unknown): string {
-  const message = (error instanceof Error ? error.message : String(error))
+/**
+ * Map transport/HTTP failures to short, user-facing English messages for self-use
+ * (paste subscription link). Never echo full URLs, tokens, or stack dumps.
+ */
+export function formatSubscriptionHttpStatusError(status: number): string {
+  if (status === 401 || status === 403) {
+    return 'Subscription failed: login or access was rejected by the subscription server'
+  }
+  if (status === 404) {
+    return 'Subscription failed: the subscription URL was not found (HTTP 404)'
+  }
+  if (status === 407) {
+    return 'Subscription failed: proxy login was rejected'
+  }
+  if (status === 408 || status === 504) {
+    return 'Subscription failed: the server timed out responding'
+  }
+  if (status === 429) {
+    return 'Subscription failed: too many requests (rate limited)'
+  }
+  if (status >= 500 && status <= 599) {
+    return `Subscription failed: subscription server error (HTTP ${status})`
+  }
+  if (status >= 400 && status <= 499) {
+    return `Subscription failed: request was rejected (HTTP ${status})`
+  }
+  return `Subscription failed: unexpected HTTP status ${status}`
+}
+
+export function formatSubscriptionUserError(error: unknown): string {
+  const raw = (error instanceof Error ? error.message : String(error))
     .replace(/[\r\n\t]+/g, ' ')
     .trim()
-  if (!message) return 'unknown request error'
-  if (/https?:\/\//i.test(message)) return 'network request failed'
-  if (/\b(?:Bearer|Basic|token|password|secret|authorization|credential)\b/i.test(message)) {
-    return 'subscription request failed (sensitive details redacted)'
+  // Preserve already-mapped user-facing subscription errors.
+  if (/^Subscription failed:/i.test(raw)) {
+    return raw.slice(0, 512)
   }
-  return message
-    .replace(/\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, '[redacted authorization]')
-    .replace(
-      /\b(token|password|secret|authorization|credential)(\s*[:=]\s*)[^\s,;]+/gi,
-      '$1$2[redacted]'
+  const code =
+    error && typeof error === 'object' && 'code' in error
+      ? String((error as { code?: unknown }).code || '')
+      : ''
+  const name = error instanceof Error ? error.name : ''
+
+  if (
+    code === 'ECONNABORTED' ||
+    code === 'ETIMEDOUT' ||
+    name === 'TimeoutError' ||
+    name === 'AbortError' ||
+    /timeout|timed out|aborted/i.test(raw)
+  ) {
+    return 'Subscription failed: request timed out (check the link or increase subscription timeout)'
+  }
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN' || /getaddrinfo|ENOTFOUND/i.test(raw)) {
+    return 'Subscription failed: could not resolve the subscription host name'
+  }
+  if (code === 'ECONNREFUSED' || /ECONNREFUSED/i.test(raw)) {
+    return 'Subscription failed: connection was refused by the host or proxy'
+  }
+  if (code === 'ECONNRESET' || /ECONNRESET/i.test(raw)) {
+    return 'Subscription failed: connection was reset while downloading'
+  }
+  if (code === 'CERT_HAS_EXPIRED' || code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE') {
+    return 'Subscription failed: TLS certificate could not be verified'
+  }
+  if (/is not a valid URL|must use http or https/i.test(raw)) {
+    return 'Subscription failed: the subscription link is not a valid http(s) URL'
+  }
+  if (
+    /redirect may not downgrade|redirect uses unsupported protocol|redirect is not a valid URL/i.test(
+      raw
     )
-    .slice(0, 512)
+  ) {
+    return 'Subscription failed: unsafe redirect while fetching the subscription'
+  }
+  if (/sensitive headers may not redirect across origins/i.test(raw)) {
+    return 'Subscription failed: subscription redirected across sites while carrying credentials'
+  }
+  if (/returned HTML|HTML error page/i.test(raw)) {
+    return 'Subscription failed: server returned a web page instead of a subscription'
+  }
+  if (/contains no proxy nodes/i.test(raw)) {
+    return 'Subscription failed: downloaded content has no usable proxy nodes'
+  }
+  if (/proxy-only mode requires a valid local mixed proxy port/i.test(raw)) {
+    return 'Subscription failed: proxy-only update needs a running local mixed-port'
+  }
+
+  let message = raw || 'unknown request error'
+  if (/https?:\/\//i.test(message)) {
+    message = 'network request failed'
+  }
+  if (/\b(?:Bearer|Basic|token|password|secret|authorization|credential)\b/i.test(message)) {
+    message = 'subscription request failed (sensitive details redacted)'
+  } else {
+    message = message
+      .replace(/\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, '[redacted authorization]')
+      .replace(
+        /\b(token|password|secret|authorization|credential)(\s*[:=]\s*)[^\s,;]+/gi,
+        '$1$2[redacted]'
+      )
+      .slice(0, 512)
+  }
+
+  return `Subscription failed: ${message}`
 }
 
 function sanitizedSubscriptionAttemptError(error: unknown): Error {
-  return new Error(subscriptionAttemptErrorMessage(error))
+  return new Error(formatSubscriptionUserError(error))
 }
 
 function normalizeAxiosHeaders(headers: AxiosResponse['headers']): Record<string, string> {
@@ -463,13 +551,17 @@ async function fetchAndValidateSubscription(options: FetchOptions): Promise<Fetc
     throw new Error('Subscription proxy-only mode requires a valid local mixed proxy port')
   }
 
-  if (useProxy) {
-    const parsedUrl = assertHttpUrl(url, 'Subscription URL')
-    hasSensitiveRedirectContext ||= Boolean(parsedUrl.username || parsedUrl.password)
-    proxy = { protocol: 'http', host: '127.0.0.1', port: mixedPort }
-  } else {
-    const parsedUrl = assertHttpUrl(url, 'Subscription URL')
-    hasSensitiveRedirectContext ||= Boolean(parsedUrl.username || parsedUrl.password)
+  try {
+    if (useProxy) {
+      const parsedUrl = assertHttpUrl(url, 'Subscription URL')
+      hasSensitiveRedirectContext ||= Boolean(parsedUrl.username || parsedUrl.password)
+      proxy = { protocol: 'http', host: '127.0.0.1', port: mixedPort }
+    } else {
+      const parsedUrl = assertHttpUrl(url, 'Subscription URL')
+      hasSensitiveRedirectContext ||= Boolean(parsedUrl.username || parsedUrl.password)
+    }
+  } catch (error) {
+    throw sanitizedSubscriptionAttemptError(error)
   }
 
   let res: AxiosResponse<string>
@@ -519,10 +611,14 @@ async function fetchAndValidateSubscription(options: FetchOptions): Promise<Fetc
     await profileLogger.warn(
       `Remote profile request rejected url=${redactedUrl} mode=${fetchMode} status=${res.status}`
     )
-    throw new Error(`Subscription failed: Request status code ${res.status}`)
+    throw new Error(formatSubscriptionHttpStatusError(res.status))
   }
 
-  assertRemoteText(data, responseHeaders['content-type'], 'Subscription')
+  try {
+    assertRemoteText(data, responseHeaders['content-type'], 'Subscription')
+  } catch (error) {
+    throw sanitizedSubscriptionAttemptError(error)
+  }
   const decryptedData = await decryptAgeContent(data, options.ageSecretKey, 'subscription')
   let normalized: ReturnType<typeof normalizeSubscriptionPayload>
   try {
@@ -532,9 +628,7 @@ async function fetchAndValidateSubscription(options: FetchOptions): Promise<Fetc
       `Remote profile parse failed url=${redactedUrl} mode=${fetchMode}`,
       error
     )
-    throw new Error(
-      `Subscription failed: ${error instanceof Error ? error.message : String(error)}`
-    )
+    throw sanitizedSubscriptionAttemptError(error)
   }
   if (options.ageSecretKey && normalized.format !== 'clash-yaml') {
     throw new Error('Subscription failed: encrypted URI-list subscriptions are not supported')
@@ -593,7 +687,7 @@ export async function createProfile(item: Partial<IProfileItem>): Promise<IProfi
   }
 
   // Remote
-  if (!item.url) throw new Error('Empty URL')
+  if (!item.url) throw new Error('Subscription failed: subscription URL is empty')
 
   const profileUrl = item.url
   const { userAgent, subscriptionTimeout = 30000 } = await getAppConfig()
@@ -677,11 +771,9 @@ export async function createProfile(item: Partial<IProfileItem>): Promise<IProfi
           const sanitizedProxyError = sanitizedSubscriptionAttemptError(proxyError)
           throw new AggregateError(
             [sanitizedDirectError, sanitizedProxyError],
-            `Subscription failed directly (${subscriptionAttemptErrorMessage(
+            `Subscription failed directly (${formatSubscriptionUserError(
               sanitizedDirectError
-            )}) and through the local proxy (${subscriptionAttemptErrorMessage(
-              sanitizedProxyError
-            )})`
+            )}) and through the local proxy (${formatSubscriptionUserError(sanitizedProxyError)})`
           )
         }
       }
