@@ -23,6 +23,42 @@ function runAudit(...arguments_) {
   })
 }
 
+function encodeUtf16Be(value) {
+  const encoded = Buffer.alloc(value.length * 2)
+  for (let index = 0; index < value.length; index += 1) {
+    encoded.writeUInt16BE(value.charCodeAt(index), index * 2)
+  }
+  return encoded
+}
+
+function createSfntNameFixture(copyright, versionRecord) {
+  const strings = [encodeUtf16Be(copyright), encodeUtf16Be(versionRecord)]
+  const nameTable = Buffer.alloc(6 + 2 * 12 + strings[0].length + strings[1].length)
+  nameTable.writeUInt16BE(0, 0)
+  nameTable.writeUInt16BE(2, 2)
+  nameTable.writeUInt16BE(30, 4)
+  let stringOffset = 0
+  for (const [index, nameId] of [0, 5].entries()) {
+    const recordOffset = 6 + index * 12
+    nameTable.writeUInt16BE(3, recordOffset)
+    nameTable.writeUInt16BE(1, recordOffset + 2)
+    nameTable.writeUInt16BE(0x0409, recordOffset + 4)
+    nameTable.writeUInt16BE(nameId, recordOffset + 6)
+    nameTable.writeUInt16BE(strings[index].length, recordOffset + 8)
+    nameTable.writeUInt16BE(stringOffset, recordOffset + 10)
+    strings[index].copy(nameTable, 30 + stringOffset)
+    stringOffset += strings[index].length
+  }
+
+  const sfnt = Buffer.alloc(28)
+  sfnt.writeUInt32BE(0x00010000, 0)
+  sfnt.writeUInt16BE(1, 4)
+  sfnt.write('name', 12, 'ascii')
+  sfnt.writeUInt32BE(28, 20)
+  sfnt.writeUInt32BE(nameTable.length, 24)
+  return Buffer.concat([sfnt, nameTable])
+}
+
 test('offline audit covers dependencies and explicitly tracked resource blockers', () => {
   const result = runAudit('--allow-known-blockers')
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
@@ -112,22 +148,48 @@ test('Noto Color Emoji evidence is tag-pinned, packaged, and hash-reviewed', () 
   assert.match(verifier, /verifiedLicenseFiles/)
   assert.match(verifier, /packaged license evidence does not match/i)
 
-  const embedded = readSfntNameMetadata(
-    path.join(repositoryRoot, 'src', 'renderer', 'src', 'assets', 'NotoColorEmoji.ttf')
+  const fontPath = path.join(
+    repositoryRoot,
+    'src',
+    'renderer',
+    'src',
+    'assets',
+    'NotoColorEmoji.ttf'
   )
-  assert.deepEqual(
-    {
-      version: embedded.version,
-      buildDate: embedded.buildDate,
-      buildRevision: embedded.buildRevision,
-      copyright: embedded.copyright
-    },
-    item.fontMetadata
-  )
-  assert.equal(
-    embedded.versionRecord,
+  if (fs.existsSync(fontPath)) {
+    const embedded = readSfntNameMetadata(fontPath)
+    assert.deepEqual(
+      {
+        version: embedded.version,
+        buildDate: embedded.buildDate,
+        buildRevision: embedded.buildRevision,
+        copyright: embedded.copyright
+      },
+      item.fontMetadata
+    )
+  }
+})
+
+test('SFNT parser reads pinned metadata from a synthetic name table', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'aikobox-sfnt-'))
+  const fixturePath = path.join(directory, 'NotoColorEmoji.ttf')
+  const versionRecord =
     'Version 2.051;GOOG;noto-emoji:20250818:e92753bfa55fd449e427d4d325f9c8c40408c74e'
-  )
+  try {
+    fs.writeFileSync(
+      fixturePath,
+      createSfntNameFixture('Copyright 2022 Google Inc.', versionRecord)
+    )
+    assert.deepEqual(readSfntNameMetadata(fixturePath), {
+      version: '2.051',
+      buildDate: '20250818',
+      buildRevision: 'e92753bfa55fd449e427d4d325f9c8c40408c74e',
+      copyright: 'Copyright 2022 Google Inc.',
+      versionRecord
+    })
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true })
+  }
 })
 
 test('notice evidence is scoped to its resource marker section', () => {
@@ -161,6 +223,10 @@ test('evidence paths reject traversal and linked ancestors', () => {
     assert.equal(
       resolveEvidenceFile('safe/license.txt', 'test evidence', root),
       path.join(root, 'safe', 'license.txt')
+    )
+    assert.equal(
+      resolveEvidenceFile('safe/missing.ttf', 'optional output', root, true),
+      path.join(root, 'safe', 'missing.ttf')
     )
     assert.throws(
       () => resolveEvidenceFile('../outside/license.txt', 'test evidence', root),

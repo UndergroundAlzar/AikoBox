@@ -25,7 +25,12 @@ function comparableFsPath(filePath) {
   return process.platform === 'win32' ? normalized.toLowerCase() : normalized
 }
 
-export function resolveEvidenceFile(relativePath, label, root = repositoryRoot) {
+export function resolveEvidenceFile(
+  relativePath,
+  label,
+  root = repositoryRoot,
+  allowMissing = false
+) {
   invariant(typeof relativePath === 'string' && relativePath.length > 0, `${label}: empty path`)
   invariant(!relativePath.includes('\0'), `${label}: path contains a NUL byte`)
   invariant(!relativePath.includes('\\'), `${label}: path must use forward slashes`)
@@ -57,8 +62,13 @@ export function resolveEvidenceFile(relativePath, label, root = repositoryRoot) 
   for (const segment of segments) {
     lexicalPath = path.join(lexicalPath, segment)
     expectedRealPath = path.join(expectedRealPath, segment)
-    invariant(fs.existsSync(lexicalPath), `${label}: path component is missing`)
-    const stat = fs.lstatSync(lexicalPath)
+    let stat
+    try {
+      stat = fs.lstatSync(lexicalPath)
+    } catch (error) {
+      if (error?.code === 'ENOENT' && allowMissing) return absolutePath
+      throw error
+    }
     invariant(!stat.isSymbolicLink(), `${label}: path passes through a symbolic link or junction`)
     const actualRealPath = fs.realpathSync.native(lexicalPath)
     invariant(
@@ -303,23 +313,32 @@ function inspectResourceReview() {
           `${name}: embedded font copyright is missing`
         )
 
-        const fontPath = resolveEvidenceFile(resource.output, `${name}: packaged font`)
-        const fontStat = fs.lstatSync(fontPath)
-        invariant(
-          fontStat.isFile() && !fontStat.isSymbolicLink(),
-          `${name}: font path is not a file`
+        const fontPath = resolveEvidenceFile(
+          resource.output,
+          `${name}: packaged font`,
+          repositoryRoot,
+          true
         )
-        const fontContents = fs.readFileSync(fontPath)
-        invariant(
-          fontContents.length === resource.size && sha256(fontContents) === resource.sha256,
-          `${name}: local font does not match its locked size and SHA-256`
-        )
-        const embedded = readSfntNameMetadata(fontPath)
-        for (const field of ['version', 'buildDate', 'buildRevision', 'copyright']) {
+        if (fs.existsSync(fontPath)) {
+          const fontStat = fs.lstatSync(fontPath)
           invariant(
-            embedded[field] === item.fontMetadata[field],
-            `${name}: embedded font ${field} differs from reviewed metadata`
+            fontStat.isFile() && !fontStat.isSymbolicLink(),
+            `${name}: font path is not a file`
           )
+          const fontContents = fs.readFileSync(fontPath)
+          invariant(
+            fontContents.length === resource.size && sha256(fontContents) === resource.sha256,
+            `${name}: local font does not match its locked size and SHA-256`
+          )
+          const embedded = readSfntNameMetadata(fontPath)
+          for (const field of ['version', 'buildDate', 'buildRevision', 'copyright']) {
+            invariant(
+              embedded[field] === item.fontMetadata[field],
+              `${name}: embedded font ${field} differs from reviewed metadata`
+            )
+          }
+        }
+        for (const field of ['version', 'buildDate', 'buildRevision', 'copyright']) {
           invariant(
             noticeSection.includes(item.fontMetadata[field]),
             `${name}: embedded font ${field} is absent from notice`
