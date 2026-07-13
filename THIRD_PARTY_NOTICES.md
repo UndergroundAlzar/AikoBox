@@ -43,20 +43,6 @@ The repository's root GPL text covers AikoBox itself. It must not be presented a
 
 The official `v2.051` license permits the unmodified font to be bundled with software when every copy retains the copyright notice and complete OFL-1.1 text. No Reserved Font Name is specified after the copyright statement in that license. The release tag commit identifies the upstream release tree; the separate embedded build revision identifies the exact revision recorded by the packaged font itself. AikoBox ships the font unmodified, preserves both the embedded `Copyright 2022 Google Inc.` metadata and the OFL file's `Copyright 2013 Google LLC` notice, and does not claim Google endorsement. The audit binds the exact font size and SHA-256 to the tagged release, parses the packaged TTF metadata offline, and requires the complete reviewed upstream license text to enter `app.asar`.
 
-<!-- resource:enableLoopback -->
-
-### enableLoopback — `BLOCKED`
-
-- Version: `1.4.3.0 (release commit 20bf1cb008dcc47d07b3affd17a806c253d53eab)`
-- Packaged path: `extra/files/enableLoopback.exe`
-- Distribution project: https://github.com/Kuingsmile/uwp-tool
-- Mutable download locator: https://github.com/Kuingsmile/uwp-tool/releases/download/latest/enableLoopback.exe
-- Packaged payload: 84,040 bytes; SHA-256 `f0c328376bd5ae0ef3b0eb19ac1f343c24a9abfe7bc1008d3b2f6ef3573d04d1`
-- Local PE evidence: file/product version `1.4.3.0`; company `Progress Software Corporation`; copyright identifies Progress Software.
-- Release blocker: The binary identifies Progress Software Corporation rather than the distribution repository. No local license grant proves that this exact Fiddler-derived binary may be redistributed.
-
-The lock's `sourceCommit` is a review annotation, but the `latest` URL does not cryptographically bind that commit. SHA-256 fixes the payload identity; it does not grant redistribution rights. Obtain a license from the actual rights holder or replace/remove this helper.
-
 <!-- resource:sysproxy -->
 
 ### sysproxy-rs-opti — `BLOCKED`
@@ -69,21 +55,6 @@ The lock's `sourceCommit` is a review annotation, but the `latest` URL does not 
 - Release blocker: The local JavaScript shim declares MIT, but no license/copyright file or source revision tied to the packaged native .node binary is present.
 
 The `src/native/sysproxy/package.json` MIT declaration applies to that shim's metadata; it is not evidence for the separately downloaded native binary.
-
-<!-- resource:trafficMonitor -->
-
-### TrafficMonitor plus MihomoParty plugin — `BLOCKED`
-
-- Version: `TrafficMonitor 1.8.5.1 + MihomoParty plugin 1.0.0.0`
-- Packaged directory: `extra/files/TrafficMonitor`
-- Distribution project: https://github.com/mihomo-party-org/mihomo-party-run
-- Locked download: https://github.com/mihomo-party-org/mihomo-party-run/releases/download/monitor/x64.zip
-- Archive: 589,842 bytes; SHA-256 `1d0d74fc203984ba67c77ebcc5aa403b9e515b2f0a9b8e9ca5d966429dd05b18`
-- Extracted tree: 3 files; directory SHA-256 `a350462cc46f4f70eec14a0e3e0a029530fe225fb4ce7ddb762f578175fafac6`
-- Child identities: `TrafficMonitor.exe` SHA-256 `f66245201835678ffd7f6c06e9a08a05f0a3f82cf5113039fe90bcadca26bf80`; `plugins/MihomoParty.dll` SHA-256 `3b6a09787b2d715c43fe0c7670be525a5fb6bb175da2123ad6a8f5bf30820e6c`.
-- Release blocker: The archive contains TrafficMonitor.exe and MihomoParty.dll but no license, copyright notice file, source revisions, or corresponding-source information for either binary.
-
-Local PE metadata attributes `TrafficMonitor.exe` to ZhongYang and `MihomoParty.dll` to Mihomo Party. Their separate upstream projects and exact license versions must be recorded; one aggregate download URL does not establish either binary's rights.
 
 <!-- resource:subStoreBackend -->
 
@@ -118,7 +89,7 @@ Run the offline audit from a complete frozen install:
 node scripts/audit-licenses.mjs
 ```
 
-The audit compares all seven runtime resources with the lock and this notice, then inventories production dependency metadata through `pnpm licenses list --prod --json`. At the current lock, the locally declared production license expressions are `Apache-2.0`, `BSD-2-Clause`, `BSD-3-Clause`, `GPL-3.0`, `ISC`, `MIT`, `Python-2.0`, and `Unlicense`.
+The audit compares all five runtime resources with the lock and this notice, then inventories production dependency metadata through `pnpm licenses list --prod --json`. At the current lock, the locally declared production license expressions are `Apache-2.0`, `BSD-2-Clause`, `BSD-3-Clause`, `GPL-3.0`, `ISC`, `MIT`, `Python-2.0`, and `Unlicense`.
 
 Nine installed production package roots declare a license in metadata but contain no root `LICENSE`, `LICENCE`, `COPYING`, or `NOTICE` file: `@electron-internal/extract-zip@1.0.3`, `@nodable/entities@2.2.0`, `agent-base@6.0.2`, `base-64@1.0.0`, `byte-length@1.0.2`, `data-uri-to-buffer@4.0.1`, `https-proxy-agent@5.0.1`, `sysproxy-rs@0.4.0`, and `xml-naming@0.1.0`. Resolve their verbatim notice requirements from the exact upstream revisions instead of reconstructing terms from SPDX labels alone.
 

@@ -10,15 +10,17 @@ const TEMP_DIR = path.join(REPOSITORY_ROOT, 'node_modules', '.temp')
 const LOCK_PATH = path.join(SCRIPT_DIR, 'resources-lock.json')
 const SHA256_PATTERN = /^[a-f0-9]{64}$/
 const EXPECTED_RESOURCES = [
-  'enableLoopback',
   'notoColorEmoji',
   'singBox',
   'subStoreBackend',
   'subStoreFrontend',
-  'sysproxy',
-  'trafficMonitor'
+  'sysproxy'
 ]
-const RETIRED_RESOURCE_OUTPUTS = ['extra/files/7za.exe']
+const RETIRED_RESOURCE_OUTPUTS = [
+  'extra/files/7za.exe',
+  'extra/files/enableLoopback.exe',
+  'extra/files/TrafficMonitor'
+]
 const cliArguments = new Set(process.argv.slice(2))
 const unknownArguments = [...cliArguments].filter(
   (argument) => !['--offline', '--verify-only', '--x64'].includes(argument)
@@ -713,15 +715,13 @@ async function main() {
     if (VERIFY_ONLY) {
       throw new Error(`Retired runtime resource is still installed: ${retiredOutput}`)
     }
-    fs.rmSync(retiredPath, { force: true })
+    fs.rmSync(retiredPath, { force: true, recursive: true })
     console.log(`[INFO] Removed retired runtime resource ${retiredOutput}`)
   }
   const resourceOrder = [
     'singBox',
     'notoColorEmoji',
-    'enableLoopback',
     'sysproxy',
-    'trafficMonitor',
     'subStoreBackend',
     'subStoreFrontend'
   ]

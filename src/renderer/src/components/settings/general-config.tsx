@@ -29,7 +29,6 @@ import {
   resolveThemes,
   showFloatingWindow,
   showTrayIcon,
-  startMonitor,
   updateTrayIcon,
   writeTheme
 } from '@renderer/utils/ipc'
@@ -68,7 +67,6 @@ const GeneralConfig: React.FC = () => {
   const {
     silentStart = false,
     useDockIcon = true,
-    showTraffic = false,
     proxyInTray = true,
     showCurrentProxyInTray = false,
     trayProxyGroupStyle = 'default',
@@ -560,21 +558,6 @@ const GeneralConfig: React.FC = () => {
                 </SettingItem>
               </>
             )}
-            <SettingItem
-              title={t('settings.showTraffic', {
-                context: platform === 'win32' ? 'windows' : 'mac'
-              })}
-              divider
-            >
-              <Switch
-                size="sm"
-                isSelected={showTraffic}
-                onValueChange={async (v) => {
-                  await patchAppConfig({ showTraffic: v })
-                  await startMonitor()
-                }}
-              />
-            </SettingItem>
           </>
         )}
         {platform === 'darwin' && (

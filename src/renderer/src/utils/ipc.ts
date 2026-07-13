@@ -84,7 +84,6 @@ interface IpcApi {
   // Core
   restartCore: () => Promise<void>
   mihomoHotReloadConfig: () => Promise<void>
-  startMonitor: () => Promise<void>
   quitWithoutCore: () => Promise<void>
   // System
   triggerSysProxy: (enable: boolean) => Promise<void>
@@ -98,7 +97,6 @@ interface IpcApi {
   checkHighPrivilegeCore: () => Promise<boolean>
   showTunPermissionDialog: () => Promise<boolean>
   showErrorDialog: (title: string, message: string) => Promise<void>
-  openUWPTool: () => Promise<void>
   setupFirewall: () => Promise<void>
   getInterfaces: () => Promise<Record<string, NetworkInterfaceInfo[]>>
   setNativeTheme: (theme: 'system' | 'light' | 'dark') => Promise<void>
@@ -250,7 +248,6 @@ export const {
   // Core
   restartCore,
   mihomoHotReloadConfig,
-  startMonitor,
   quitWithoutCore,
   // System
   triggerSysProxy,
@@ -264,7 +261,6 @@ export const {
   checkHighPrivilegeCore,
   showTunPermissionDialog,
   showErrorDialog,
-  openUWPTool,
   setupFirewall,
   getInterfaces,
   setNativeTheme,

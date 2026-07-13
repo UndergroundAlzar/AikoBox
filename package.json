@@ -40,6 +40,8 @@
     "prepare": "pnpm run hooks:install && node scripts/prepare.mjs",
     "prepare:dev": "pnpm run hooks:install && node scripts/update-version.mjs && node scripts/prepare.mjs",
     "checksum": "node scripts/checksum.mjs",
+    "clean:release-output": "node scripts/clean-release-output.mjs",
+    "verify:retired-output": "node scripts/verify-retired-output.mjs",
     "verify:release": "node scripts/verify-release.mjs",
     "test:verify-release": "node --test scripts/verify-release.test.mjs",
     "audit:licenses": "node scripts/audit-licenses.mjs",
@@ -47,8 +49,8 @@
     "dev": "electron-vite dev",
     "postinstall": "electron-builder install-app-deps",
     "build": "electron-vite build",
-    "package:win": "electron-builder --publish never --win --x64",
-    "build:win": "pnpm run build && pnpm run package:win && pnpm run checksum",
+    "package:win": "pnpm run clean:release-output && pnpm run build && pnpm run verify:retired-output && electron-builder --publish never --win --x64",
+    "build:win": "pnpm run package:win && pnpm run checksum",
     "build:win:dev": "pnpm run prepare:dev && pnpm run build:win"
   },
   "dependencies": {

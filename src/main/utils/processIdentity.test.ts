@@ -13,16 +13,16 @@ describe('process identity journal', () => {
         JSON.stringify({
           version: 2,
           pid: 456,
-          executablePath: 'C:\\AikoBox\\TrafficMonitor.exe',
+          executablePath: 'C:\\AikoBox\\BackgroundWorker.exe',
           startTimeMs: 10_000,
-          commandLine: 'TrafficMonitor.exe --aikobox'
+          commandLine: 'BackgroundWorker.exe --aikobox'
         })
       )
     ).toEqual({
       pid: 456,
-      executablePath: 'C:\\AikoBox\\TrafficMonitor.exe',
+      executablePath: 'C:\\AikoBox\\BackgroundWorker.exe',
       startTimeMs: 10_000,
-      commandLine: 'TrafficMonitor.exe --aikobox'
+      commandLine: 'BackgroundWorker.exe --aikobox'
     })
     expect(parseProcessIdentityRecord('0')).toBeNull()
     expect(parseProcessIdentityRecord('{"version":1,"pid":2}')).toBeNull()
@@ -31,21 +31,21 @@ describe('process identity journal', () => {
   it('requires the expected executable and rejects PID reuse', () => {
     const actual: ProcessIdentity = {
       pid: 42,
-      executablePath: 'C:\\AikoBox\\TrafficMonitor.exe',
+      executablePath: 'C:\\AikoBox\\BackgroundWorker.exe',
       startTimeMs: 20_000,
-      commandLine: 'TrafficMonitor.exe --aikobox'
+      commandLine: 'BackgroundWorker.exe --aikobox'
     }
 
     expect(
       matchesProcessIdentity(
         {
           pid: 42,
-          executablePath: 'C:\\AikoBox\\TrafficMonitor.exe',
+          executablePath: 'C:\\AikoBox\\BackgroundWorker.exe',
           startTimeMs: 20_500,
           commandLine: actual.commandLine
         },
         actual,
-        'C:\\AikoBox\\TrafficMonitor.exe'
+        'C:\\AikoBox\\BackgroundWorker.exe'
       )
     ).toBe(true)
     expect(
@@ -69,7 +69,7 @@ describe('process identity journal', () => {
     ).toBe(false)
     expect(
       matchesProcessIdentity(
-        { ...actual, commandLine: 'TrafficMonitor.exe --different' },
+        { ...actual, commandLine: 'BackgroundWorker.exe --different' },
         actual,
         actual.executablePath
       )

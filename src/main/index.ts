@@ -18,7 +18,6 @@ import { createTray } from './resolve/tray'
 import { init, initBasic, safeShowErrorBox, startSubStoreServices } from './utils/init'
 import { initShortcut } from './resolve/shortcut'
 import { initProfileUpdater } from './core/profileUpdater'
-import { startMonitor } from './resolve/trafficMonitor'
 import { showFloatingWindow } from './resolve/floatingWindow'
 import { logger, createLogger } from './utils/logger'
 import { initWebdavBackupScheduler } from './resolve/backup'
@@ -305,14 +304,6 @@ app.whenReady().then(async () => {
     }
   })()
 
-  const monitorPromise = (async (): Promise<void> => {
-    try {
-      await startMonitor()
-    } catch {
-      // ignore
-    }
-  })()
-
   await createWindowPromise
 
   void startSubStoreServices().catch((e) =>
@@ -340,7 +331,7 @@ app.whenReady().then(async () => {
 
   await Promise.all(uiTasks)
   void runtimeInitPromise
-  await Promise.all([coreStartPromise, monitorPromise])
+  await coreStartPromise
 
   if (coreStarted) {
     mainWindow?.webContents.send('core-started')

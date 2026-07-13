@@ -56,7 +56,6 @@ const FORBIDDEN_CHANNELS = new Set([
   'requestTunPermissions',
   'restartAsAdmin',
   'setupFirewall',
-  'openUWPTool',
   'restartCore',
   'quitWithoutCore',
   'installCoreUpdate',

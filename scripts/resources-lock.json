@@ -30,17 +30,6 @@
       "size": 10673480,
       "sha256": "72a635cb3d2f3524c51620cdde406b217204e8a6a06c6a096ff8ed4b5fd6e27b"
     },
-    "enableLoopback": {
-      "type": "file",
-      "version": "1.4.3.0 (release commit 20bf1cb008dcc47d07b3affd17a806c253d53eab)",
-      "downloadUrl": "https://github.com/Kuingsmile/uwp-tool/releases/download/latest/enableLoopback.exe",
-      "cacheFile": "uwp-tool/20bf1cb008dcc47d07b3affd17a806c253d53eab/enableLoopback.exe",
-      "allowMutableLocator": true,
-      "sourceCommit": "20bf1cb008dcc47d07b3affd17a806c253d53eab",
-      "output": "extra/files/enableLoopback.exe",
-      "size": 84040,
-      "sha256": "f0c328376bd5ae0ef3b0eb19ac1f343c24a9abfe7bc1008d3b2f6ef3573d04d1"
-    },
     "sysproxy": {
       "type": "file",
       "version": "0.5.1 / release v0.1.0",
@@ -49,18 +38,6 @@
       "output": "extra/sidecar/sysproxy.win32-x64-msvc.node",
       "size": 574464,
       "sha256": "f17d99976218cb32aab0cc150e4e0fd40bcc4b237cd8af9f184e0ce4703e4995"
-    },
-    "trafficMonitor": {
-      "type": "zip-directory",
-      "version": "TrafficMonitor 1.8.5.1 + MihomoParty plugin 1.0.0.0",
-      "downloadUrl": "https://github.com/mihomo-party-org/mihomo-party-run/releases/download/monitor/x64.zip",
-      "cacheFile": "TrafficMonitor/x64.zip",
-      "archiveSize": 589842,
-      "archiveSha256": "1d0d74fc203984ba67c77ebcc5aa403b9e515b2f0a9b8e9ca5d966429dd05b18",
-      "archiveRoot": "",
-      "output": "extra/files/TrafficMonitor",
-      "fileCount": 3,
-      "directorySha256": "a350462cc46f4f70eec14a0e3e0a029530fe225fb4ce7ddb762f578175fafac6"
     },
     "subStoreBackend": {
       "type": "file",

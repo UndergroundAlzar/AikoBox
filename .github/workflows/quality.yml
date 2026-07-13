@@ -69,6 +69,9 @@ jobs:
       - name: Compile Electron application
         run: pnpm run build
 
+      - name: Reject retired optional tools in production output
+        run: pnpm run verify:retired-output
+
       - name: Install the locked Electron runtime for the process smoke
         run: pnpm rebuild electron
 

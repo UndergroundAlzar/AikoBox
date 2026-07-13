@@ -21,8 +21,10 @@ test('resource lock contains only pinned HTTPS downloads and SHA-256 identities'
 
   assert.equal(lock.schemaVersion, 1)
   assert.equal(lock.target, 'win32-x64')
-  assert.equal(Object.keys(lock.resources).length, 7)
+  assert.equal(Object.keys(lock.resources).length, 5)
   assert.equal(lock.resources.sevenZip, undefined)
+  assert.equal(lock.resources.enableLoopback, undefined)
+  assert.equal(lock.resources.trafficMonitor, undefined)
 
   for (const [name, resource] of Object.entries(lock.resources)) {
     assert.equal(typeof resource.version, 'string', `${name} must have a version`)
@@ -64,7 +66,7 @@ test(
     })
 
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
-    assert.match(result.stdout, /All 7 locked resources passed integrity verification/)
+    assert.match(result.stdout, /All 5 locked resources passed integrity verification/)
     assert.doesNotMatch(result.stdout + result.stderr, /downloaded and verified/i)
   }
 )
@@ -96,11 +98,36 @@ test('prepare implementation contains no dynamic release discovery', () => {
   assert.doesNotMatch(source, /api\.github\.com\/repos/i)
 })
 
-test('retired 7za helper is excluded from both packaging and release verification', () => {
+test('retired optional helpers are removed and excluded from release packages', () => {
   const builder = fs.readFileSync(path.join(repositoryRoot, 'electron-builder.yml'), 'utf8')
   const verifier = fs.readFileSync(path.join(scriptsDirectory, 'verify-release.mjs'), 'utf8')
+  const prepare = fs.readFileSync(preparePath, 'utf8')
 
   assert.equal(fs.existsSync(path.join(repositoryRoot, 'extra', 'files', '7za.exe')), false)
+  assert.equal(
+    fs.existsSync(path.join(repositoryRoot, 'extra', 'files', 'enableLoopback.exe')),
+    false
+  )
+  assert.equal(fs.existsSync(path.join(repositoryRoot, 'extra', 'files', 'TrafficMonitor')), false)
   assert.match(builder, /!files\/7za\.exe/)
+  assert.match(builder, /!files\/enableLoopback\.exe/)
+  assert.match(builder, /!files\/TrafficMonitor\/\*\*\/\*/)
   assert.match(verifier, /Retired 7za\.exe must not be present in the packaged runtime/)
+  assert.match(verifier, /Retired enableLoopback\.exe must not be present in the packaged runtime/)
+  assert.match(verifier, /Retired TrafficMonitor must not be present in the packaged runtime/)
+  assert.match(prepare, /rmSync\(retiredPath, \{ force: true, recursive: true \}\)/)
+})
+
+test('Windows packaging always rebuilds production output before electron-builder', () => {
+  const packageJson = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'package.json'), 'utf8'))
+  assert.equal(
+    packageJson.scripts['package:win'],
+    'pnpm run clean:release-output && pnpm run build && pnpm run verify:retired-output && electron-builder --publish never --win --x64'
+  )
+  assert.equal(packageJson.scripts['build:win'], 'pnpm run package:win && pnpm run checksum')
+  assert.equal(
+    packageJson.scripts['verify:retired-output'],
+    'node scripts/verify-retired-output.mjs'
+  )
+  assert.equal(packageJson.scripts['clean:release-output'], 'node scripts/clean-release-output.mjs')
 })

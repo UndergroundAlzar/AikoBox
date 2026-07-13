@@ -71,20 +71,10 @@
         }
       ]
     },
-    "enableLoopback": {
-      "status": "blocked",
-      "project": "https://github.com/Kuingsmile/uwp-tool",
-      "blocker": "The binary identifies Progress Software Corporation rather than the distribution repository. No local license grant proves that this exact Fiddler-derived binary may be redistributed."
-    },
     "sysproxy": {
       "status": "blocked",
       "project": "https://github.com/mihomo-party-org/sysproxy-rs-opti",
       "blocker": "The local JavaScript shim declares MIT, but no license/copyright file or source revision tied to the packaged native .node binary is present."
-    },
-    "trafficMonitor": {
-      "status": "blocked",
-      "project": "https://github.com/mihomo-party-org/mihomo-party-run",
-      "blocker": "The archive contains TrafficMonitor.exe and MihomoParty.dll but no license, copyright notice file, source revisions, or corresponding-source information for either binary."
     },
     "subStoreBackend": {
       "status": "blocked",
