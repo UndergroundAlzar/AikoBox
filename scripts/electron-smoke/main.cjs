@@ -76,6 +76,7 @@ const unexpectedChannels = []
 const forbiddenChannels = []
 const rendererErrors = []
 const blockedRequests = []
+const RENDERER_STABILITY_WINDOW_MS = 1_000
 
 const smokeResponses = new Map([
   ['platform', 'win32'],
@@ -159,24 +160,75 @@ function isTrustedRendererNavigation(rawUrl) {
   }
 }
 
-async function waitForRendererProof(window) {
-  const deadline = Date.now() + 20_000
-  while (Date.now() < deadline) {
-    const proof = await window.webContents.executeJavaScript(`(() => {
+async function captureRendererProof(window) {
+  return await window.webContents.executeJavaScript(`(() => {
       const root = document.getElementById('root')
       return {
+        appReady: document.querySelector('[data-aikobox-app-ready="true"]') !== null,
         bodyTextLength: (document.body?.innerText || '').trim().length,
+        errorBoundaryPresent:
+          document.querySelector('[data-aikobox-error-boundary="true"]') !== null,
         hash: location.hash,
         rootChildCount: root?.childElementCount || 0
       }
     })()`)
-    const hasRequiredIpc = [...REQUIRED_RENDERER_CHANNELS].every((channel) =>
-      invokedChannels.has(channel)
-    )
-    if (proof.rootChildCount > 0 && proof.bodyTextLength > 0 && hasRequiredIpc) return proof
+}
+
+function hasRequiredRendererIpc() {
+  return [...REQUIRED_RENDERER_CHANNELS].every((channel) => invokedChannels.has(channel))
+}
+
+function assertSmokeTelemetryClean() {
+  if (blockedRequests.length > 0) throw new Error('Renderer attempted a blocked network request')
+  if (forbiddenChannels.length > 0) throw new Error('Renderer attempted a system-control IPC')
+  if (unexpectedChannels.length > 0) {
+    throw new Error(`Renderer invoked unexpected IPC: ${unexpectedChannels.join(', ')}`)
+  }
+  if (rendererErrors.length > 0) throw new Error(`Renderer error: ${rendererErrors.join(', ')}`)
+}
+
+function assertHealthyRendererProof(proof) {
+  if (proof.errorBoundaryPresent)
+    throw new Error('Production renderer displayed its error boundary')
+  if (!proof.appReady || proof.rootChildCount <= 0 || proof.bodyTextLength <= 0) {
+    throw new Error('Production renderer lost its healthy application root')
+  }
+  if (!hasRequiredRendererIpc()) throw new Error('Production renderer lost required IPC readiness')
+}
+
+async function waitForRendererProof(window) {
+  const deadline = Date.now() + 20_000
+  while (Date.now() < deadline) {
+    assertSmokeTelemetryClean()
+    const proof = await captureRendererProof(window)
+    if (proof.errorBoundaryPresent) {
+      throw new Error('Production renderer displayed its error boundary')
+    }
+    if (
+      proof.appReady &&
+      proof.rootChildCount > 0 &&
+      proof.bodyTextLength > 0 &&
+      hasRequiredRendererIpc()
+    ) {
+      return proof
+    }
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
   throw new Error('Production renderer did not become ready before the smoke deadline')
+}
+
+async function observeRendererStability(window) {
+  const deadline = Date.now() + RENDERER_STABILITY_WINDOW_MS
+  let proof = await captureRendererProof(window)
+  while (Date.now() < deadline) {
+    assertSmokeTelemetryClean()
+    assertHealthyRendererProof(proof)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    proof = await captureRendererProof(window)
+  }
+  assertSmokeTelemetryClean()
+  assertHealthyRendererProof(proof)
+  return proof
 }
 
 async function runSmoke() {
@@ -234,13 +286,8 @@ async function runSmoke() {
   })
 
   await smokeWindow.loadFile(smokePaths.rendererPath)
-  const proof = await waitForRendererProof(smokeWindow)
-  if (blockedRequests.length > 0) throw new Error('Renderer attempted a blocked network request')
-  if (forbiddenChannels.length > 0) throw new Error('Renderer attempted a system-control IPC')
-  if (unexpectedChannels.length > 0) {
-    throw new Error(`Renderer invoked unexpected IPC: ${unexpectedChannels.join(', ')}`)
-  }
-  if (rendererErrors.length > 0) throw new Error(`Renderer error: ${rendererErrors.join(', ')}`)
+  await waitForRendererProof(smokeWindow)
+  const proof = await observeRendererStability(smokeWindow)
 
   finish(0, {
     blockedNetworkRequests: blockedRequests.length,

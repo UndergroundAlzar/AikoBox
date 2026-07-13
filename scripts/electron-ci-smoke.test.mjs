@@ -16,6 +16,22 @@ const preloadSource = fs.readFileSync(
   path.join(scriptsDirectory, 'electron-smoke', 'preload.cjs'),
   'utf8'
 )
+const appSource = fs.readFileSync(
+  path.join(repositoryRoot, 'src', 'renderer', 'src', 'App.tsx'),
+  'utf8'
+)
+const errorBoundarySource = fs.readFileSync(
+  path.join(
+    repositoryRoot,
+    'src',
+    'renderer',
+    'src',
+    'components',
+    'base',
+    'base-error-boundary.tsx'
+  ),
+  'utf8'
+)
 
 test('Electron launch gate accepts only an explicitly authorized GitHub-hosted Windows job', () => {
   const authorized = {
@@ -88,6 +104,41 @@ test('smoke preload exposes only an in-memory IPC facade', () => {
     /child_process|node:fs|node:http|node:https|sysproxy|registry|winreg/i
   )
   assert.match(preloadSource, /SYSTEM_SIDE_EFFECT_BLOCKED:file-capability/)
+})
+
+test('renderer proof requires the healthy app marker and rejects the production error boundary', () => {
+  assert.match(appSource, /data-aikobox-app-ready=["']true["']/)
+  assert.match(errorBoundarySource, /data-aikobox-error-boundary=["']true["']/)
+  assert.match(mainSource, /proof\.appReady/)
+  assert.match(mainSource, /proof\.errorBoundaryPresent/)
+  assert.match(mainSource, /Production renderer displayed its error boundary/)
+  assert.ok(
+    mainSource.indexOf('proof.errorBoundaryPresent') <
+      mainSource.indexOf('proof.rootChildCount > 0')
+  )
+})
+
+test('renderer success waits through a telemetry-checked stability window', () => {
+  const stabilitySource = mainSource.slice(
+    mainSource.indexOf('async function observeRendererStability'),
+    mainSource.indexOf('async function runSmoke')
+  )
+  assert.match(mainSource, /RENDERER_STABILITY_WINDOW_MS\s*=\s*1_000/)
+  assert.match(stabilitySource, /while \(Date\.now\(\) < deadline\)/)
+  assert.equal(stabilitySource.match(/assertSmokeTelemetryClean\(\)/g)?.length, 2)
+  assert.equal(stabilitySource.match(/assertHealthyRendererProof\(proof\)/g)?.length, 2)
+  assert.match(
+    stabilitySource,
+    /setTimeout\(resolve, 100\)[\s\S]*proof = await captureRendererProof\(window\)/
+  )
+  assert.ok(
+    mainSource.indexOf('await waitForRendererProof(smokeWindow)') <
+      mainSource.indexOf('await observeRendererStability(smokeWindow)')
+  )
+  assert.ok(
+    mainSource.indexOf('await observeRendererStability(smokeWindow)') <
+      mainSource.indexOf('finish(0,')
+  )
 })
 
 test('quality workflow builds first and launches smoke only with the explicit CI token', () => {

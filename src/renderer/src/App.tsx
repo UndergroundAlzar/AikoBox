@@ -196,6 +196,7 @@ const App: React.FC = () => {
 
   return (
     <div
+      data-aikobox-app-ready="true"
       onMouseMove={(e) => {
         if (!resizing) return
         if (e.clientX <= 150) {
