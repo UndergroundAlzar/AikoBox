@@ -122,11 +122,12 @@ test('Windows packaging always rebuilds production output before electron-builde
   const packageJson = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'package.json'), 'utf8'))
   assert.equal(
     packageJson.scripts['package:win'],
-    'pnpm run build && pnpm run verify:retired-output && electron-builder --publish never --win --x64'
+    'pnpm run clean:release-output && pnpm run build && pnpm run verify:retired-output && electron-builder --publish never --win --x64'
   )
   assert.equal(packageJson.scripts['build:win'], 'pnpm run package:win && pnpm run checksum')
   assert.equal(
     packageJson.scripts['verify:retired-output'],
     'node scripts/verify-retired-output.mjs'
   )
+  assert.equal(packageJson.scripts['clean:release-output'], 'node scripts/clean-release-output.mjs')
 })

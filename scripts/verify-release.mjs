@@ -52,6 +52,10 @@ const expectedFiles = new Set([
   ...artifacts.map((name) => `${name}.sha256`),
   'SHA256SUMS.txt'
 ])
+const allowedReleaseLikeFiles = new Set([
+  ...[...expectedFiles].filter((name) => /^aikobox-windows-/i.test(name)),
+  `${artifacts[0]}.blockmap`
+])
 
 for (const name of expectedFiles) {
   if (!existsSync(resolve(distDir, name))) {
@@ -62,6 +66,14 @@ for (const name of expectedFiles) {
 const releaseExecutables = readdirSync(distDir).filter((name) =>
   /^aikobox-windows-.*-(setup|portable)\.exe$/i.test(name)
 )
+const unexpectedReleaseLikeFiles = readdirSync(distDir).filter(
+  (name) => /^aikobox-windows-/i.test(name) && !allowedReleaseLikeFiles.has(name)
+)
+if (unexpectedReleaseLikeFiles.length > 0) {
+  throw new Error(
+    `Unexpected stale Windows release output: ${unexpectedReleaseLikeFiles.join(', ')}`
+  )
+}
 if (
   releaseExecutables.length !== artifacts.length ||
   releaseExecutables.some((name) => !artifacts.includes(name))
