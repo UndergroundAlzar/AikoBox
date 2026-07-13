@@ -20,6 +20,11 @@ function sha256(contents) {
   return createHash('sha256').update(contents).digest('hex')
 }
 
+function canonicalLicenseText(contents) {
+  invariant(Buffer.isBuffer(contents), 'License contents must be a buffer')
+  return Buffer.from(contents.toString('utf8').replace(/\r\n?/g, '\n'), 'utf8')
+}
+
 export function isRecognizedRootLicenseFileName(name) {
   return (
     /^(?:license|licence|copying|notice)(?:\.|$)/i.test(name) || /^licen[cs]e-mit\.txt$/i.test(name)
@@ -732,9 +737,13 @@ function inspectProductionDependencyMetadata(
               `${identity}: packaged license evidence`
             )
             const packagedContents = fs.readFileSync(packagedPath)
+            const reviewedPackagedContents =
+              evidence.disposition === 'aikobox-owned-code'
+                ? canonicalLicenseText(packagedContents)
+                : packagedContents
             invariant(
-              packagedContents.length === licenseFile.size &&
-                sha256(packagedContents) === licenseFile.sha256,
+              reviewedPackagedContents.length === licenseFile.size &&
+                sha256(reviewedPackagedContents) === licenseFile.sha256,
               `${identity}: packaged license differs from review`
             )
             if (evidence.disposition === 'pinned-upstream-license') {

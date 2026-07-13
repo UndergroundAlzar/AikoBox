@@ -39,6 +39,10 @@ const lockedSevenZip = {
   sha256: '223b873c50380fe9a39f1a22b6abf8d46db506e1c08d08312902f6f3cd1f7ac3'
 }
 
+function canonicalLicenseText(contents) {
+  return Buffer.from(contents.toString('utf8').replace(/\r\n?/g, '\n'), 'utf8')
+}
+
 if (releaseTag && releaseTag !== expectedTag) {
   throw new Error(`Release tag ${releaseTag} does not match package version ${expectedTag}`)
 }
@@ -211,7 +215,11 @@ function verifyPackagedApplication(unpacked, label) {
   )
   const productionPackageEvidence = Object.values(thirdPartyReview.productionPackageEvidence)
   const productionPackageLicenseFiles = productionPackageEvidence
-    .map((item) => item.licenseFile)
+    .map((item) =>
+      item.licenseFile
+        ? { ...item.licenseFile, canonicalText: item.disposition === 'aikobox-owned-code' }
+        : undefined
+    )
     .filter(Boolean)
   const verifiedLicenseFiles = [...verifiedResourceLicenseFiles, ...productionPackageLicenseFiles]
   for (const evidence of productionPackageEvidence) {
@@ -247,9 +255,15 @@ function verifyPackagedApplication(unpacked, label) {
     const archivePath = licenseFile.path.replaceAll('/', sep)
     const packagedContents = extractFile(appAsar, archivePath)
     const reviewedContents = readFileSync(resolve(projectRoot, ...licenseFile.path.split('/')))
+    const checkedPackagedContents = licenseFile.canonicalText
+      ? canonicalLicenseText(packagedContents)
+      : packagedContents
+    const checkedReviewedContents = licenseFile.canonicalText
+      ? canonicalLicenseText(reviewedContents)
+      : reviewedContents
     if (
-      sha256Buffer(packagedContents) !== licenseFile.sha256 ||
-      !packagedContents.equals(reviewedContents)
+      sha256Buffer(checkedPackagedContents) !== licenseFile.sha256 ||
+      !checkedPackagedContents.equals(checkedReviewedContents)
     ) {
       throw new Error(`${label}: packaged license evidence does not match ${licenseFile.path}`)
     }
