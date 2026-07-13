@@ -16,6 +16,15 @@ AikoBox targets **Windows 10/11 x64 only**. Its interface and subscription workf
 
 > AikoBox is currently a `0.x` beta. Prereleases must pass the third-party redistribution audit and static artifact verification. Until a trusted Windows certificate is configured, a prerelease may ship only when it is clearly labeled as an unsigned beta.
 
+## Self-use quick start (subscription links only)
+
+If you only use subscription URLs, read [docs/SELF_USE.md](./docs/SELF_USE.md):
+
+1. **Keep your existing proxy** until AikoBox works
+2. Import the subscription URL → wait for nodes
+3. Enable **ordinary system proxy** (not TUN first) → select a node
+4. Exit the app and confirm the system can still reach the internet
+
 ## Highlights
 
 - Imports Clash YAML subscriptions and converts them to sing-box JSON before startup.
