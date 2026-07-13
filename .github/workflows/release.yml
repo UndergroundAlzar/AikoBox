@@ -207,7 +207,7 @@ jobs:
             "Target: Windows x64",
             ''
           )
-          $payloads = @(Get-ChildItem -LiteralPath dist -File | Where-Object { $_.Name -match '(-setup\.exe|-portable\.exe|\.exe\.sha256$|^SHA256SUMS\.txt$)' } | Sort-Object Name)
+          $payloads = @(Get-ChildItem -LiteralPath dist -File | Where-Object { $_.Name -match '(-setup\.exe$|-portable\.exe$|\.exe\.sha256$|^SHA256SUMS\.txt$)' } | Sort-Object Name)
           foreach ($payload in $payloads) {
             $digest = (Get-FileHash -LiteralPath $payload.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             $manifest += "$digest  $($payload.Length)  $($payload.Name)"
