@@ -5,18 +5,30 @@
     "BSD-2-Clause",
     "BSD-3-Clause",
     "GPL-3.0",
+    "GPL-3.0-only",
     "ISC",
     "MIT",
     "Python-2.0",
     "Unlicense"
   ],
-  "productionPackagesWithoutLicenseFiles": [
-    "@nodable/entities@2.2.0",
-    "byte-length@1.0.2",
-    "sysproxy-rs@0.4.0",
-    "xml-naming@0.1.0"
-  ],
+  "productionPackagesWithoutLicenseFiles": [],
   "productionPackageEvidence": {
+    "@nodable/entities@2.2.0": {
+      "license": "MIT",
+      "disposition": "pinned-upstream-license",
+      "sourceFile": "package.json",
+      "sourceSize": 1270,
+      "sourceSha256": "6a025503d776124cd4371fcba8383afcc30a640c5783f96093f76f19ecb66241",
+      "upstreamRevision": "1a2c08a483b5b6428f1b3d01974875c97f3b3953",
+      "upstreamSourceUrl": "https://raw.githubusercontent.com/nodable/val-parsers/1a2c08a483b5b6428f1b3d01974875c97f3b3953/Entity/package.json",
+      "upstreamLicenseUrl": "https://raw.githubusercontent.com/nodable/val-parsers/1a2c08a483b5b6428f1b3d01974875c97f3b3953/LICENSE",
+      "upstreamLicenseSha256": "750cb3fb6362804957ef52caaf9b5c824015be44d494637330d7cd8834d31d40",
+      "licenseFile": {
+        "path": "licenses/npm/nodable-entities-2.2.0/MIT.txt",
+        "size": 1064,
+        "sha256": "750cb3fb6362804957ef52caaf9b5c824015be44d494637330d7cd8834d31d40"
+      }
+    },
     "agent-base@6.0.2": {
       "license": "MIT",
       "disposition": "packaged-readme-section",
@@ -71,6 +83,34 @@
         "sha256": "b3681ff73335c04770aa0367aa4ca72e77e5ca55007fc0bcb9d564d00cce20f4"
       }
     },
+    "sysproxy-rs@0.4.0": {
+      "license": "GPL-3.0-only",
+      "disposition": "aikobox-owned-code",
+      "sourceFile": "index.js",
+      "sourceSize": 3605,
+      "sourceSha256": "bfa9d0f66702286ac824203b9c8add8b665ed6ae56082ee2479853ed94bc02f0",
+      "licenseFile": {
+        "path": "LICENSE",
+        "size": 35149,
+        "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+      }
+    },
+    "xml-naming@0.1.0": {
+      "license": "MIT",
+      "disposition": "pinned-upstream-license",
+      "sourceFile": "package.json",
+      "sourceSize": 1114,
+      "sourceSha256": "b69775b228da8fb7f25c98f309bab65a3a27444a2fd6b96f6793ece74be1acdc",
+      "upstreamRevision": "c0afc395948730bed124859d7fc7cccabe0aac8a",
+      "upstreamSourceUrl": "https://raw.githubusercontent.com/NaturalIntelligence/xml-naming/c0afc395948730bed124859d7fc7cccabe0aac8a/package.json",
+      "upstreamLicenseUrl": "https://raw.githubusercontent.com/NaturalIntelligence/xml-naming/c0afc395948730bed124859d7fc7cccabe0aac8a/LICENSE",
+      "upstreamLicenseSha256": "8e75fc0e776c62ccadb8178ece8d3daa9ba7601fb0a49b2dfb0ea9a7a5c0aa07",
+      "licenseFile": {
+        "path": "licenses/npm/xml-naming-0.1.0/MIT.txt",
+        "size": 1077,
+        "sha256": "8e75fc0e776c62ccadb8178ece8d3daa9ba7601fb0a49b2dfb0ea9a7a5c0aa07"
+      }
+    },
     "@electron-internal/extract-zip@1.0.3": {
       "license": "BSD-2-Clause",
       "disposition": "excluded-from-application",
@@ -84,7 +124,26 @@
     "singBox": {
       "status": "blocked",
       "project": "https://github.com/SagerNet/sing-box",
-      "blocker": "The packaged sing-box binary has no component copyright notice, exact license declaration, complete license text tied to this binary, or corresponding-source offer in the release payload."
+      "blocker": "The exact upstream release, license notice, archive, and source revision are pinned, but the release payload still lacks a corresponding-source bundle and the complete license/notice inventory for the statically linked Go dependency graph.",
+      "partialEvidence": {
+        "license": "GPL-3.0-or-later plus upstream name/association restriction",
+        "licenseCopyright": "Copyright (C) 2022 by nekohasekai <contact-sagernet@sekai.icu>",
+        "release": {
+          "tag": "v1.13.14",
+          "tagCommit": "25a600db24f7680ad9806ce5427bd0ab8afe1114",
+          "url": "https://github.com/SagerNet/sing-box/releases/tag/v1.13.14",
+          "sourceUrl": "https://github.com/SagerNet/sing-box/tree/25a600db24f7680ad9806ce5427bd0ab8afe1114"
+        },
+        "licenseFiles": [
+          {
+            "path": "licenses/sing-box-1.13.14/LICENSE.upstream.txt",
+            "size": 791,
+            "sha256": "650d5e3b99a446fb38e820fa87a49562e0c79eab868fff58618ac487a58e554c",
+            "sourceUrl": "https://raw.githubusercontent.com/SagerNet/sing-box/25a600db24f7680ad9806ce5427bd0ab8afe1114/LICENSE",
+            "upstreamSha256": "650d5e3b99a446fb38e820fa87a49562e0c79eab868fff58618ac487a58e554c"
+          }
+        ]
+      }
     },
     "notoColorEmoji": {
       "status": "verified",
@@ -133,7 +192,26 @@
     "sysproxy": {
       "status": "blocked",
       "project": "https://github.com/mihomo-party-org/sysproxy-rs-opti",
-      "blocker": "The local JavaScript shim declares MIT, but no license/copyright file or source revision tied to the packaged native .node binary is present."
+      "blocker": "The native release tag, payload SHA-256, source revision, and upstream MIT text are pinned, but that revision has no Cargo.lock and the packaged static Rust dependency graph still lacks a complete reproducible license/notice inventory.",
+      "partialEvidence": {
+        "license": "MIT",
+        "licenseCopyright": "Copyright (c) 2022 zzzgydi",
+        "release": {
+          "tag": "v0.1.0",
+          "tagCommit": "ce9463d95ed5839a43c6a0d7cccf3b3fb892de3a",
+          "url": "https://github.com/mihomo-party-org/sysproxy-rs-opti/releases/tag/v0.1.0",
+          "sourceUrl": "https://github.com/mihomo-party-org/sysproxy-rs-opti/tree/ce9463d95ed5839a43c6a0d7cccf3b3fb892de3a"
+        },
+        "licenseFiles": [
+          {
+            "path": "licenses/sysproxy-rs-opti/MIT.txt",
+            "size": 1064,
+            "sha256": "e3dee6d5b240791312cd89333a5cc62e6f65be66bff8ab6903dc9a67bbe84263",
+            "sourceUrl": "https://raw.githubusercontent.com/mihomo-party-org/sysproxy-rs-opti/ce9463d95ed5839a43c6a0d7cccf3b3fb892de3a/LICENSE",
+            "upstreamSha256": "e3dee6d5b240791312cd89333a5cc62e6f65be66bff8ab6903dc9a67bbe84263"
+          }
+        ]
+      }
     }
   }
 }

@@ -8,7 +8,11 @@
       "downloadUrl": "https://github.com/SagerNet/sing-box/releases/download/v1.13.14/sing-box-1.13.14-windows-amd64.zip",
       "cacheFile": "sing-box/sing-box-1.13.14-windows-amd64.zip",
       "archiveEntry": "sing-box-1.13.14-windows-amd64/sing-box.exe",
+      "archiveSize": 20961591,
+      "archiveSha256": "f580782c6dd10f7691c66cea1d7c421813c5fbf7e305d1ee7ce0c3a40d196341",
       "maxArchiveSize": 134217728,
+      "releaseTag": "v1.13.14",
+      "releaseTagCommit": "25a600db24f7680ad9806ce5427bd0ab8afe1114",
       "output": "extra/sidecar/sing-box.exe",
       "size": 45403136,
       "sha256": "db0d779948214cf761011d154c3a5da36df20394fa01a9fc798f1dc39fe9d183"
@@ -35,6 +39,8 @@
       "version": "0.5.1 / release v0.1.0",
       "downloadUrl": "https://github.com/mihomo-party-org/sysproxy-rs-opti/releases/download/v0.1.0/sysproxy.win32-x64-msvc.node",
       "cacheFile": "sysproxy-rs-opti/v0.1.0/sysproxy.win32-x64-msvc.node",
+      "releaseTag": "v0.1.0",
+      "releaseTagCommit": "ce9463d95ed5839a43c6a0d7cccf3b3fb892de3a",
       "output": "extra/sidecar/sysproxy.win32-x64-msvc.node",
       "size": 574464,
       "sha256": "f17d99976218cb32aab0cc150e4e0fd40bcc4b237cd8af9f184e0ce4703e4995"

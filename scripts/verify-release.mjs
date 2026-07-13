@@ -206,9 +206,9 @@ function verifyPackagedApplication(unpacked, label) {
   }
 
   const asarEntries = listPackage(appAsar).map((entry) => entry.replaceAll('\\', '/'))
-  const verifiedResourceLicenseFiles = Object.values(thirdPartyReview.resources)
-    .filter((item) => item.status === 'verified')
-    .flatMap((item) => item.licenseFiles)
+  const verifiedResourceLicenseFiles = Object.values(thirdPartyReview.resources).flatMap((item) =>
+    item.status === 'verified' ? item.licenseFiles : (item.partialEvidence?.licenseFiles ?? [])
+  )
   const productionPackageEvidence = Object.values(thirdPartyReview.productionPackageEvidence)
   const productionPackageLicenseFiles = productionPackageEvidence
     .map((item) => item.licenseFile)

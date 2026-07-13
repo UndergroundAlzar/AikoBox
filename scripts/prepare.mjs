@@ -158,6 +158,13 @@ function loadResourceLock() {
           Number.isSafeInteger(resource.maxArchiveSize) && resource.maxArchiveSize > 0,
           `${name}.maxArchiveSize is invalid`
         )
+        assertSha256(resource.archiveSha256, `${name}.archiveSha256`)
+        invariant(
+          Number.isSafeInteger(resource.archiveSize) &&
+            resource.archiveSize > 0 &&
+            resource.archiveSize <= resource.maxArchiveSize,
+          `${name}.archiveSize is invalid`
+        )
         assertSha256(resource.sha256, `${name}.sha256`)
         invariant(
           Number.isSafeInteger(resource.size) && resource.size > 0,
@@ -625,9 +632,17 @@ async function ensureZipEntry(name, resource) {
 
   let verifiedPayload
   const validator = (archivePath) => {
+    const archive = inspectFile(archivePath, resource.archiveSize, resource.archiveSha256)
+    invariant(archive.ok, `${name}: archive ${archive.reason}`)
     verifiedPayload = readVerifiedZipPayload(archivePath, resource)
   }
-  await obtainVerifiedCache(name, resource, validator, undefined, resource.maxArchiveSize)
+  await obtainVerifiedCache(
+    name,
+    resource,
+    validator,
+    resource.archiveSize,
+    resource.maxArchiveSize
+  )
   invariant(verifiedPayload, `${name}: verified archive payload is unavailable`)
 
   const targetParent = path.dirname(targetPath)

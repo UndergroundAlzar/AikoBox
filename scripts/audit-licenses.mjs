@@ -280,6 +280,90 @@ function inspectResourceReview() {
         noticeSection.includes(item.blocker),
         `${name}: release blocker is absent from notice`
       )
+      if (item.partialEvidence !== undefined) {
+        const partial = item.partialEvidence
+        invariant(
+          typeof partial.license === 'string' && partial.license.length > 0,
+          `${name}: partial license expression is missing`
+        )
+        invariant(
+          typeof partial.licenseCopyright === 'string' && partial.licenseCopyright.length > 0,
+          `${name}: partial license copyright is missing`
+        )
+        invariant(
+          partial.release && typeof partial.release === 'object',
+          `${name}: partial release is missing`
+        )
+        invariant(
+          partial.release.tag === resource.releaseTag,
+          `${name}: partial release tag differs from lock`
+        )
+        invariant(
+          partial.release.tagCommit === resource.releaseTagCommit &&
+            /^[a-f0-9]{40}$/.test(partial.release.tagCommit),
+          `${name}: partial release commit differs from lock`
+        )
+        for (const [label, value] of [
+          ['release URL', partial.release.url],
+          ['source URL', partial.release.sourceUrl]
+        ]) {
+          invariant(/^https:\/\//.test(value), `${name}: partial ${label} must use HTTPS`)
+        }
+        invariant(
+          partial.release.sourceUrl.includes(partial.release.tagCommit),
+          `${name}: partial source URL is not pinned to the release commit`
+        )
+        invariant(
+          Array.isArray(partial.licenseFiles) && partial.licenseFiles.length > 0,
+          `${name}: partial license files are missing`
+        )
+        for (const licenseFile of partial.licenseFiles) {
+          invariant(
+            Number.isSafeInteger(licenseFile.size) && licenseFile.size > 0,
+            `${name}: partial license file size is invalid`
+          )
+          invariant(
+            /^[a-f0-9]{64}$/.test(licenseFile.sha256) &&
+              licenseFile.sha256 === licenseFile.upstreamSha256,
+            `${name}: partial license SHA-256 is invalid`
+          )
+          invariant(
+            /^https:\/\/raw\.githubusercontent\.com\//.test(licenseFile.sourceUrl) &&
+              licenseFile.sourceUrl.includes(`/${partial.release.tagCommit}/`),
+            `${name}: partial license URL is not pinned to the release commit`
+          )
+          const absolutePath = resolveEvidenceFile(
+            licenseFile.path,
+            `${name}: partial license file`
+          )
+          const contents = fs.readFileSync(absolutePath)
+          invariant(
+            contents.length === licenseFile.size && sha256(contents) === licenseFile.sha256,
+            `${name}: partial license file differs from review`
+          )
+          invariant(
+            contents.toString('utf8').includes(partial.licenseCopyright),
+            `${name}: partial license file omits copyright`
+          )
+          for (const required of [
+            partial.license,
+            partial.licenseCopyright,
+            partial.release.tag,
+            partial.release.tagCommit,
+            partial.release.url,
+            partial.release.sourceUrl,
+            licenseFile.path,
+            licenseFile.sha256,
+            licenseFile.sourceUrl,
+            licenseFile.upstreamSha256
+          ]) {
+            invariant(
+              noticeSection.includes(required),
+              `${name}: partial evidence is absent from notice`
+            )
+          }
+        }
+      }
       blockers.push(name)
     } else {
       invariant(
@@ -541,6 +625,8 @@ function inspectProductionDependencyMetadata(
             [
               'packaged-license-file',
               'packaged-readme-section',
+              'pinned-upstream-license',
+              'aikobox-owned-code',
               'excluded-from-application'
             ].includes(evidence.disposition),
             `${identity}: invalid evidence disposition`
@@ -569,6 +655,43 @@ function inspectProductionDependencyMetadata(
               thirdPartyNotice.includes(required),
               `${identity}: ${required} is absent from third-party notice`
             )
+          }
+
+          if (evidence.disposition === 'pinned-upstream-license') {
+            invariant(
+              /^[a-f0-9]{40}$/.test(evidence.upstreamRevision),
+              `${identity}: pinned upstream revision is invalid`
+            )
+            for (const [field, value] of [
+              ['upstream source URL', evidence.upstreamSourceUrl],
+              ['upstream license URL', evidence.upstreamLicenseUrl]
+            ]) {
+              invariant(
+                typeof value === 'string' &&
+                  value.startsWith('https://raw.githubusercontent.com/') &&
+                  value.includes(`/${evidence.upstreamRevision}/`),
+                `${identity}: ${field} is not pinned to the reviewed revision`
+              )
+            }
+            invariant(
+              evidence.upstreamSourceUrl.endsWith(`/${evidence.sourceFile}`),
+              `${identity}: upstream source URL differs from installed evidence path`
+            )
+            invariant(
+              /^[a-f0-9]{64}$/.test(evidence.upstreamLicenseSha256),
+              `${identity}: upstream license SHA-256 is invalid`
+            )
+            for (const required of [
+              evidence.upstreamRevision,
+              evidence.upstreamSourceUrl,
+              evidence.upstreamLicenseUrl,
+              evidence.upstreamLicenseSha256
+            ]) {
+              invariant(
+                thirdPartyNotice.includes(required),
+                `${identity}: pinned upstream evidence is absent from third-party notice`
+              )
+            }
           }
 
           if (evidence.disposition === 'excluded-from-application') {
@@ -614,19 +737,31 @@ function inspectProductionDependencyMetadata(
                 sha256(packagedContents) === licenseFile.sha256,
               `${identity}: packaged license differs from review`
             )
-            const reviewedContents =
-              evidence.disposition === 'packaged-readme-section'
-                ? extractReviewedLicenseSection(
-                    sourceContents,
-                    evidence.sectionStart,
-                    evidence.sectionEnd,
-                    identity
-                  )
-                : sourceContents
-            invariant(
-              reviewedContents.equals(packagedContents),
-              `${identity}: packaged license differs from installed source evidence`
-            )
+            if (evidence.disposition === 'pinned-upstream-license') {
+              invariant(
+                sha256(packagedContents) === evidence.upstreamLicenseSha256,
+                `${identity}: packaged license differs from pinned upstream license`
+              )
+            } else if (evidence.disposition === 'aikobox-owned-code') {
+              invariant(
+                licenseFile.path === 'LICENSE' && evidence.license === 'GPL-3.0-only',
+                `${identity}: AikoBox-owned code must use the packaged project GPL license`
+              )
+            } else {
+              const reviewedContents =
+                evidence.disposition === 'packaged-readme-section'
+                  ? extractReviewedLicenseSection(
+                      sourceContents,
+                      evidence.sectionStart,
+                      evidence.sectionEnd,
+                      identity
+                    )
+                  : sourceContents
+              invariant(
+                reviewedContents.equals(packagedContents),
+                `${identity}: packaged license differs from installed source evidence`
+              )
+            }
             for (const required of [licenseFile.path, licenseFile.sha256]) {
               invariant(
                 thirdPartyNotice.includes(required),

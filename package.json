@@ -149,6 +149,9 @@
     "node": ">=22"
   },
   "pnpm": {
+    "overrides": {
+      "byte-length@1.0.2": "file:src/native/byte-length"
+    },
     "onlyBuiltDependencies": [
       "electron"
     ]
