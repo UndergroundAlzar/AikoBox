@@ -7,6 +7,7 @@ files:
   - 'resources/**/*'
   - 'LICENSE'
   - 'THIRD_PARTY_NOTICES.md'
+  - 'licenses/**/*'
 extraResources:
   - from: './extra/'
     to: ''

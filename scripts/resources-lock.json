@@ -15,8 +15,16 @@
     },
     "notoColorEmoji": {
       "type": "file",
-      "version": "2.051 (noto-emoji commit e92753bfa55fd449e427d4d325f9c8c40408c74e)",
-      "downloadUrl": "https://raw.githubusercontent.com/googlefonts/noto-emoji/e92753bfa55fd449e427d4d325f9c8c40408c74e/fonts/NotoColorEmoji.ttf",
+      "version": "2.051",
+      "downloadUrl": "https://raw.githubusercontent.com/googlefonts/noto-emoji/v2.051/fonts/NotoColorEmoji.ttf",
+      "releaseTag": "v2.051",
+      "releaseTagCommit": "8998f5dd683424a73e2314a8c1f1e359c19e8742",
+      "fontMetadata": {
+        "version": "2.051",
+        "buildDate": "20250818",
+        "buildRevision": "e92753bfa55fd449e427d4d325f9c8c40408c74e",
+        "copyright": "Copyright 2022 Google Inc."
+      },
       "cacheFile": "noto-emoji/NotoColorEmoji.ttf",
       "output": "src/renderer/src/assets/NotoColorEmoji.ttf",
       "size": 10673480,
