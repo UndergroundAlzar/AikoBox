@@ -30,8 +30,7 @@ import {
   mihomoVersion,
   mihomoHotReloadConfig,
   rollbackCoreUpdate,
-  restartCore,
-  startSubStoreBackendServer
+  restartCore
 } from '@renderer/utils/ipc'
 import React, { useState, useEffect, useRef } from 'react'
 import { toast } from '@renderer/components/base/toast'
@@ -450,7 +449,6 @@ const Mihomo: React.FC = () => {
                   className="mr-2"
                   onPress={async () => {
                     await onChangeNeedRestart({ 'mixed-port': mixedPortInput })
-                    await startSubStoreBackendServer()
                   }}
                 >
                   {t('mihomo.confirm')}

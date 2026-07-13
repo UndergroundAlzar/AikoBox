@@ -56,15 +56,6 @@ import {
   convertMrsRuleset
 } from '../config'
 import {
-  startSubStoreFrontendServer,
-  startSubStoreBackendServer,
-  stopSubStoreFrontendServer,
-  stopSubStoreBackendServer,
-  subStoreFrontendPort,
-  subStoreBackendPrefix,
-  subStorePort
-} from '../resolve/server'
-import {
   quitWithoutCore,
   restartCore,
   checkTunPermissions,
@@ -120,7 +111,6 @@ import {
   resolveThemes,
   writeTheme
 } from '../resolve/theme'
-import { subStoreCollections, subStoreSubs } from '../core/subStoreApi'
 import { exportGistAgeSecretKey, generateGistAgeKeyPair, getGistUrl } from '../resolve/gistApi'
 import { closeFloatingWindow, showContextMenu, showFloatingWindow } from '../resolve/floatingWindow'
 import { addProfileUpdater, removeProfileUpdater } from '../core/profileUpdater'
@@ -318,13 +308,6 @@ const asyncHandlers: Record<string, AsyncFn> = {
   reinitWebdavBackupScheduler: reinitScheduler,
   exportLocalBackup,
   importLocalBackup,
-  // SubStore
-  startSubStoreFrontendServer,
-  stopSubStoreFrontendServer,
-  startSubStoreBackendServer,
-  stopSubStoreBackendServer,
-  subStoreSubs,
-  subStoreCollections,
   // Theme
   resolveThemes,
   fetchThemes,
@@ -369,9 +352,6 @@ const syncHandlers: Record<string, SyncFn> = {
   setNativeTheme,
   getVersion: () => app.getVersion(),
   platform: () => process.platform,
-  subStorePort: () => subStorePort,
-  subStoreFrontendPort: () => subStoreFrontendPort,
-  subStoreBackendPrefix: () => subStoreBackendPrefix,
   updateTrayIconImmediate,
   showMainWindow,
   closeMainWindow,

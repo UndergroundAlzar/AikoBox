@@ -1,0 +1,7 @@
+{
+  "name": "byte-length",
+  "version": "1.0.2-aikobox.1",
+  "description": "AikoBox-owned byte-length compatibility shim",
+  "main": "index.cjs",
+  "license": "MIT"
+}

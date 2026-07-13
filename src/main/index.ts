@@ -15,7 +15,7 @@ import {
   initCoreWatcher
 } from './core/manager'
 import { createTray } from './resolve/tray'
-import { init, initBasic, safeShowErrorBox, startSubStoreServices } from './utils/init'
+import { init, initBasic, safeShowErrorBox } from './utils/init'
 import { initShortcut } from './resolve/shortcut'
 import { initProfileUpdater } from './core/profileUpdater'
 import { showFloatingWindow } from './resolve/floatingWindow'
@@ -305,10 +305,6 @@ app.whenReady().then(async () => {
   })()
 
   await createWindowPromise
-
-  void startSubStoreServices().catch((e) =>
-    mainLogger.warn('Failed to start sub-store services', e)
-  )
 
   const { showFloatingWindow: showFloating = false, disableTray = false } = appConfig
   const uiTasks: Promise<void>[] = [initShortcut()]

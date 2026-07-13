@@ -9,17 +9,14 @@ const REPOSITORY_ROOT = path.resolve(SCRIPT_DIR, '..')
 const TEMP_DIR = path.join(REPOSITORY_ROOT, 'node_modules', '.temp')
 const LOCK_PATH = path.join(SCRIPT_DIR, 'resources-lock.json')
 const SHA256_PATTERN = /^[a-f0-9]{64}$/
-const EXPECTED_RESOURCES = [
-  'notoColorEmoji',
-  'singBox',
-  'subStoreBackend',
-  'subStoreFrontend',
-  'sysproxy'
-]
+const EXPECTED_RESOURCES = ['notoColorEmoji', 'singBox', 'sysproxy']
 const RETIRED_RESOURCE_OUTPUTS = [
   'extra/files/7za.exe',
   'extra/files/enableLoopback.exe',
-  'extra/files/TrafficMonitor'
+  'extra/files/TrafficMonitor',
+  'extra/files/sub-store.bundle.js',
+  'extra/files/sub-store.bundle.cjs',
+  'extra/files/sub-store-frontend'
 ]
 const cliArguments = new Set(process.argv.slice(2))
 const unknownArguments = [...cliArguments].filter(
@@ -161,6 +158,13 @@ function loadResourceLock() {
         invariant(
           Number.isSafeInteger(resource.maxArchiveSize) && resource.maxArchiveSize > 0,
           `${name}.maxArchiveSize is invalid`
+        )
+        assertSha256(resource.archiveSha256, `${name}.archiveSha256`)
+        invariant(
+          Number.isSafeInteger(resource.archiveSize) &&
+            resource.archiveSize > 0 &&
+            resource.archiveSize <= resource.maxArchiveSize,
+          `${name}.archiveSize is invalid`
         )
         assertSha256(resource.sha256, `${name}.sha256`)
         invariant(
@@ -629,9 +633,17 @@ async function ensureZipEntry(name, resource) {
 
   let verifiedPayload
   const validator = (archivePath) => {
+    const archive = inspectFile(archivePath, resource.archiveSize, resource.archiveSha256)
+    invariant(archive.ok, `${name}: archive ${archive.reason}`)
     verifiedPayload = readVerifiedZipPayload(archivePath, resource)
   }
-  await obtainVerifiedCache(name, resource, validator, undefined, resource.maxArchiveSize)
+  await obtainVerifiedCache(
+    name,
+    resource,
+    validator,
+    resource.archiveSize,
+    resource.maxArchiveSize
+  )
   invariant(verifiedPayload, `${name}: verified archive payload is unavailable`)
 
   const targetParent = path.dirname(targetPath)
@@ -718,13 +730,7 @@ async function main() {
     fs.rmSync(retiredPath, { force: true, recursive: true })
     console.log(`[INFO] Removed retired runtime resource ${retiredOutput}`)
   }
-  const resourceOrder = [
-    'singBox',
-    'notoColorEmoji',
-    'sysproxy',
-    'subStoreBackend',
-    'subStoreFrontend'
-  ]
+  const resourceOrder = ['singBox', 'notoColorEmoji', 'sysproxy']
 
   console.log(
     `[INFO] Preparing locked Windows x64 resources${OFFLINE ? ' (offline verification)' : ''}`

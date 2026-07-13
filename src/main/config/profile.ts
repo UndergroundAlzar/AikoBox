@@ -10,7 +10,6 @@ import axios, { AxiosResponse } from 'axios'
 import { parse, stringify } from '../utils/yaml'
 import { defaultProfile } from '../utils/template'
 import { decryptAgeContent } from '../utils/age'
-import { subStoreBackendPrefix, subStorePort } from '../resolve/server'
 import { mihomoCloseAllConnections, mihomoHotReloadConfig } from '../core/mihomoApi'
 import { restartCore } from '../core/manager'
 import { getHealthyProxyEndpoint } from '../core/healthyProxyEndpoint'
@@ -310,7 +309,6 @@ interface FetchOptions {
   ageSecretKey?: string
   authToken?: string
   timeout: number
-  substore: boolean
   conditionalHeaders?: Record<string, string>
 }
 
@@ -342,7 +340,6 @@ function subscriptionRequestIdentity(options: {
   authToken?: string
   userAgent: string
   useProxy: boolean
-  substore: boolean
   ageSecretKey?: string
 }): string {
   const secretHash = (value: string | undefined): string | undefined =>
@@ -357,7 +354,7 @@ function subscriptionRequestIdentity(options: {
         url: options.url,
         authorization: secretHash(options.authToken),
         userAgent: options.userAgent,
-        policy: options.substore ? 'substore' : options.useProxy ? 'proxy-only' : 'direct-fallback',
+        policy: options.useProxy ? 'proxy-only' : 'direct-fallback',
         ageSecretKey: secretHash(options.ageSecretKey)
       })
     )
@@ -432,9 +429,9 @@ function parsedProfileSummary(parsed: Record<string, unknown>): string {
 }
 
 async function fetchAndValidateSubscription(options: FetchOptions): Promise<FetchResult> {
-  const { url, useProxy, mixedPort, userAgent, authToken, timeout, substore } = options
+  const { url, useProxy, mixedPort, userAgent, authToken, timeout } = options
   const redactedUrl = redactSubscriptionUrl(url)
-  const fetchMode = substore ? 'substore' : useProxy ? 'proxy' : 'direct'
+  const fetchMode = useProxy ? 'proxy' : 'direct'
 
   const headers: Record<string, string> = {
     'User-Agent': userAgent,
@@ -452,8 +449,8 @@ async function fetchAndValidateSubscription(options: FetchOptions): Promise<Fetc
     `Fetching remote profile url=${redactedUrl} mode=${fetchMode} timeout=${timeout}ms auth=${authToken ? 'yes' : 'no'}`
   )
 
-  let requestUrl = url
-  let hasSensitiveRedirectContext = Boolean(authToken || substore)
+  const requestUrl = url
+  let hasSensitiveRedirectContext = Boolean(authToken)
   let proxy:
     | {
         protocol: 'http'
@@ -466,24 +463,7 @@ async function fetchAndValidateSubscription(options: FetchOptions): Promise<Fetc
     throw new Error('Subscription proxy-only mode requires a valid local mixed proxy port')
   }
 
-  if (substore) {
-    if (!url.startsWith('/') || url.startsWith('//')) {
-      throw new Error('Sub-Store subscription path must be an absolute local path')
-    }
-    const requested = new URL(url, `http://127.0.0.1:${subStorePort}`)
-    if (!requested.pathname.startsWith('/download/')) {
-      throw new Error('Sub-Store subscription path must use the /download/ endpoint')
-    }
-    const urlObj = new URL(
-      `http://127.0.0.1:${subStorePort}${subStoreBackendPrefix || ''}${requested.pathname}${requested.search}`
-    )
-    urlObj.searchParams.set('target', 'ClashMeta')
-    urlObj.searchParams.set('noCache', 'true')
-    if (useProxy) {
-      urlObj.searchParams.set('proxy', `http://127.0.0.1:${mixedPort}`)
-    }
-    requestUrl = urlObj.toString()
-  } else if (useProxy) {
+  if (useProxy) {
     const parsedUrl = assertHttpUrl(url, 'Subscription URL')
     hasSensitiveRedirectContext ||= Boolean(parsedUrl.username || parsedUrl.password)
     proxy = { protocol: 'http', host: '127.0.0.1', port: mixedPort }
@@ -592,7 +572,6 @@ export async function createProfile(item: Partial<IProfileItem>): Promise<IProfi
     name: item.name || (item.type === 'remote' ? 'Remote File' : 'Local File'),
     type: item.type || 'local',
     url: item.url,
-    substore: item.substore || false,
     interval: item.interval || 0,
     override: item.override || [],
     useProxy: item.useProxy || false,
@@ -627,13 +606,12 @@ export async function createProfile(item: Partial<IProfileItem>): Promise<IProfi
     authToken: newItem.authToken,
     userAgent: effectiveUserAgent,
     useProxy: Boolean(newItem.useProxy),
-    substore: Boolean(newItem.substore),
     ageSecretKey: newItem.ageSecretKey
   })
   await profileLogger.info(
     `Creating/updating remote profile id=${id} name=${newItem.name} url=${redactSubscriptionUrl(
       profileUrl
-    )} useProxy=${newItem.useProxy} substore=${newItem.substore}`
+    )} useProxy=${newItem.useProxy}`
   )
   const existing = inflightRemoteFetches.get(id)
   if (existing) {
@@ -663,24 +641,21 @@ export async function createProfile(item: Partial<IProfileItem>): Promise<IProfi
         ? boundedSubscriptionTimeout(newItem.updateTimeout * 1000, defaultTimeoutMs)
         : defaultTimeoutMs
 
-    const cachedMetadata = newItem.substore
-      ? undefined
-      : await readHttpCacheMetadata(profileHttpMetadataPath(id), requestIdentity)
+    const cachedMetadata = await readHttpCacheMetadata(profileHttpMetadataPath(id), requestIdentity)
     const baseOptions: Omit<FetchOptions, 'useProxy' | 'timeout'> = {
       url: profileUrl,
       mixedPort,
       userAgent: effectiveUserAgent,
       ageSecretKey: newItem.ageSecretKey,
       authToken: item.authToken,
-      substore: newItem.substore || false,
-      conditionalHeaders: newItem.substore ? undefined : conditionalRequestHeaders(cachedMetadata)
+      conditionalHeaders: conditionalRequestHeaders(cachedMetadata)
     }
 
     const fetchSub = (useProxy: boolean, timeout: number): Promise<FetchResult> =>
       fetchAndValidateSubscription({ ...baseOptions, useProxy, timeout })
 
     let result: FetchResult
-    if (newItem.useProxy || newItem.substore) {
+    if (newItem.useProxy) {
       result = await fetchSub(Boolean(newItem.useProxy), userItemTimeoutMs)
     } else {
       try {
@@ -753,19 +728,17 @@ export async function createProfile(item: Partial<IProfileItem>): Promise<IProfi
     } else {
       await profileLogger.info(`Remote profile unchanged id=${id} (HTTP 304)`)
     }
-    if (!newItem.substore) {
-      try {
-        await writeHttpCacheMetadata(profileHttpMetadataPath(id), {
-          // The metadata binds validators to the complete request context without
-          // persisting a subscription URL, token, or other credential.
-          url: requestIdentity,
-          etag: headers.etag || cachedMetadata?.etag,
-          lastModified: headers['last-modified'] || cachedMetadata?.lastModified,
-          fetchedAt: Date.now()
-        })
-      } catch (error) {
-        await profileLogger.warn(`Failed to save HTTP cache metadata for profile id=${id}`, error)
-      }
+    try {
+      await writeHttpCacheMetadata(profileHttpMetadataPath(id), {
+        // The metadata binds validators to the complete request context without
+        // persisting a subscription URL, token, or other credential.
+        url: requestIdentity,
+        etag: headers.etag || cachedMetadata?.etag,
+        lastModified: headers['last-modified'] || cachedMetadata?.lastModified,
+        fetchedAt: Date.now()
+      })
+    } catch (error) {
+      await profileLogger.warn(`Failed to save HTTP cache metadata for profile id=${id}`, error)
     }
     return newItem
   })()

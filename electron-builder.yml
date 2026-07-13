@@ -16,6 +16,9 @@ extraResources:
       - '!files/7za.exe'
       - '!files/enableLoopback.exe'
       - '!files/TrafficMonitor/**/*'
+      - '!files/sub-store.bundle.js'
+      - '!files/sub-store.bundle.cjs'
+      - '!files/sub-store-frontend/**/*'
       - 'sidecar/**/*'
 protocols:
   name: 'AikoBox URI Scheme'

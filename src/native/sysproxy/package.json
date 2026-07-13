@@ -5,5 +5,5 @@
   "type": "commonjs",
   "main": "index.js",
   "types": "index.d.ts",
-  "license": "MIT"
+  "license": "GPL-3.0-only"
 }

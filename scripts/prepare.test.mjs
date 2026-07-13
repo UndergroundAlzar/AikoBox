@@ -21,7 +21,7 @@ test('resource lock contains only pinned HTTPS downloads and SHA-256 identities'
 
   assert.equal(lock.schemaVersion, 1)
   assert.equal(lock.target, 'win32-x64')
-  assert.equal(Object.keys(lock.resources).length, 5)
+  assert.equal(Object.keys(lock.resources).length, 3)
   assert.equal(lock.resources.sevenZip, undefined)
   assert.equal(lock.resources.enableLoopback, undefined)
   assert.equal(lock.resources.trafficMonitor, undefined)
@@ -66,7 +66,7 @@ test(
     })
 
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
-    assert.match(result.stdout, /All 5 locked resources passed integrity verification/)
+    assert.match(result.stdout, /All 3 locked resources passed integrity verification/)
     assert.doesNotMatch(result.stdout + result.stderr, /downloaded and verified/i)
   }
 )
@@ -98,7 +98,7 @@ test('prepare implementation contains no dynamic release discovery', () => {
   assert.doesNotMatch(source, /api\.github\.com\/repos/i)
 })
 
-test('retired optional helpers are removed and excluded from release packages', () => {
+test('retired optional helpers and Sub-Store assets are excluded from release packages', () => {
   const builder = fs.readFileSync(path.join(repositoryRoot, 'electron-builder.yml'), 'utf8')
   const verifier = fs.readFileSync(path.join(scriptsDirectory, 'verify-release.mjs'), 'utf8')
   const prepare = fs.readFileSync(preparePath, 'utf8')
@@ -109,9 +109,24 @@ test('retired optional helpers are removed and excluded from release packages', 
     false
   )
   assert.equal(fs.existsSync(path.join(repositoryRoot, 'extra', 'files', 'TrafficMonitor')), false)
+  assert.equal(
+    fs.existsSync(path.join(repositoryRoot, 'extra', 'files', 'sub-store.bundle.js')),
+    false
+  )
+  assert.equal(
+    fs.existsSync(path.join(repositoryRoot, 'extra', 'files', 'sub-store.bundle.cjs')),
+    false
+  )
+  assert.equal(
+    fs.existsSync(path.join(repositoryRoot, 'extra', 'files', 'sub-store-frontend')),
+    false
+  )
   assert.match(builder, /!files\/7za\.exe/)
   assert.match(builder, /!files\/enableLoopback\.exe/)
   assert.match(builder, /!files\/TrafficMonitor\/\*\*\/\*/)
+  assert.match(builder, /!files\/sub-store\.bundle\.js/)
+  assert.match(builder, /!files\/sub-store\.bundle\.cjs/)
+  assert.match(builder, /!files\/sub-store-frontend\/\*\*\/\*/)
   assert.match(verifier, /Retired 7za\.exe must not be present in the packaged runtime/)
   assert.match(verifier, /Retired enableLoopback\.exe must not be present in the packaged runtime/)
   assert.match(verifier, /Retired TrafficMonitor must not be present in the packaged runtime/)

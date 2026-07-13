@@ -78,15 +78,6 @@ export function createTourDriver(t: TFunction, navigate: NavigateFunction): void
         }
       },
       {
-        element: '.substore-import',
-        popover: {
-          title: t('guide.substore.title'),
-          description: t('guide.substore.description'),
-          side: 'bottom',
-          align: 'start'
-        }
-      },
-      {
         element: '.new-profile',
         popover: {
           title: t('guide.localProfile.title'),
