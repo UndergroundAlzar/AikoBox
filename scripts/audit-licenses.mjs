@@ -59,10 +59,6 @@ function inspectResourceReview() {
     }
   }
 
-  invariant(notice.includes('LGPL'), '7-Zip LGPL terms are not called out')
-  invariant(notice.includes('unRAR restriction'), '7-Zip unRAR restriction is not called out')
-  invariant(notice.includes('RAR compressor'), '7-Zip RAR compressor restriction is not explained')
-
   return {
     blockers,
     reviewedLicenseExpressions: review.reviewedProductionLicenseExpressions,

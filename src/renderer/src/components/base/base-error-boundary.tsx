@@ -9,7 +9,7 @@ const ErrorFallback = ({ error }: FallbackProps): React.ReactElement => {
   const errorStack = error instanceof Error ? (error.stack ?? '') : ''
 
   return (
-    <div className="p-4">
+    <div className="p-4" data-aikobox-error-boundary="true">
       <h2 className="my-2 text-lg font-bold">{t('common.error.appCrash')}</h2>
 
       <Button

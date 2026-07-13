@@ -101,22 +101,6 @@ Generated comments are useful evidence but do not replace complete license texts
 - Extracted tree: 160 files; directory SHA-256 `8e732156c12e29f36ddf864e3c0739e2ef2de3d4c5180bc8e8aeead0b0de6ff8`
 - Release blocker: The extracted frontend directory has no top-level license, dependency notices, copyright inventory, or source revision tied to the locked release archive.
 
-<!-- resource:sevenZip -->
-
-### 7-Zip standalone executable via 7zip-bin — `BLOCKED`
-
-- Version: `7zip-bin 5.2.0 / 7-Zip 21.07`
-- Packaged path: `extra/files/7za.exe`
-- Project: https://www.7-zip.org/
-- Locked local source: node_modules/7zip-bin/win/x64/7za.exe
-- Packaged payload: 1,231,360 bytes; SHA-256 `b0cfdeaf429f5cc53f85123dd8f5a5feb92c19d31aa34df257edf9a26be05f95`
-- Local PE evidence: file/product version `21.07`; company `Igor Pavlov`; copyright `1999-2021 Igor Pavlov`.
-- Release blocker: 7zip-bin's MIT file licenses the npm wrapper, not 7za.exe. The exact upstream 7-Zip license text and the unRAR restriction applicable to this binary are absent from the release payload.
-
-Upstream 7-Zip distributions normally describe most code under the GNU LGPL and identify separately licensed portions. They also include an **unRAR restriction**: affected unRAR code must not be used to reverse-engineer the RAR format to develop a RAR compressor. This summary is not a license grant. Before release, obtain the authoritative license file for exactly 7-Zip 21.07, confirm whether the bundled `7za.exe` contains the affected code and any separately licensed AES code, ship all applicable verbatim texts, preserve notices, and document corresponding-source availability where required.
-
-The local `node_modules/7zip-bin/LICENSE.txt` is MIT and names Vladimir Krivosheev. That text covers the npm package wrapper only; do not label `7za.exe` as MIT.
-
 ## JavaScript and Electron dependencies
 
 Run the offline audit from a complete frozen install:
@@ -125,7 +109,7 @@ Run the offline audit from a complete frozen install:
 node scripts/audit-licenses.mjs
 ```
 
-The audit compares all eight runtime resources with the lock and this notice, then inventories production dependency metadata through `pnpm licenses list --prod --json`. At the current lock, the locally declared production license expressions are `Apache-2.0`, `BSD-2-Clause`, `BSD-3-Clause`, `GPL-3.0`, `ISC`, `MIT`, `Python-2.0`, and `Unlicense`.
+The audit compares all seven runtime resources with the lock and this notice, then inventories production dependency metadata through `pnpm licenses list --prod --json`. At the current lock, the locally declared production license expressions are `Apache-2.0`, `BSD-2-Clause`, `BSD-3-Clause`, `GPL-3.0`, `ISC`, `MIT`, `Python-2.0`, and `Unlicense`.
 
 Nine installed production package roots declare a license in metadata but contain no root `LICENSE`, `LICENCE`, `COPYING`, or `NOTICE` file: `@electron-internal/extract-zip@1.0.3`, `@nodable/entities@2.2.0`, `agent-base@6.0.2`, `base-64@1.0.0`, `byte-length@1.0.2`, `data-uri-to-buffer@4.0.1`, `https-proxy-agent@5.0.1`, `sysproxy-rs@0.4.0`, and `xml-naming@0.1.0`. Resolve their verbatim notice requirements from the exact upstream revisions instead of reconstructing terms from SPDX labels alone.
 

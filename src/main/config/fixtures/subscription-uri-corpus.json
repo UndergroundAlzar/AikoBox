@@ -1,0 +1,76 @@
+{
+  "valid": [
+    {
+      "id": "ss-aead",
+      "type": "ss",
+      "uri": "ss://YWVzLTEyOC1nY206c2VjcmV0@ss.example:8388#Shared"
+    },
+    {
+      "id": "ss-2022",
+      "type": "ss",
+      "uri": "ss://MjAyMi1ibGFrZTMtYWVzLTEyOC1nY206TVRJek5EVTJOemc1TURFeU16UTFOZz09@ss2022.example:443#SS2022"
+    },
+    {
+      "id": "trojan-ws",
+      "type": "trojan",
+      "uri": "trojan://secret@trojan.example:443?type=ws&path=%2Fsocket&host=cdn.example&sni=trojan.example#Shared"
+    },
+    {
+      "id": "vmess-ws",
+      "type": "vmess",
+      "uri": "vmess://eyJ2IjoiMiIsInBzIjoiU2hhcmVkIiwiYWRkIjoidm1lc3MuZXhhbXBsZSIsInBvcnQiOiI0NDMiLCJpZCI6IjExMTExMTExLTExMTEtMTExMS0xMTExLTExMTExMTExMTExMSIsImFpZCI6IjAiLCJuZXQiOiJ3cyIsImhvc3QiOiJjZG4uZXhhbXBsZSIsInBhdGgiOiIvd3MiLCJ0bHMiOiJ0bHMiLCJzbmkiOiJ2bWVzcy5leGFtcGxlIn0"
+    },
+    {
+      "id": "vless-reality",
+      "type": "vless",
+      "uri": "vless://22222222-2222-2222-2222-222222222222@vless.example:443?security=reality&sni=www.example.com&fp=chrome&pbk=public-key&sid=abcd&type=grpc&serviceName=edge#VLESS"
+    },
+    {
+      "id": "hysteria2",
+      "type": "hysteria2",
+      "uri": "hy2://secret@hy2.example:443?sni=hy2.example&obfs=salamander&obfs-password=cover#Hysteria2"
+    },
+    {
+      "id": "tuic-v5",
+      "type": "tuic",
+      "uri": "tuic://33333333-3333-3333-3333-333333333333:secret@tuic.example:443?sni=tuic.example&congestion_control=bbr&udp_relay_mode=native#TUIC"
+    },
+    {
+      "id": "shadowtls-v3",
+      "type": "shadowtls",
+      "uri": "shadowtls://secret@shadowtls.example:443?version=3&sni=www.example.com#ShadowTLS"
+    }
+  ],
+  "invalid": [
+    {
+      "id": "bad-percent",
+      "payload": "tuic://bad%name:password@tuic.example:443#Bad",
+      "error": "invalid percent-encoding"
+    },
+    {
+      "id": "bad-base64-padding-bits",
+      "payload": "ZE==",
+      "error": "neither Clash"
+    },
+    {
+      "id": "bad-utf8-base64",
+      "payload": "/w==",
+      "error": "neither Clash"
+    },
+    {
+      "id": "zero-port",
+      "payload": "trojan://secret@trojan.example:0#Zero",
+      "error": "invalid server port"
+    },
+    {
+      "id": "overflow-port",
+      "payload": "vless://22222222-2222-2222-2222-222222222222@vless.example:65536#Overflow",
+      "error": "Invalid URL"
+    },
+    {
+      "id": "bad-boolean",
+      "payload": "vless://22222222-2222-2222-2222-222222222222@vless.example:443?allowInsecure=sometimes#Bad",
+      "error": "invalid boolean value"
+    }
+  ]
+}

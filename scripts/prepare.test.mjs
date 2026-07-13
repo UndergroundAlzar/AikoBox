@@ -21,7 +21,8 @@ test('resource lock contains only pinned HTTPS downloads and SHA-256 identities'
 
   assert.equal(lock.schemaVersion, 1)
   assert.equal(lock.target, 'win32-x64')
-  assert.equal(Object.keys(lock.resources).length, 8)
+  assert.equal(Object.keys(lock.resources).length, 7)
+  assert.equal(lock.resources.sevenZip, undefined)
 
   for (const [name, resource] of Object.entries(lock.resources)) {
     assert.equal(typeof resource.version, 'string', `${name} must have a version`)
@@ -63,7 +64,7 @@ test(
     })
 
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
-    assert.match(result.stdout, /All 8 locked resources passed integrity verification/)
+    assert.match(result.stdout, /All 7 locked resources passed integrity verification/)
     assert.doesNotMatch(result.stdout + result.stderr, /downloaded and verified/i)
   }
 )
@@ -93,4 +94,13 @@ test('prepare implementation contains no dynamic release discovery', () => {
   assert.doesNotMatch(source, /releases\s*\/\s*latest/i)
   assert.doesNotMatch(source, /releases\/latest/i)
   assert.doesNotMatch(source, /api\.github\.com\/repos/i)
+})
+
+test('retired 7za helper is excluded from both packaging and release verification', () => {
+  const builder = fs.readFileSync(path.join(repositoryRoot, 'electron-builder.yml'), 'utf8')
+  const verifier = fs.readFileSync(path.join(scriptsDirectory, 'verify-release.mjs'), 'utf8')
+
+  assert.equal(fs.existsSync(path.join(repositoryRoot, 'extra', 'files', '7za.exe')), false)
+  assert.match(builder, /!files\/7za\.exe/)
+  assert.match(verifier, /Retired 7za\.exe must not be present in the packaged runtime/)
 })

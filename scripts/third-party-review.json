@@ -56,11 +56,6 @@
       "status": "blocked",
       "project": "https://github.com/sub-store-org/Sub-Store-Front-End",
       "blocker": "The extracted frontend directory has no top-level license, dependency notices, copyright inventory, or source revision tied to the locked release archive."
-    },
-    "sevenZip": {
-      "status": "blocked",
-      "project": "https://www.7-zip.org/",
-      "blocker": "7zip-bin's MIT file licenses the npm wrapper, not 7za.exe. The exact upstream 7-Zip license text and the unRAR restriction applicable to this binary are absent from the release payload."
     }
   }
 }

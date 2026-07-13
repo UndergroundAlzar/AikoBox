@@ -12,13 +12,13 @@ const SHA256_PATTERN = /^[a-f0-9]{64}$/
 const EXPECTED_RESOURCES = [
   'enableLoopback',
   'notoColorEmoji',
-  'sevenZip',
   'singBox',
   'subStoreBackend',
   'subStoreFrontend',
   'sysproxy',
   'trafficMonitor'
 ]
+const RETIRED_RESOURCE_OUTPUTS = ['extra/files/7za.exe']
 const cliArguments = new Set(process.argv.slice(2))
 const unknownArguments = [...cliArguments].filter(
   (argument) => !['--offline', '--verify-only', '--x64'].includes(argument)
@@ -707,6 +707,15 @@ async function ensureResource(name, resource) {
 
 async function main() {
   const resources = loadResourceLock()
+  for (const retiredOutput of RETIRED_RESOURCE_OUTPUTS) {
+    const retiredPath = resolveRepositoryPath(retiredOutput, 'retired resource output')
+    if (!fs.existsSync(retiredPath)) continue
+    if (VERIFY_ONLY) {
+      throw new Error(`Retired runtime resource is still installed: ${retiredOutput}`)
+    }
+    fs.rmSync(retiredPath, { force: true })
+    console.log(`[INFO] Removed retired runtime resource ${retiredOutput}`)
+  }
   const resourceOrder = [
     'singBox',
     'notoColorEmoji',
@@ -714,8 +723,7 @@ async function main() {
     'sysproxy',
     'trafficMonitor',
     'subStoreBackend',
-    'subStoreFrontend',
-    'sevenZip'
+    'subStoreFrontend'
   ]
 
   console.log(

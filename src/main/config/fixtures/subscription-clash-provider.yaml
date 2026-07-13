@@ -1,0 +1,57 @@
+proxies:
+  - name: Shared
+    type: wireguard
+    server: wg.example
+    port: 51820
+    ip: 172.16.0.2
+    ipv6: fd00::2
+    private-key: private-key
+    public-key: public-key
+    reserved: [1, 2, 3]
+  - name: Direct SS2022
+    type: ss
+    server: ss2022.example
+    port: 443
+    cipher: 2022-blake3-aes-128-gcm
+    password: MTIzNDU2Nzg5MDEyMzQ1Ng==
+
+proxy-providers:
+  regional:
+    type: inline
+    filter: 'HK|SG'
+    override:
+      additional-prefix: 'Provider '
+    payload:
+      - name: HK
+        type: trojan
+        server: hk.example
+        port: 443
+        password: secret
+        sni: hk.example
+      - name: SG
+        type: shadowtls
+        server: sg.example
+        port: 443
+        version: 3
+        password: secret
+        sni: www.example.com
+      - name: Drop
+        type: ss
+        server: drop.example
+        port: 443
+        cipher: aes-128-gcm
+        password: secret
+
+proxy-groups:
+  - name: Auto
+    type: url-test
+    use: [regional]
+    proxies: [Shared]
+    url: https://www.gstatic.com/generate_204
+    interval: 300
+  - name: Proxy
+    type: select
+    proxies: [Auto, Direct SS2022]
+
+rules:
+  - MATCH,Proxy
