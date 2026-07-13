@@ -1161,6 +1161,7 @@ export function rollbackCoreUpdate(): Promise<CoreUpdateResult> {
 }
 
 export async function setTunEnabled(enable: boolean): Promise<void> {
+  assertIsolatedSmokeAllows('setTunEnabled')
   const current = await getControledMihomoConfig()
   const previousTunEnabled = current.tun?.enable ?? false
   const previousDnsEnabled = current.dns?.enable ?? false

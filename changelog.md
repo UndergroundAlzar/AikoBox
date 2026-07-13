@@ -1,3 +1,14 @@
+# Unreleased (beta.1+)
+
+## 工程笔记 (Engineering Notes)
+
+> 以下为 beta.1 之后的工程进展记录，**不构成稳定版发布声明**。
+
+- 许可证证据推进 (License evidence advances)：补强开源合规与许可证归属材料
+- CI 隔离基础 (CI isolation foundations)：为后续独立流水线与发布隔离打底
+- 工厂测试 (Factory tests)：补充可重复的构建/装配侧验证
+- UX 诚实性 (UX honesty)：界面与文案对齐真实能力边界，避免过度承诺
+
 # 0.1.0-beta.1
 
 ## 初始版本 (Initial Release)

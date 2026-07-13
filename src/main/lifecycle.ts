@@ -11,6 +11,7 @@ import {
   disableSysProxySync,
   triggerSysProxy
 } from './sys/sysproxy'
+import { isCiIsolatedSmokeMode } from './utils/ciIsolatedSmoke'
 import { exePath } from './utils/dirs'
 
 interface ExitCleanupAttempt {
@@ -98,7 +99,8 @@ export function setupPlatformSpecifics(): void {
     app.commandLine.appendSwitch('in-process-gpu')
   }
 
-  if (process.platform === 'win32') {
+  // Isolated CI smoke must not shell out to fltmc (elevation probe).
+  if (process.platform === 'win32' && !isCiIsolatedSmokeMode()) {
     const elevated = isWindowsElevatedSync()
     if (elevated) {
       primeAdminPrivilegesCache(true)
@@ -145,9 +147,13 @@ export function setupAppLifecycle(): void {
     saveWindowStateBeforeExit() // 硬退出补一次落盘
     beginSystemProxyShutdown()
 
+    // Isolated CI smoke never enables system proxy; skip WinINET restore entirely.
+    const isolatedSmoke = isCiIsolatedSmokeMode()
+
     // This call is deliberately before the first Promise/await. Windows
     // session-end may give us no asynchronous grace period at all.
-    const proxyRestoredSynchronously = process.platform !== 'darwin' && disableSysProxySync()
+    const proxyRestoredSynchronously =
+      isolatedSmoke || (process.platform !== 'darwin' && disableSysProxySync())
     sysProxyDisabled = proxyRestoredSynchronously
 
     const attempt = {} as ExitCleanupAttempt
@@ -155,7 +161,10 @@ export function setupAppLifecycle(): void {
     attempt.completion = (async (): Promise<boolean> => {
       // Always enqueue a serialized disable behind any already-running enable.
       // A successful synchronous restore alone cannot close that queue race.
-      const asyncRestoreSucceeded = await withTimeout(triggerSysProxy(false), 1200)
+      // Isolated smoke skips triggerSysProxy (assertIsolatedSmokeAllows would throw).
+      const asyncRestoreSucceeded = isolatedSmoke
+        ? true
+        : await withTimeout(triggerSysProxy(false), 1200)
       sysProxyDisabled = sysProxyDisabled || asyncRestoreSucceeded
 
       // Never stop the core/watchdog while WinINET may still point at it.
@@ -223,7 +232,8 @@ export function setupAppLifecycle(): void {
   })
 
   app.on('will-quit', () => {
-    if (!sysProxyDisabled) {
+    // Isolated CI smoke never touches WinINET; skip emergency restore.
+    if (!sysProxyDisabled && !isCiIsolatedSmokeMode()) {
       sysProxyDisabled = disableSysProxySync()
     }
   })

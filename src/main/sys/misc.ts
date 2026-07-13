@@ -7,6 +7,7 @@ import { promisify } from 'util'
 import { app, dialog, nativeImage, nativeTheme, shell } from 'electron'
 import i18next from 'i18next'
 import { dataDir, exePath, overridePath, profilePath } from '../utils/dirs'
+import { assertIsolatedSmokeAllows } from '../utils/ciIsolatedSmoke'
 import { singboxCorePath } from '../core/singbox'
 import { stopCore } from '../core/manager'
 import { triggerSysProxy } from './sysproxy'
@@ -113,6 +114,7 @@ export async function openFile(
 }
 
 export async function setupFirewall(): Promise<void> {
+  assertIsolatedSmokeAllows('setupFirewall')
   const execPromise = promisify(exec)
 
   if (process.platform === 'win32') {

@@ -20,6 +20,7 @@ import {
   parseProcessIdentityRecord,
   sameExecutablePath
 } from '../utils/processIdentity'
+import { assertIsolatedSmokeAllows } from '../utils/ciIsolatedSmoke'
 import { singboxCorePath } from './singbox'
 import { checkAdminPrivileges } from './admin'
 
@@ -250,6 +251,7 @@ async function checkHighPrivilegeCoreProcess(): Promise<boolean> {
 }
 
 export async function grantTunPermissions(): Promise<void> {
+  assertIsolatedSmokeAllows('grantTunPermissions')
   const corePath = singboxCorePath()
   validateCorePath(corePath)
 
@@ -270,6 +272,7 @@ export async function grantTunPermissions(): Promise<void> {
 }
 
 export async function restartAsAdmin(forTun: boolean = true): Promise<void> {
+  assertIsolatedSmokeAllows('restartAsAdmin')
   if (process.platform !== 'win32') {
     throw new Error('This function is only available on Windows')
   }

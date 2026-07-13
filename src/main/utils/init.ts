@@ -20,6 +20,7 @@ import {
   DEFAULT_MIHOMO_SKIP_AUTH_PREFIXES,
   getDefaultMihomoTunDevice
 } from '../../shared/appConfig'
+import { isCiIsolatedSmokeMode } from './ciIsolatedSmoke'
 import { stringify } from './yaml'
 import {
   defaultConfig,
@@ -321,6 +322,10 @@ export async function ensureRuntimeFiles(): Promise<void> {
 export async function init(): Promise<void> {
   // System proxy activation is intentionally not part of background init.
   // The main process applies it only after sing-box passes its API health check.
-  await Promise.all([ensureRuntimeFiles(), startSSIDCheck()])
+  // Isolated CI smoke must not poll Wi-Fi SSID (netsh/airport shell-outs).
+  await Promise.all([
+    ensureRuntimeFiles(),
+    isCiIsolatedSmokeMode() ? Promise.resolve() : startSSIDCheck()
+  ])
   initDeeplink()
 }

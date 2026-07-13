@@ -248,6 +248,13 @@
             "size": 3323,
             "sha256": "2f05cf8e93c64654e623bbf41f53d334b9cb3520b697a45527da4f84c25cd401",
             "sourceUrl": "https://raw.githubusercontent.com/mihomo-party-org/sysproxy-rs-opti/ce9463d95ed5839a43c6a0d7cccf3b3fb892de3a/Cargo.toml"
+          },
+          {
+            "kind": "package.json",
+            "path": "licenses/sysproxy-rs-opti/package.json",
+            "size": 661,
+            "sha256": "170374b6a195c4a1ba617463f98b9e951e7879865a3c6d32f03d5d511c78027e",
+            "sourceUrl": "https://raw.githubusercontent.com/mihomo-party-org/sysproxy-rs-opti/ce9463d95ed5839a43c6a0d7cccf3b3fb892de3a/package.json"
           }
         ]
       }

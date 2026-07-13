@@ -70,7 +70,8 @@ export function isTrustedRendererUrl(
 
 /**
  * Reject IPC originating in an iframe or after a renderer navigated away from
- * AikoBox. This is important because the Sub-Store view can embed remote pages.
+ * AikoBox. Remote embeds (or any non-main-frame content) must not be treated as
+ * trusted IPC senders.
  */
 export function isTrustedIpcSender(
   event: IpcEventLike | null | undefined,

@@ -2,6 +2,7 @@ import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { describe, expect, it } from 'vitest'
 import {
+  assertTrustedIpcSender,
   isTrustedIpcSender,
   isTrustedRendererUrl,
   normalizeExternalHttpUrl
@@ -107,5 +108,30 @@ describe('trusted renderer boundary', () => {
         rendererRoot
       )
     ).toBe(false)
+  })
+
+  it('returns false for a null event or null senderFrame', () => {
+    expect(isTrustedIpcSender(null, rendererRoot)).toBe(false)
+    const mainFrame = { url: mainUrl, processId: 12, routingId: 34 }
+    const sender = { mainFrame, getURL: () => mainUrl }
+    expect(isTrustedIpcSender({ sender, senderFrame: null }, rendererRoot)).toBe(false)
+  })
+
+  it('throws when assertTrustedIpcSender receives an untrusted URL', () => {
+    const mainFrame = { url: mainUrl, processId: 12, routingId: 34 }
+    const sender = { mainFrame, getURL: () => mainUrl }
+    expect(() =>
+      assertTrustedIpcSender(
+        {
+          sender,
+          senderFrame: {
+            url: 'https://untrusted.example/frame',
+            processId: 12,
+            routingId: 35
+          }
+        },
+        rendererRoot
+      )
+    ).toThrow(/Blocked IPC request from an untrusted renderer/)
   })
 })

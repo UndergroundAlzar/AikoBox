@@ -17,7 +17,11 @@ const mocks = vi.hoisted(() => ({
   cancelSystemProxyShutdown: vi.fn(),
   disableSysProxySync: vi.fn(() => true),
   triggerSysProxy: vi.fn(async () => {}),
-  saveWindowState: vi.fn()
+  saveWindowState: vi.fn(),
+  isCiIsolatedSmokeMode: vi.fn(() => false),
+  execFileSync: vi.fn(),
+  primeAdminPrivilegesCache: vi.fn(),
+  appendSwitch: vi.fn()
 }))
 
 vi.mock('electron', () => ({
@@ -29,7 +33,7 @@ vi.mock('electron', () => ({
     exit: mocks.exit,
     getLocale: () => 'en-US',
     getPath: () => '',
-    commandLine: { appendSwitch: vi.fn() }
+    commandLine: { appendSwitch: mocks.appendSwitch }
   },
   dialog: { showErrorBox: mocks.showErrorBox },
   powerMonitor: {
@@ -39,13 +43,19 @@ vi.mock('electron', () => ({
   }
 }))
 
+vi.mock('child_process', () => ({
+  spawn: vi.fn(),
+  exec: vi.fn(),
+  execFileSync: mocks.execFileSync
+}))
+
 vi.mock('./core/manager', () => ({
   stopCore: mocks.stopCore,
   cleanupCoreWatcher: mocks.cleanupCoreWatcher
 }))
 
 vi.mock('./core/admin', () => ({
-  primeAdminPrivilegesCache: vi.fn()
+  primeAdminPrivilegesCache: mocks.primeAdminPrivilegesCache
 }))
 
 vi.mock('./sys/sysproxy', () => ({
@@ -53,6 +63,10 @@ vi.mock('./sys/sysproxy', () => ({
   cancelSystemProxyShutdown: mocks.cancelSystemProxyShutdown,
   disableSysProxySync: mocks.disableSysProxySync,
   triggerSysProxy: mocks.triggerSysProxy
+}))
+
+vi.mock('./utils/ciIsolatedSmoke', () => ({
+  isCiIsolatedSmokeMode: mocks.isCiIsolatedSmokeMode
 }))
 
 vi.mock('./utils/dirs', () => ({ exePath: () => 'C:\\Program Files\\AikoBox\\AikoBox.exe' }))
@@ -70,6 +84,7 @@ describe('Windows session-end lifecycle safety', () => {
     vi.clearAllMocks()
     mocks.appListeners.clear()
     mocks.powerListeners.clear()
+    mocks.isCiIsolatedSmokeMode.mockReturnValue(false)
     mocks.disableSysProxySync.mockReturnValue(true)
     mocks.triggerSysProxy.mockResolvedValue(undefined)
     mocks.coreRunning = true
@@ -141,5 +156,59 @@ describe('Windows session-end lifecycle safety', () => {
     expect(mocks.stopCore).not.toHaveBeenCalled()
     expect(mocks.showErrorBox).toHaveBeenCalledOnce()
     expect(mocks.quit).not.toHaveBeenCalled()
+  })
+})
+
+describe('CI isolated smoke lifecycle skips', () => {
+  beforeEach(() => {
+    vi.resetModules()
+    vi.clearAllMocks()
+    mocks.appListeners.clear()
+    mocks.powerListeners.clear()
+    mocks.isCiIsolatedSmokeMode.mockReturnValue(true)
+    mocks.disableSysProxySync.mockReturnValue(true)
+    mocks.triggerSysProxy.mockResolvedValue(undefined)
+    mocks.coreRunning = true
+    mocks.stopCore.mockImplementation(async () => {
+      mocks.coreRunning = false
+    })
+  })
+
+  it('skips Windows elevation fltmc probe in setupPlatformSpecifics', async () => {
+    const electronVersions = process.versions as NodeJS.ProcessVersions & { electron?: string }
+    const previousElectron = electronVersions.electron
+    electronVersions.electron = previousElectron ?? '41.0.0'
+    try {
+      const lifecycle = await import('./lifecycle')
+      lifecycle.setupPlatformSpecifics()
+
+      expect(mocks.execFileSync).not.toHaveBeenCalled()
+      expect(mocks.primeAdminPrivilegesCache).not.toHaveBeenCalled()
+    } finally {
+      if (previousElectron === undefined) delete electronVersions.electron
+      else electronVersions.electron = previousElectron
+    }
+  })
+
+  it('skips disableSysProxySync and triggerSysProxy during exit cleanup', async () => {
+    const lifecycle = await loadLifecycle()
+    const preventDefault = vi.fn()
+
+    lifecycle.handleWindowsQuerySessionEnd({ preventDefault } as never)
+    await vi.waitFor(() => expect(mocks.stopCore).toHaveBeenCalledOnce())
+
+    expect(mocks.disableSysProxySync).not.toHaveBeenCalled()
+    expect(mocks.triggerSysProxy).not.toHaveBeenCalled()
+    expect(mocks.cleanupCoreWatcher).toHaveBeenCalledOnce()
+    expect(mocks.stopCore).toHaveBeenCalledOnce()
+    expect(preventDefault).not.toHaveBeenCalled()
+  })
+
+  it('skips disableSysProxySync on will-quit when isolated', async () => {
+    await loadLifecycle()
+
+    mocks.appListeners.get('will-quit')?.()
+
+    expect(mocks.disableSysProxySync).not.toHaveBeenCalled()
   })
 })

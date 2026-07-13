@@ -41,6 +41,7 @@ export const ISOLATED_SMOKE_FORBIDDEN_ACTIONS = [
   'setTunEnabled',
   'setupFirewall',
   'restartAsAdmin',
+  'grantTunPermissions',
   'installCoreUpdate',
   'rollbackCoreUpdate',
   'recoverStaleSystemProxy',

@@ -598,8 +598,7 @@ export async function createProfile(item: Partial<IProfileItem>): Promise<IProfi
   const profileUrl = item.url
   const { userAgent, subscriptionTimeout = 30000 } = await getAppConfig()
   const mixedPort = getHealthyProxyEndpoint()?.port ?? 0
-  const effectiveUserAgent =
-    item.userAgent || userAgent || `mihomo.party/v${app.getVersion()} (clash.meta)`
+  const effectiveUserAgent = item.userAgent || userAgent || `AikoBox/v${app.getVersion()}`
   const requestIdentity = subscriptionRequestIdentity({
     profileId: id,
     url: profileUrl,
