@@ -267,6 +267,20 @@ describe('Windows system proxy transaction', () => {
     expect(hasOwnershipJournal()).toBe(true)
   })
 
+  it('maps WinINET state rejection on enable to a clear Chinese user message', async () => {
+    // Simulate Windows accepting the setter call but not retaining the state
+    // (e.g. another proxy client immediately overwrites WinINET).
+    mocks.setSystemProxy.mockImplementationOnce(() => {})
+    const { setSystemProxyCoreEndpoint, setSystemProxyCoreReady, triggerSysProxy } =
+      await import('./sysproxy')
+    setSystemProxyCoreEndpoint('127.0.0.1', 17890)
+    setSystemProxyCoreReady(true)
+
+    await expect(triggerSysProxy(true)).rejects.toThrow(
+      '系统代理未能应用（可能被其他代理软件占用，请先用手动代理 127.0.0.1:17890 测试）'
+    )
+  })
+
   it('keeps the crash journal when a partial update and its rollback both fail', async () => {
     mocks.autoFailuresRemaining = 2
     const { setSystemProxyCoreEndpoint, setSystemProxyCoreReady, triggerSysProxy } =
