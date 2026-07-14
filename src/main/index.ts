@@ -188,7 +188,11 @@ const initPromise = (async () => {
         'System proxy recovery failed; automatic proxy activation is disabled',
         error
       )
-      safeShowErrorBox('common.error.initFailed', `${error}`)
+      // Do not present this as a fatal "application init failed". Proxy recovery
+      // is best-effort when another client (e.g. Bettbox) owns WinINET.
+      mainLogger.warn(
+        `System proxy recovery skipped: ${error instanceof Error ? error.message : String(error)}`
+      )
     }
   } else {
     mainLogger.info('CI isolated smoke: skipping system proxy recovery')
