@@ -249,10 +249,22 @@ export async function recoverStaleSystemProxy(): Promise<void> {
     if (result === 'restored') {
       await proxyLogger.info('Recovered the system proxy state left by a previous AikoBox run')
     } else if (result === 'still-dependent') {
+      // Keep the journal so the main process can bind the core to the old port.
       throw new Error('WinINET still depends on the previous AikoBox core endpoint')
     }
   } catch (error) {
     await proxyLogger.error('Failed to recover the previous system proxy state', error)
+    // A corrupt or incompatible journal must not brick startup. Drop ownership
+    // records so the next launch does not re-enter this path; leave WinINET
+    // alone (Bettbox/other clients may currently own it).
+    const message = error instanceof Error ? error.message : String(error)
+    if (!/still depends on the previous AikoBox core endpoint/i.test(message)) {
+      clearOwnershipRecord()
+      await proxyLogger.warn(
+        'Cleared unrecoverable system-proxy ownership journal; continuing without auto system proxy'
+      )
+      return
+    }
     throw error
   }
 }
