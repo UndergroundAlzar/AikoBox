@@ -35,6 +35,7 @@ import {
   parseProcessIdentityRecord
 } from '../utils/processIdentity'
 import { assertIsolatedSmokeAllows } from '../utils/ciIsolatedSmoke'
+import { mapCoreListenError } from './listenError'
 import {
   startMihomoTraffic,
   startMihomoConnections,
@@ -731,10 +732,14 @@ function setupCoreListeners(
     }
   }
 
+  const userFacingFatal = (raw: string): string => mapCoreListenError(raw, config.mixedPort) ?? raw
+
   const startMihomoApiStreams = async (): Promise<void> => {
     await Promise.all([waitForCoreReady(), waitForTcpPort(config.proxyHost, config.mixedPort)])
     if (proc.exitCode !== null || proc.signalCode !== null) {
-      throw new Error(lastFatalLine || 'core exited before API became ready')
+      throw new Error(
+        (lastFatalLine && userFacingFatal(lastFatalLine)) || 'core exited before API became ready'
+      )
     }
     await getAxios(true)
     promotePendingRuntimeConfig()
@@ -775,7 +780,10 @@ function setupCoreListeners(
     setSystemProxyCoreReady(false)
 
     settleReject(
-      new Error(lastFatalLine || `core exited unexpectedly, code: ${code}, signal: ${signal}`)
+      new Error(
+        (lastFatalLine && userFacingFatal(lastFatalLine)) ||
+          `core exited unexpectedly, code: ${code}, signal: ${signal}`
+      )
     )
 
     if (startupFailed || !startupReady) {
@@ -850,10 +858,13 @@ function setupCoreListeners(
       return
     }
 
-    // 控制器/入站端口监听冲突
-    if (/address already in use/i.test(str) || /Only one usage of each socket address/i.test(str)) {
-      managerLogger.error('Listen error detected:', str)
-      failStartup(i18next.t('mihomo.error.externalControllerListenError'))
+    // 混合端口/入站监听冲突（Windows WSAEADDRINUSE / POSIX EADDRINUSE）
+    const portConflictMessage = mapCoreListenError(str, config.mixedPort)
+    if (portConflictMessage) {
+      managerLogger.error(
+        `Listen error detected (mixed-port ${config.mixedPort} occupied):\n${portConflictMessage}\nraw: ${str}`
+      )
+      failStartup(portConflictMessage)
     }
   }
 
@@ -863,6 +874,14 @@ function setupCoreListeners(
   proc.on('error', (error) => {
     if (child === proc) child = null
     if (activeCore?.process === proc) activeCore = null
+    const mapped = mapCoreListenError(String(error), config.mixedPort)
+    if (mapped) {
+      managerLogger.error(
+        `Core process error (mixed-port ${config.mixedPort} occupied):\n${mapped}\nraw: ${String(error)}`
+      )
+      failStartup(mapped)
+      return
+    }
     failStartup(error)
   })
 
