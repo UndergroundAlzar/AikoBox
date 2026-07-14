@@ -27,10 +27,11 @@ export const DEFAULT_SIDER_ORDER: SiderCardKey[] = [
 
 export const DEFAULT_NETWORK_INFO_CARD_ORDER: NetworkInfoCardKey[] = ['ip', 'topology', 'latency']
 
+// High ports avoid clashing with common existing clients (Clash/V2/Bettbox on 7890).
 export const DEFAULT_MIHOMO_PORTS = {
-  mixed: 7890,
-  socks: 7891,
-  http: 7892,
+  mixed: 17890,
+  socks: 17891,
+  http: 17892,
   redir: 0,
   tproxy: 0
 } as const

@@ -29,7 +29,7 @@ vi.mock('../utils/logger', () => ({ createLogger: () => mocks.logger }))
 vi.mock('../utils/age', () => ({ decryptAgeContent: async (content: string) => content }))
 vi.mock('../utils/template', () => ({ defaultProfile: { proxies: [] } }))
 vi.mock('../../shared/appConfig', () => ({
-  DEFAULT_MIHOMO_PORTS: { mixed: 7890, socks: 7891, http: 7892 }
+  DEFAULT_MIHOMO_PORTS: { mixed: 17890, socks: 17891, http: 17892 }
 }))
 vi.mock('../core/mihomoApi', () => ({
   mihomoCloseAllConnections: vi.fn(),
