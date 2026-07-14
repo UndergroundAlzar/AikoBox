@@ -82,14 +82,27 @@ function readWindowsProxyState(): SystemProxyState {
   })
 }
 
+const WINDOWS_PROXY_STATE_REJECTED = 'Windows did not accept the requested system proxy state'
+/** User-facing copy when WinINET rejects / silently drops our enable write. */
+const WINDOWS_PROXY_ENABLE_REJECTED_USER =
+  '系统代理未能应用（可能被其他代理软件占用，请先用手动代理 127.0.0.1:17890 测试）'
+
 function applyWindowsProxyState(state: SystemProxyState): void {
   const normalized = normalizeSystemProxyState(state)
   setSystemProxy(normalized.manual)
   setAutoProxy(normalized.auto)
   const actual = readWindowsProxyState()
   if (!sameSystemProxyState(actual, normalized)) {
-    throw new Error('Windows did not accept the requested system proxy state')
+    throw new Error(WINDOWS_PROXY_STATE_REJECTED)
   }
+}
+
+function mapWindowsProxyEnableError(error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error)
+  if (message === WINDOWS_PROXY_STATE_REJECTED) {
+    return new Error(WINDOWS_PROXY_ENABLE_REJECTED_USER)
+  }
+  return error instanceof Error ? error : new Error(message)
 }
 
 function readOwnershipRecord(): OwnedSystemProxyRecord | null {
@@ -489,7 +502,9 @@ async function enableSysProxy(): Promise<void> {
         await proxyLogger.error('Failed to roll back a partial system proxy update', rollbackError)
       }
       await proxyLogger.error('Failed to enable system proxy transactionally', error)
-      throw error
+      // Surface a clearer Chinese message when Windows silently rejects the write
+      // (common when another proxy client fights for WinINET ownership).
+      throw mapWindowsProxyEnableError(error)
     }
   } else if (process.platform === 'darwin') {
     // macOS 需要 helper 提权
