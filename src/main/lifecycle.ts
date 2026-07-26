@@ -6,6 +6,10 @@ import { app, dialog, powerMonitor, type WindowSessionEndEvent } from 'electron'
 import { stopCore, cleanupCoreWatcher } from './core/manager'
 import { primeAdminPrivilegesCache } from './core/admin'
 import {
+  beginExactEndpointGuardianShutdown,
+  cancelExactEndpointGuardianShutdown
+} from './core/exactEndpointGuardian'
+import {
   beginSystemProxyShutdown,
   cancelSystemProxyShutdown,
   disableSysProxySync,
@@ -146,6 +150,10 @@ export function setupAppLifecycle(): void {
 
     saveWindowStateBeforeExit() // 硬退出补一次落盘
     beginSystemProxyShutdown()
+    // Must be set before stopCore() below: an endpoint guardian or a stored
+    // recovery attempt that spawns after the kill leaves a sing-box.exe holding
+    // the TUN adapter with no owner left to stop it.
+    beginExactEndpointGuardianShutdown()
 
     // Isolated CI smoke never enables system proxy; skip WinINET restore entirely.
     const isolatedSmoke = isCiIsolatedSmokeMode()
@@ -177,6 +185,9 @@ export function setupAppLifecycle(): void {
       if (activeCleanup === attempt && !sysProxyDisabled) {
         activeCleanup = null
         cancelSystemProxyShutdown()
+        // The quit was abandoned (the app stays open to protect WinINET), so
+        // endpoint recovery has to be allowed to run again.
+        cancelExactEndpointGuardianShutdown()
       }
     })
     activeCleanup = attempt

@@ -1,0 +1,78 @@
+{
+  "config": {
+    "log": {
+      "level": "info",
+      "timestamp": true
+    },
+    "dns": {
+      "servers": [
+        {
+          "type": "local",
+          "tag": "dns-local"
+        }
+      ],
+      "final": "dns-local"
+    },
+    "inbounds": [],
+    "outbounds": [
+      {
+        "type": "selector",
+        "tag": "GLOBAL",
+        "outbounds": [
+          "direct"
+        ]
+      },
+      {
+        "type": "direct",
+        "tag": "direct"
+      }
+    ],
+    "route": {
+      "rules": [
+        {
+          "clash_mode": "Direct",
+          "outbound": "direct"
+        },
+        {
+          "clash_mode": "Global",
+          "outbound": "GLOBAL"
+        },
+        {
+          "clash_mode": "Rule",
+          "domain": [
+            "mode-placeholder.aikobox.invalid"
+          ],
+          "outbound": "direct"
+        }
+      ],
+      "final": "direct",
+      "auto_detect_interface": true,
+      "default_domain_resolver": {
+        "server": "dns-local"
+      }
+    },
+    "experimental": {
+      "clash_api": {
+        "external_controller": "127.0.0.1:9090",
+        "default_mode": "Rule"
+      },
+      "cache_file": {
+        "enabled": true,
+        "store_fakeip": true
+      }
+    }
+  },
+  "warnings": [
+    "proxy \"a\": type \"ssr\" is not supported by sing-box, skipped",
+    "proxy \"b\": type \"snell\" is not supported by sing-box, skipped"
+  ],
+  "errors": [
+    "profile contains proxy nodes but none are supported; refusing to start a direct-only configuration"
+  ],
+  "controller": {
+    "listen": "127.0.0.1:9090",
+    "host": "127.0.0.1",
+    "port": 9090,
+    "secret": ""
+  }
+}

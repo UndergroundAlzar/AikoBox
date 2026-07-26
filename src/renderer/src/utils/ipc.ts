@@ -1,8 +1,33 @@
 import { TitleBarOverlayOptions } from 'electron'
 
-function checkIpcError<T>(response: unknown): T {
+// 主进程把异常转成 { invokeError } 后 resolve，早先这里直接 throw 字符串，
+// 于是渲染进程每一处 `e instanceof Error` 分支都恒假。这里补回真正的 Error，
+// 并透传主进程给的稳定错误码，调用方不必再匹配 message 子串。
+export class IpcError extends Error {
+  readonly code?: string
+
+  constructor(message: string, code?: string) {
+    super(message)
+    this.name = 'IpcError'
+    this.code = code
+  }
+
+  // 渲染进程有三十多处 `catch (e) { toast.error(String(e)) }`。以前抛的是裸字符串，
+  // String(e) 就是给用户看的那句话；换成 Error 之后默认会多出 "IpcError: " 前缀。
+  // 保留 name 便于排查，同时让 String(e) 仍旧只给出消息本身。
+  override toString(): string {
+    return this.message
+  }
+}
+
+export function checkIpcError<T>(response: unknown): T {
   if (response && typeof response === 'object' && 'invokeError' in response) {
-    throw (response as { invokeError: unknown }).invokeError
+    const { invokeError, invokeErrorCode } = response as {
+      invokeError: unknown
+      invokeErrorCode?: unknown
+    }
+    const message = typeof invokeError === 'string' ? invokeError : String(invokeError)
+    throw new IpcError(message, typeof invokeErrorCode === 'string' ? invokeErrorCode : undefined)
   }
   return response as T
 }

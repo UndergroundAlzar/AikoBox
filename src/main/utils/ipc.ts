@@ -129,6 +129,13 @@ import { getIconDataURL } from './icon'
 import { getAppName } from './appName'
 import { logDir, rulePath } from './dirs'
 import { assertTrustedIpcSender } from './electronSecurity'
+import { type IpcErrorEnvelope, toIpcErrorEnvelope } from './ipcError'
+import {
+  DEFAULT_LATENCY_TARGETS,
+  IP_INFO_ENDPOINTS,
+  assertAllowedUrl,
+  assertPublicHttpUrl
+} from './rendererUrlGuard'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AsyncFn = (...args: any[]) => Promise<any>
@@ -138,15 +145,12 @@ const rendererRoot = path.join(__dirname, '../renderer')
 
 function wrapAsync<T extends AsyncFn>(
   fn: T
-): (...args: Parameters<T>) => Promise<ReturnType<T> | { invokeError: unknown }> {
+): (...args: Parameters<T>) => Promise<ReturnType<T> | IpcErrorEnvelope> {
   return async (...args) => {
     try {
       return await fn(...args)
     } catch (e) {
-      if (e && typeof e === 'object' && 'message' in e) {
-        return { invokeError: e.message }
-      }
-      return { invokeError: typeof e === 'string' ? e : 'Unknown Error' }
+      return toIpcErrorEnvelope(e)
     }
   }
 }
@@ -185,18 +189,38 @@ async function getSmartOverrideContent(): Promise<string | null> {
 }
 
 async function fetchIPInfo(url: string): Promise<unknown> {
-  const res = await httpGet<unknown>(url, { timeout: 10000, responseType: 'json' })
+  const target = assertAllowedUrl(url, IP_INFO_ENDPOINTS)
+  const res = await httpGet<unknown>(target, {
+    timeout: 10000,
+    responseType: 'json',
+    maxBodyBytes: 1024 * 1024
+  })
   return res.data
 }
 
 async function measureLatency(url: string): Promise<number | null> {
+  const { networkLatencyTargets = [] } = await getAppConfig()
+  // 校验放在 try 之外：不在允许列表里是攻击信号，不该被伪装成一次普通的探测失败
+  const target = assertAllowedUrl(url, [
+    ...DEFAULT_LATENCY_TARGETS,
+    ...networkLatencyTargets.map((item) => item.url)
+  ])
   try {
     const t0 = Date.now()
-    await httpGet<unknown>(url, { timeout: 5000, responseType: 'text' })
+    await httpGet<unknown>(target, {
+      timeout: 5000,
+      responseType: 'text',
+      maxBodyBytes: 256 * 1024
+    })
     return Date.now() - t0
   } catch {
     return null
   }
+}
+
+// 图标 URL 来自订阅内容而不是固定列表，只能按“必须是公网 http(s)”来收敛
+async function getGroupIconDataURL(url: string): Promise<string> {
+  return await getImageDataURL(assertPublicHttpUrl(url))
 }
 
 async function changeLanguage(lng: string): Promise<void> {
@@ -336,7 +360,7 @@ const asyncHandlers: Record<string, AsyncFn> = {
   exportGistAgeSecretKey,
   fetchIPInfo,
   measureLatency,
-  getImageDataURL,
+  getImageDataURL: getGroupIconDataURL,
   readImageFileDataURL,
   getIconDataURL,
   getAppName,

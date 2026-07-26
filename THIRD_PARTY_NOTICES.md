@@ -70,6 +70,53 @@ The official `v2.051` license permits the unmodified font to be bundled with sof
 
 The JavaScript loader in `src/native/sysproxy` is AikoBox-owned code under `GPL-3.0-only`, independently of the native module. Its installed `index.js` is 3,605 bytes with SHA-256 `bfa9d0f66702286ac824203b9c8add8b665ed6ae56082ee2479853ed94bc02f0`; the packaged project [`LICENSE`](./LICENSE) is 35,149 bytes with SHA-256 `3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986`. This local ownership evidence does not clear the separately downloaded native module. The pinned `Cargo.toml` and napi `package.json` record declared crate/target ranges for future self-build work; without `Cargo.lock` and a rebuilt `.node`, redistribution remains blocked.
 
+## Android client (`mobile/`)
+
+The Android client is not part of the Windows release payload, so its components are not
+tracked by `scripts/resources-lock.json` or by `scripts/audit-licenses.mjs`. Its own lock
+file is [`scripts/resources-lock.android.json`](./scripts/resources-lock.android.json), and
+`scripts/verify-android-core.mjs` enforces the structural invariants before Gradle links
+anything. No APK has been released; when one is, the same redistribution evidence this
+document demands of the desktop payload must be gathered first.
+
+**sing-box `libbox` binding — `BLOCKED`, same grounds as the desktop `sing-box` entry above.**
+
+- Version `1.13.14`, built from tag `v1.13.14`, commit `25a600db24f7680ad9806ce5427bd0ab8afe1114`
+- Packaged path `mobile/android/app/libs/libbox.aar` → `lib/arm64-v8a/libbox.so` in the APK
+- Built by [`.github/workflows/android-libbox.yml`](./.github/workflows/android-libbox.yml)
+  with `go run ./cmd/internal/build_libbox -target android -platform android/arm64`
+- Toolchain: `github.com/sagernet/gomobile@v0.1.12`, Android NDK `28.0.13004108`, Temurin JDK 17
+- Upstream license: `GPL-3.0-or-later` plus the upstream name/association restriction, the
+  same grant recorded at [`licenses/sing-box-1.13.14/LICENSE.upstream.txt`](./licenses/sing-box-1.13.14/LICENSE.upstream.txt)
+- Release blocker: identical to the desktop entry — the binding statically links the same Go
+  dependency graph, and no corresponding-source bundle or per-module license inventory has
+  been assembled for it. Building from a pinned upstream tag advances provenance; it does not
+  discharge GPLv3 §6.
+- gomobile output is not bit-reproducible across hosts even with `-trimpath -buildvcs=false
+-buildid=`, so the recorded SHA-256 identifies one build rather than constraining all of
+  them. The invariants CI does enforce are the source tag, a single `arm64-v8a` ABI, and the
+  presence of `jni/arm64-v8a/libbox.so`.
+
+**Rejected alternative.** A third-party mirror publishing a prebuilt AAR
+(`com.github.singbox-android:libbox`) was evaluated and rejected. It is an unaffiliated
+account distributing an unreproducible binary with no signature and no checksum tied to an
+upstream build, and it would run inside the VPN process with full visibility of the user's
+traffic. Accepting it would also require an evidence record here that could not honestly be
+filled in.
+
+**Flutter and Dart dependencies.** Declared in [`mobile/pubspec.yaml`](./mobile/pubspec.yaml)
+and resolved in `mobile/pubspec.lock`. The Flutter SDK and the first-party `flutter_*`,
+`path_provider`, `shared_preferences`, `url_launcher` and `package_info_plus` packages are
+BSD-3-Clause (Google); `flutter_riverpod`, `dynamic_color`, `material_color_utilities`,
+`super_sliver_list`, `qr_flutter`, `app_links`, `file_picker`, `flutter_secure_storage`,
+`http`, `web_socket_channel`, `yaml`, `yaml_edit`, `crypto` and `collection` are MIT or
+BSD-3-Clause. `pubspec.lock` is the authoritative record; it is committed for exactly that
+reason. The two first-party packages under `mobile/packages/` are part of this project and
+carry its GPL-3.0 licence.
+
+**Android platform dependencies.** `androidx.core:core-ktx` and
+`org.jetbrains.kotlinx:kotlinx-coroutines-android`, both Apache-2.0.
+
 ## JavaScript and Electron dependencies
 
 Run the offline audit from a complete frozen install:

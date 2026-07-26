@@ -1,0 +1,335 @@
+[
+  { "id": "empty", "clash": {}, "options": { "platform": "" } },
+  {
+    "id": "airport-fixture-win32",
+    "clashYamlFile": "../../../../../src/main/core/singbox/fixtures/airport-inline-mainstream.yaml",
+    "options": { "platform": "win32", "controllerSecret": "fixture-controller-secret" }
+  },
+  {
+    "id": "airport-fixture-android",
+    "clashYamlFile": "../../../../../src/main/core/singbox/fixtures/airport-inline-mainstream.yaml",
+    "options": { "platform": "android", "controllerSecret": "fixture-controller-secret" }
+  },
+  {
+    "id": "provider-fixture",
+    "clashYamlFile": "../../../../../src/main/config/fixtures/subscription-clash-provider.yaml",
+    "options": { "platform": "win32", "controllerSecret": "fixture-controller-secret" }
+  },
+  {
+    "id": "all-protocols",
+    "options": { "platform": "", "controllerSecret": "fixed-secret" },
+    "clash": {
+      "mixed-port": 7890,
+      "external-controller": "0.0.0.0:19090",
+      "ipv6": true,
+      "mode": "rule",
+      "proxies": [
+        { "name": "ss-obfs", "type": "ss", "server": "1.2.3.4", "port": 8388, "cipher": "aes-256-gcm", "password": "pw", "plugin": "obfs", "plugin-opts": { "mode": "tls", "host": "bing.com" }, "udp-over-tcp": true },
+        { "name": "ss-v2ray", "type": "ss", "server": "ss2.example", "port": 443, "cipher": "chacha20-ietf-poly1305", "password": "pw", "plugin": "v2ray-plugin", "plugin-opts": { "mode": "websocket", "tls": true, "host": "a.com", "path": "/ws", "skip-cert-verify": true, "mux": true } },
+        { "name": "ss-badplugin", "type": "ss", "server": "ss3.example", "port": 443, "cipher": "aes-128-gcm", "password": "pw", "plugin": "shadow-tls" },
+        { "name": "vmess-ws", "type": "vmess", "server": "vm.example", "port": 443, "uuid": "u-1", "alterId": 0, "cipher": "auto", "tls": true, "servername": "sni.example", "network": "ws", "packet-encoding": "packetaddr", "interface-name": "eth0", "tfo": true, "mptcp": true, "udp-fragment": true, "ip-version": "prefer-ipv6", "ws-opts": { "path": "/p", "headers": { "Host": "ws.example" }, "max-early-data": 2048, "early-data-header-name": "Sec-WebSocket-Protocol" } },
+        { "name": "vmess-h2", "type": "vmess", "server": "vm2.example", "port": 443, "uuid": "u-2", "alter-id": "3", "network": "h2", "servername": "h2.example", "h2-opts": { "host": ["a.example", "b.example"], "path": "/h2" } },
+        { "name": "vmess-http", "type": "vmess", "server": "vm3.example", "port": 443, "uuid": "u-3", "network": "http", "http-opts": { "host": ["f1.example"], "method": "GET", "path": ["/one", "/two"], "headers": { "X-Test": "1" } } },
+        { "name": "vmess-quic", "type": "vmess", "server": "vm4.example", "port": 443, "uuid": "u-4", "network": "quic" },
+        { "name": "vless-reality", "type": "vless", "server": "vl.example", "port": 443, "uuid": "u-5", "flow": "xtls-rprx-vision-udp443", "client-fingerprint": "chrome", "reality-opts": { "public-key": "pbk", "short-id": "ab12" }, "network": "grpc", "grpc-opts": { "grpc-service-name": "svc" } },
+        { "name": "vless-badflow", "type": "vless", "server": "vl2.example", "port": 443, "uuid": "u-6", "flow": "xtls-rprx-direct", "tls": true },
+        { "name": "trojan-ws", "type": "trojan", "server": "tj.example", "port": 443, "password": "pw", "sni": "tj.example", "skip-cert-verify": true, "alpn": ["h2", "http/1.1"], "network": "ws", "ws-opts": { "path": "/tj" } },
+        { "name": "hy1", "type": "hysteria", "server": "hy.example", "ports": "20000-30000,40001", "hop-interval": 20, "up": "1 Gbps", "down": 100, "auth-str": "secret", "obfs": "xplus", "protocol": "faketcp", "sni": "hy.example" },
+        { "name": "hy2", "type": "hysteria2", "server": "hy2.example", "ports": ["40000-40100"], "hop-interval": "30s", "up": "2 GBps", "down": "800bps", "password": "pw", "obfs": "salamander", "obfs-password": "ob", "sni": "hy2.example", "disable-sni": "true" },
+        { "name": "hy2-badobfs", "type": "hysteria2", "server": "hy3.example", "port": 443, "password": "pw", "obfs": "chacha" },
+        { "name": "tuic5", "type": "tuic", "server": "tu.example", "port": 443, "uuid": "u-7", "password": "pw", "congestion-control": "cubic", "udp-relay-mode": "quic", "udp-over-stream": true, "reduce-rtt": true, "heartbeat-interval": 3000 },
+        { "name": "tuic4", "type": "tuic", "server": "tu2.example", "port": 443, "token": "tok" },
+        { "name": "wg", "type": "wireguard", "server": "wg.example", "port": 51820, "ip": "172.16.0.2", "ipv6": "fd00::2/128", "private-key": "priv", "public-key": "pub", "preshared-key": "psk", "mtu": 1408, "reserved": [1, 2, 3] },
+        { "name": "wg-strres", "type": "wireguard", "server": "wg2.example", "port": 51820, "ip": "172.16.0.3/32", "private-key": "priv", "public-key": "pub", "reserved": "AQID" },
+        { "name": "wg-noip", "type": "wireguard", "server": "wg3.example", "port": 51820, "private-key": "priv", "public-key": "pub" },
+        { "name": "http-tls", "type": "http", "server": "h.example", "port": 8080, "username": "u", "password": "p", "tls": true, "sni": "h.example", "skip-cert-verify": true },
+        { "name": "socks", "type": "socks5", "server": "s.example", "port": 1080, "username": "u", "password": "p" },
+        { "name": "socks-tls", "type": "socks5", "server": "s2.example", "port": 1080, "tls": true },
+        { "name": "anytls", "type": "anytls", "server": "at.example", "port": 443, "password": "pw", "sni": "at.example", "idle-session-check-interval": "20s", "idle-session-timeout": "40s", "min-idle-session": 2, "client-fingerprint": "none" },
+        { "name": "ssh", "type": "ssh", "server": "ssh.example", "port": 0, "user": "root", "private-key": "key", "private-key-passphrase": "pp", "host-key": ["ssh-ed25519 AAAA"], "host-key-algorithms": ["ssh-ed25519"], "client-version": "SSH-2.0-Aiko" },
+        { "name": "stls3", "type": "shadowtls", "server": "st.example", "port": 443, "version": 3, "password": "pw", "servername": "www.example.com" },
+        { "name": "stls-nopw", "type": "shadowtls", "server": "st2.example", "port": 443, "version": 2 },
+        { "name": "stls-badver", "type": "shadowtls", "server": "st3.example", "port": 443, "version": 9 },
+        { "name": "plain-direct", "type": "direct" },
+        { "name": "chained", "type": "ss", "server": "c.example", "port": 443, "cipher": "aes-128-gcm", "password": "pw", "dialer-proxy": "socks" },
+        { "name": "chained-missing", "type": "ss", "server": "c2.example", "port": 443, "cipher": "aes-128-gcm", "password": "pw", "dialer-proxy": "nope" },
+        { "type": "ss", "server": "noname.example", "port": 443, "cipher": "aes-128-gcm", "password": "pw" },
+        { "name": "direct", "type": "ss", "server": "reserved.example", "port": 443, "cipher": "aes-128-gcm", "password": "pw" },
+        { "name": "socks", "type": "socks5", "server": "dupe.example", "port": 1080 },
+        { "name": "unknown", "type": "ssr", "server": "x.example", "port": 1 }
+      ],
+      "proxy-groups": [
+        { "name": "Proxy", "type": "select", "proxies": ["Auto", "socks", "DIRECT", "REJECT", "COMPATIBLE", "ghost"] },
+        { "name": "Auto", "type": "url-test", "include-all": true, "filter": "(?i)vmess|trojan", "exclude-filter": "quic", "url": "http://cp.cloudflare.com/generate_204", "interval": 300, "tolerance": 20 },
+        { "name": "Balance", "type": "load-balance", "proxies": ["ss-obfs", "ss-v2ray"] },
+        { "name": "Backup", "type": "fallback", "proxies": ["ss-obfs"], "interval": 0 },
+        { "name": "Smart", "type": "smart", "proxies": ["ss-obfs"] },
+        { "name": "Chain", "type": "relay", "proxies": ["ss-obfs", "socks"] },
+        { "name": "Bogus", "type": "made-up", "proxies": ["ss-obfs"] },
+        { "name": "Proxy", "type": "select", "proxies": ["ss-obfs"] },
+        { "type": "select", "proxies": ["ss-obfs"] },
+        { "name": "Unsafe", "type": "select", "include-all": true, "filter": "^(a+)+$" }
+      ],
+      "rules": [
+        "DOMAIN,example.com,Proxy",
+        "DOMAIN-SUFFIX,google.com,Auto",
+        "DOMAIN-KEYWORD,ads,REJECT",
+        "DOMAIN-REGEX,^ad[0-9]+\\.example\\.com$,REJECT-DROP",
+        "DOMAIN-WILDCARD,*.cdn.example.com,DIRECT",
+        "IP-CIDR,10.0.0.0/8,DIRECT,no-resolve",
+        "IP-CIDR6,2620:0:2d0::/48,DIRECT",
+        "SRC-IP-CIDR,192.168.1.0/24,DIRECT",
+        "DST-PORT,443,Proxy",
+        "DST-PORT,8000-9000,Proxy",
+        "SRC-PORT,7777,DIRECT",
+        "SRC-PORT,1000-2000,DIRECT",
+        "PROCESS-NAME,chrome.exe,Proxy",
+        "PROCESS-PATH,/usr/bin/curl,DIRECT",
+        "PROCESS-PATH-REGEX,^/opt/.+/bin$,DIRECT",
+        "PROCESS-PATH-WILDCARD,/opt/*/bin,DIRECT",
+        "PROCESS-NAME-REGEX,chrome|firefox,Proxy",
+        "PROCESS-NAME-WILDCARD,chrome*.exe,Proxy",
+        "NETWORK,UDP,DIRECT",
+        "GEOSITE,category-ads-all,REJECT",
+        "GEOIP,CN,DIRECT",
+        "GEOIP,LAN,DIRECT",
+        "SRC-GEOIP,private,DIRECT",
+        "SRC-GEOIP,JP,DIRECT",
+        "AND,((DOMAIN-SUFFIX,youtube.com),(NETWORK,UDP)),REJECT",
+        "OR,((DOMAIN,a.com),(DOMAIN,b.com)),Proxy",
+        "NOT,((DOMAIN-SUFFIX,cn)),Proxy",
+        "NOT,((IP-CIDR,10.0.0.0/8)),DIRECT",
+        "NOT,((SRC-IP-CIDR,192.168.1.0/24)),DIRECT",
+        "AND,((AND,((DOMAIN,x.com),(NETWORK,tcp))),(DST-PORT,443)),Proxy",
+        "NOT,((DOMAIN,a.com),(DOMAIN,b.com)),Proxy",
+        "AND,broken,Proxy",
+        "SUB-RULE,(DOMAIN,a.com),sub,Proxy",
+        "RULE-SET,provider,Proxy",
+        "DOMAIN,pass.com,PASS",
+        "DOMAIN,ghost.com,Nowhere",
+        "IN-TYPE,SOCKS,Proxy",
+        "justonefield",
+        "DOMAIN,incomplete",
+        "",
+        "MATCH,Proxy"
+      ]
+    }
+  },
+  {
+    "id": "dns-everything",
+    "options": { "platform": "", "controllerSecret": "fixed-secret" },
+    "clash": {
+      "mixed-port": 7890,
+      "ipv6": true,
+      "hosts": {
+        "router.lan": "192.168.1.1",
+        "nas.lan": ["192.168.1.2", "fd00::2"],
+        "*.bad.lan": "1.1.1.1",
+        "empty.lan": []
+      },
+      "dns": {
+        "enable": true,
+        "ipv6": true,
+        "enhanced-mode": "fake-ip",
+        "fake-ip-range": "198.18.0.1/16",
+        "fake-ip-filter": ["+.lan", "*.local", "time.*.com", "geosite:cn", "*", "rule-set:x"],
+        "fake-ip-filter-mode": "blacklist",
+        "default-nameserver": ["1.1.1.1", "8.8.8.8"],
+        "proxy-server-nameserver": ["https://9.9.9.9/dns-query"],
+        "direct-nameserver": ["223.5.5.5", "tcp://114.114.114.114"],
+        "nameserver": [
+          "https://doh.pub/dns-query",
+          "tls://dns.google:853",
+          "quic://dns.adguard.com",
+          "h3://cloudflare-dns.com/dns-query",
+          "udp://[2001:4860:4860::8888]:53",
+          "system",
+          "dhcp://eth0",
+          "dhcp://auto",
+          "rcode://success",
+          "sdns://ohno",
+          "https://doh.pub/dns-query#h3=true"
+        ],
+        "nameserver-policy": {
+          "+.internal": "udp://10.0.0.53",
+          "geosite:cn": "223.5.5.5",
+          "*": "1.1.1.1"
+        },
+        "fallback": ["8.8.4.4"]
+      }
+    }
+  },
+  {
+    "id": "dns-whitelist-fakeip-v4only",
+    "options": { "platform": "" },
+    "clash": {
+      "ipv6": false,
+      "dns": {
+        "enable": true,
+        "enhanced-mode": "fake-ip",
+        "fake-ip-filter-mode": "whitelist",
+        "fake-ip-filter": ["+.games.example"],
+        "nameserver": ["223.5.5.5"]
+      }
+    }
+  },
+  {
+    "id": "dns-whitelist-empty-filter",
+    "options": { "platform": "" },
+    "clash": {
+      "dns": {
+        "enable": true,
+        "enhanced-mode": "fake-ip",
+        "fake-ip-filter-mode": "whitelist",
+        "nameserver": ["223.5.5.5"]
+      }
+    }
+  },
+  {
+    "id": "dns-all-unusable",
+    "options": { "platform": "" },
+    "clash": { "dns": { "enable": true, "nameserver": ["rcode://refused", "sdns://x"] } }
+  },
+  {
+    "id": "inbounds-lan-linux",
+    "options": { "platform": "linux" },
+    "clash": {
+      "mixed-port": 7890,
+      "socks-port": 7891,
+      "port": 7892,
+      "redir-port": 7893,
+      "tproxy-port": 7894,
+      "allow-lan": true,
+      "ipv6": true,
+      "routing-mark": 1234,
+      "interface-name": "eth0",
+      "authentication": ["user:pass", "broken", "a:b:c"],
+      "lan-allowed-ips": ["192.168.50.0/24", "192.168.50.0/24", " 10.0.0.0/8 "],
+      "lan-disallowed-ips": ["192.168.50.100/32"],
+      "tun": {
+        "enable": true,
+        "stack": "system",
+        "device": "aiko0",
+        "mtu": 9000,
+        "auto-route": true,
+        "strict-route": true,
+        "auto-redirect": true,
+        "endpoint-independent-nat": true,
+        "route-address": ["0.0.0.0/1"],
+        "route-exclude-address": ["192.168.0.0/16"]
+      },
+      "proxies": [{ "name": "n", "type": "socks5", "server": "127.0.0.1", "port": 1080 }],
+      "proxy-groups": [{ "name": "PROXY", "type": "select", "proxies": ["n"] }],
+      "rules": ["MATCH,PROXY"]
+    }
+  },
+  {
+    "id": "inbounds-lan-noauth-darwin",
+    "options": { "platform": "darwin" },
+    "clash": {
+      "mixed-port": 7890,
+      "redir-port": 7893,
+      "tproxy-port": 7894,
+      "allow-lan": true,
+      "ipv6": false,
+      "lan-allowed-ips": ["192.168.50.0/24"],
+      "tun": { "enable": true, "stack": "bogus", "auto-route": false, "auto-redirect": true }
+    }
+  },
+  {
+    "id": "tun-ipv6-disabled",
+    "options": { "platform": "" },
+    "clash": {
+      "ipv6": false,
+      "auto-detect-interface": false,
+      "tun": { "enable": true, "address": ["fd00:99::1/126"] }
+    }
+  },
+  {
+    "id": "ignored-top-level-keys",
+    "options": { "platform": "" },
+    "clash": {
+      "unified-delay": true,
+      "tcp-concurrent": false,
+      "find-process-mode": "strict",
+      "geodata-mode": true,
+      "geo-auto-update": true,
+      "geox-url": { "geoip": "https://example.invalid/geoip.dat" },
+      "keep-alive-interval": 30,
+      "rule-providers": { "x": { "type": "http", "url": "https://example.invalid/r.yaml" } },
+      "listeners": [],
+      "tunnels": [{ "network": ["tcp"], "address": "127.0.0.1:1", "target": "a.com:80" }],
+      "proxies": [{ "name": "n", "type": "socks5", "server": "127.0.0.1", "port": 1080 }],
+      "rules": ["MATCH,n"]
+    }
+  },
+  {
+    "id": "coercion-quirks",
+    "options": { "platform": "" },
+    "clash": {
+      "mixed-port": "7890abc",
+      "socks-port": "not-a-port",
+      "port": "0",
+      "external-controller": "[::1]:9099",
+      "secret": 12345,
+      "log-level": "warning",
+      "mode": "DIRECT",
+      "ipv6": "false",
+      "allow-lan": "true",
+      "profile": { "store-fake-ip": false },
+      "sniffer": { "enable": "true" },
+      "proxies": [
+        { "name": "q1", "type": "ss", "server": "q.example", "port": "443 ", "cipher": "aes-128-gcm", "password": 987654, "tfo": "true", "mptcp": "false", "ip-version": "IPv4" },
+        { "name": 42, "type": "socks5", "server": "n.example", "port": 1080 },
+        { "name": "q2", "type": "hysteria2", "server": "q2.example", "port": 443, "password": "pw", "up": 55.5, "down": "12.5Mbps" }
+      ],
+      "proxy-groups": [{ "name": "G", "type": "select", "proxies": ["q1", "42", "q2"] }],
+      "rules": ["DST-PORT,notaport,G", "SRC-PORT,notaport,G", "MATCH,G"]
+    }
+  },
+  {
+    "id": "no-rules-with-proxies",
+    "options": { "platform": "" },
+    "clash": {
+      "proxies": [{ "name": "only", "type": "socks5", "server": "127.0.0.1", "port": 1080 }],
+      "rules": []
+    }
+  },
+  {
+    "id": "match-reject-final",
+    "options": { "platform": "" },
+    "clash": {
+      "proxies": [{ "name": "only", "type": "socks5", "server": "127.0.0.1", "port": 1080 }],
+      "rules": ["MATCH,REJECT"]
+    }
+  },
+  {
+    "id": "match-missing-target",
+    "options": { "platform": "" },
+    "clash": {
+      "proxies": [{ "name": "only", "type": "socks5", "server": "127.0.0.1", "port": 1080 }],
+      "rules": ["MATCH,Ghost"]
+    }
+  },
+  {
+    "id": "user-global-group",
+    "options": { "platform": "" },
+    "clash": {
+      "proxies": [{ "name": "only", "type": "socks5", "server": "127.0.0.1", "port": 1080 }],
+      "proxy-groups": [{ "name": "GLOBAL", "type": "select", "proxies": ["only"] }],
+      "rules": ["MATCH,GLOBAL"]
+    }
+  },
+  {
+    "id": "all-proxies-unsupported",
+    "options": { "platform": "" },
+    "clash": {
+      "proxies": [
+        { "name": "a", "type": "ssr", "server": "x", "port": 1 },
+        { "name": "b", "type": "snell", "server": "y", "port": 2 }
+      ],
+      "rules": ["MATCH,DIRECT"]
+    }
+  }
+]
+

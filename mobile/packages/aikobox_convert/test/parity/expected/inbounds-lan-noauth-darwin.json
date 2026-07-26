@@ -1,0 +1,119 @@
+{
+  "config": {
+    "log": {
+      "level": "info",
+      "timestamp": true
+    },
+    "dns": {
+      "servers": [
+        {
+          "type": "local",
+          "tag": "dns-local"
+        }
+      ],
+      "final": "dns-local",
+      "strategy": "ipv4_only"
+    },
+    "inbounds": [
+      {
+        "type": "mixed",
+        "tag": "mixed-in",
+        "listen": "0.0.0.0",
+        "listen_port": 7890
+      },
+      {
+        "type": "redirect",
+        "tag": "redir-in",
+        "listen": "0.0.0.0",
+        "listen_port": 7893
+      },
+      {
+        "type": "tun",
+        "tag": "tun-in",
+        "address": [
+          "198.19.0.1/30"
+        ],
+        "mtu": 1500,
+        "auto_route": false
+      }
+    ],
+    "outbounds": [
+      {
+        "type": "selector",
+        "tag": "GLOBAL",
+        "outbounds": [
+          "direct"
+        ]
+      },
+      {
+        "type": "direct",
+        "tag": "direct"
+      }
+    ],
+    "route": {
+      "rules": [
+        {
+          "type": "logical",
+          "mode": "and",
+          "rules": [
+            {
+              "inbound": [
+                "mixed-in"
+              ]
+            },
+            {
+              "source_ip_cidr": [
+                "192.168.50.0/24",
+                "127.0.0.0/8",
+                "::1/128"
+              ],
+              "invert": true
+            }
+          ],
+          "action": "reject"
+        },
+        {
+          "clash_mode": "Direct",
+          "outbound": "direct"
+        },
+        {
+          "clash_mode": "Global",
+          "outbound": "GLOBAL"
+        },
+        {
+          "clash_mode": "Rule",
+          "domain": [
+            "mode-placeholder.aikobox.invalid"
+          ],
+          "outbound": "direct"
+        }
+      ],
+      "final": "direct",
+      "auto_detect_interface": true,
+      "default_domain_resolver": {
+        "server": "dns-local"
+      }
+    },
+    "experimental": {
+      "clash_api": {
+        "external_controller": "127.0.0.1:9090",
+        "default_mode": "Rule"
+      },
+      "cache_file": {
+        "enabled": true,
+        "store_fakeip": true
+      }
+    }
+  },
+  "warnings": [
+    "tproxy-port is only supported on Linux, skipped",
+    "allow-lan is enabled without authentication; LAN clients can use the proxy"
+  ],
+  "errors": [],
+  "controller": {
+    "listen": "127.0.0.1:9090",
+    "host": "127.0.0.1",
+    "port": 9090,
+    "secret": ""
+  }
+}

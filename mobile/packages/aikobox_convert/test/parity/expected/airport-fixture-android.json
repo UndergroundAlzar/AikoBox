@@ -1,0 +1,171 @@
+{
+  "config": {
+    "log": {
+      "level": "info",
+      "timestamp": true
+    },
+    "dns": {
+      "servers": [
+        {
+          "type": "local",
+          "tag": "dns-local"
+        },
+        {
+          "type": "udp",
+          "tag": "dns-0",
+          "server": "1.1.1.1"
+        },
+        {
+          "type": "fakeip",
+          "tag": "dns-fakeip",
+          "inet4_range": "198.18.0.1/16"
+        }
+      ],
+      "rules": [
+        {
+          "domain": [
+            "lan"
+          ],
+          "domain_suffix": [
+            ".lan"
+          ],
+          "server": "dns-0"
+        },
+        {
+          "query_type": [
+            "A"
+          ],
+          "server": "dns-fakeip"
+        }
+      ],
+      "final": "dns-0",
+      "strategy": "ipv4_only",
+      "independent_cache": true
+    },
+    "inbounds": [
+      {
+        "type": "mixed",
+        "tag": "mixed-in",
+        "listen": "127.0.0.1",
+        "listen_port": 17890
+      },
+      {
+        "type": "socks",
+        "tag": "socks-in",
+        "listen": "127.0.0.1",
+        "listen_port": 17891
+      },
+      {
+        "type": "http",
+        "tag": "http-in",
+        "listen": "127.0.0.1",
+        "listen_port": 17892
+      }
+    ],
+    "outbounds": [
+      {
+        "type": "shadowsocks",
+        "tag": "HK-01",
+        "server": "192.0.2.10",
+        "server_port": 443,
+        "method": "aes-128-gcm",
+        "password": "fixture-password"
+      },
+      {
+        "type": "trojan",
+        "tag": "SG-01",
+        "server": "192.0.2.20",
+        "server_port": 443,
+        "password": "fixture-password",
+        "tls": {
+          "enabled": true,
+          "server_name": "example.com",
+          "insecure": true
+        }
+      },
+      {
+        "type": "selector",
+        "tag": "Hong Kong",
+        "outbounds": [
+          "HK-01"
+        ]
+      },
+      {
+        "type": "selector",
+        "tag": "Proxy",
+        "outbounds": [
+          "Hong Kong",
+          "SG-01"
+        ]
+      },
+      {
+        "type": "selector",
+        "tag": "GLOBAL",
+        "outbounds": [
+          "Hong Kong",
+          "Proxy",
+          "HK-01",
+          "SG-01",
+          "direct"
+        ]
+      },
+      {
+        "type": "direct",
+        "tag": "direct"
+      }
+    ],
+    "route": {
+      "rules": [
+        {
+          "protocol": "dns",
+          "action": "hijack-dns"
+        },
+        {
+          "clash_mode": "Direct",
+          "outbound": "direct"
+        },
+        {
+          "clash_mode": "Global",
+          "outbound": "GLOBAL"
+        },
+        {
+          "clash_mode": "Rule",
+          "domain": [
+            "mode-placeholder.aikobox.invalid"
+          ],
+          "outbound": "direct"
+        },
+        {
+          "domain_suffix": [
+            "example.com"
+          ],
+          "outbound": "Proxy"
+        }
+      ],
+      "final": "Proxy",
+      "auto_detect_interface": true,
+      "default_domain_resolver": {
+        "server": "dns-local"
+      }
+    },
+    "experimental": {
+      "clash_api": {
+        "external_controller": "127.0.0.1:19090",
+        "secret": "fixture-controller-secret",
+        "default_mode": "Rule"
+      },
+      "cache_file": {
+        "enabled": true,
+        "store_fakeip": true
+      }
+    }
+  },
+  "warnings": [],
+  "errors": [],
+  "controller": {
+    "listen": "127.0.0.1:19090",
+    "host": "127.0.0.1",
+    "port": 19090,
+    "secret": "fixture-controller-secret"
+  }
+}

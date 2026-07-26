@@ -20,3 +20,21 @@ party.md
 CLAUDE.md
 agent.md
 tsconfig.node.tsbuildinfo
+
+# Android client
+mobile/build
+mobile/.dart_tool
+mobile/.flutter-plugins-dependencies
+mobile/android/.gradle
+mobile/android/build
+mobile/android/app/build
+mobile/android/.kotlin
+mobile/android/local.properties
+mobile/android/key.properties
+mobile/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
+# The sing-box gomobile binding is a 21 MB binary rebuilt from source by
+# .github/workflows/android-libbox.yml and verified against
+# scripts/resources-lock.android.json — never committed, exactly like extra/sidecar.
+mobile/android/app/libs/*.aar
+*.jks
+*.keystore

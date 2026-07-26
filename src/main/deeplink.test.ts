@@ -103,6 +103,13 @@ describe('deep-link subscription confirmation', () => {
     expect(String(mocks.showError.mock.calls[0]?.[1])).not.toContain('pass')
   })
 
+  it('reports a malformed deep link instead of rejecting into the caller', async () => {
+    await expect(handleDeepLink('clash://[not-a-host')).resolves.toBeUndefined()
+    expect(mocks.addProfileItem).not.toHaveBeenCalled()
+    expect(mocks.showError).toHaveBeenCalledOnce()
+    expect(String(mocks.showError.mock.calls[0]?.[1])).not.toContain('[not-a-host')
+  })
+
   it('rejects install-config links that omit the url parameter', async () => {
     await handleDeepLink('aikobox://install-config?name=missing-url')
     expect(mocks.showMessageBox).not.toHaveBeenCalled()

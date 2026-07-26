@@ -35,7 +35,8 @@ import {
   setupAppLifecycle,
   getSystemLanguage
 } from './lifecycle'
-import { configurePortableUserData } from './utils/dirs'
+import { appConfigPath, configurePortableUserData } from './utils/dirs'
+import { readDisableHardwareAccelerationSync } from './utils/hardwareAcceleration'
 import {
   getStaleSystemProxyCoreEndpoint,
   recoverStaleSystemProxy,
@@ -116,7 +117,28 @@ if (process.platform === 'win32' && !ciIsolatedSmoke) {
 
 configurePortableUserData()
 
+// Must precede app.whenReady(); the userData path is only final after
+// configurePortableUserData().
+if (readDisableHardwareAccelerationSync(appConfigPath())) {
+  app.disableHardwareAcceleration()
+}
+
 const mainLogger = createLogger('Main')
+
+// AikoBox owns the WinINET journal and supervises the core. Dying on a stray
+// rejection would strand the system proxy on a dead port, so log and continue.
+// The handler must never be able to produce a rejection of its own:
+// Logger.error is async and logToConsole runs outside writeToFile's own guard,
+// so an unattached promise here would re-enter this handler forever.
+process.on('unhandledRejection', (reason) => {
+  mainLogger.error('Unhandled promise rejection', reason).catch(() => {
+    try {
+      console.error('[Main] Unhandled promise rejection', reason)
+    } catch {
+      // nothing left to report with
+    }
+  })
+})
 
 export { mainWindow, showMainWindow, triggerMainWindow, closeMainWindow }
 
@@ -135,20 +157,6 @@ initApp().catch((e) => {
 })
 
 setupPlatformSpecifics()
-
-async function initHardwareAcceleration(): Promise<void> {
-  try {
-    await initBasic()
-    const { disableHardwareAcceleration = false } = await getAppConfig()
-    if (disableHardwareAcceleration) {
-      app.disableHardwareAcceleration()
-    }
-  } catch (e) {
-    mainLogger.warn('Failed to read hardware acceleration config', e)
-  }
-}
-
-initHardwareAcceleration()
 setupAppLifecycle()
 
 let proxySafetyReady = true
@@ -157,14 +165,21 @@ let staleProxyCoreEndpoint: { host: string; port: number } | null = null
 app.on('second-instance', async (_event, commandline) => {
   showMainWindow()
   const url = commandline.pop()
-  if (url) {
+  if (!url) return
+  try {
     await handleDeepLink(url)
+  } catch (e) {
+    await mainLogger.warn('Failed to handle deep link', e)
   }
 })
 
 app.on('open-url', async (_event, url) => {
   showMainWindow()
-  await handleDeepLink(url)
+  try {
+    await handleDeepLink(url)
+  } catch (e) {
+    await mainLogger.warn('Failed to handle deep link', e)
+  }
 })
 
 const initPromise = (async () => {

@@ -12,7 +12,7 @@
   中文 · <a href="./README_EN.md">English</a>
 </p>
 
-AikoBox 是一款仅面向 **Windows x64** 的 sing-box 桌面客户端，界面与订阅工作流源自 Clash Party。Aiko 是项目的白毛红瞳看板娘。
+AikoBox 是一款以 sing-box 为唯一内核的客户端：桌面端面向 **Windows x64**，界面与订阅工作流源自 Clash Party；移动端为 **Android arm64-v8a**，界面参照 FlClash。Aiko 是项目的白毛红瞳看板娘。
 
 > 项目仍处于 `0.x` Beta 阶段。预发行版必须通过第三方许可审计和静态产物校验；若尚未配置受信任的 Windows 代码签名证书，Release 会明确标注“未签名 Beta”。在系统代理或 TUN 成为唯一联网路径前，请先保留可恢复的网络方案。
 
@@ -32,23 +32,33 @@ AikoBox 是一款仅面向 **Windows x64** 的 sing-box 桌面客户端，界面
 - 支持普通节点、`proxy-providers` 和 `rule-providers`；无法安全转换的关键配置会拒绝生效
 - 保留 `clash://`、`mihomo://` 导入协议，并提供 `aikobox://`
 - 可由用户手动检查 sing-box 稳定版更新；下载后验证官方 SHA-256、版本、平台和候选配置，启动失败自动回滚
-- 提供安装到 Program Files 的按机器安装包和单文件便携版；不提供 macOS、Linux、ARM64 或 32 位版本
+- 桌面端提供安装到 Program Files 的按机器安装包和单文件便携版；不提供 macOS、Linux、Windows on ARM 或 32 位版本
 - 不静默安装应用或内核更新；所有内核切换都需要用户确认
 
 ## 系统要求
+
+**桌面端（Windows）**
 
 - Windows 10 或 Windows 11，x64
 - 普通系统代理模式不要求管理员权限
 - TUN 模式仅在安装包版本中可用，需要 Windows 管理员授权；拒绝授权不会影响当前正在运行的连接
 - 便携版和开发版只支持普通系统代理模式，不会请求 TUN 提权
 
+**移动端（Android）**
+
+- Android 7.0（API 24）或更高，**arm64-v8a**；不提供 armeabi-v7a 或 x86
+- 需要授予 VPN 权限；Android 13 及以上还需要通知权限，否则常驻通知与其中的「停止」按钮都不会出现
+- 没有普通系统代理模式这一说：在 Android 上 VPN 同时承担系统代理和 TUN 两个角色
+
 ## 下载与校验
 
-每个版本提供以下文件：
+桌面端每个版本提供以下文件：
 
 - `aikobox-windows-<version>-x64-setup.exe`：按机器安装到 Program Files，安装时需要管理员授权，支持 TUN
 - `aikobox-windows-<version>-x64-portable.exe`：单文件便携版，配置和日志保存在便携目录，仅支持普通系统代理模式
 - 与每个 `.exe` 同名的 `.sha256`：该可执行文件的 SHA-256 校验值
+
+**移动端目前没有发布任何 APK。** 源码可构建（见下方 [Android 客户端](#android-客户端)），CI 会为每次提交产出未签名的 arm64-v8a 构建产物，但那是给开发者验证用的，尚未配置发布签名密钥，不要当正式版安装或分发。
 
 请只从本项目的 GitHub Releases 下载。可在 PowerShell 中核对单个文件：
 
@@ -82,6 +92,39 @@ pnpm run build:win
 `pnpm test` 包含使用随项目资源准备的 sing-box 执行 `check` 的配置校验，但不会启动代理服务。`pnpm run build:win` 生成安装包、便携版和 SHA-256 文件到 `dist/`。
 
 开发时运行 `pnpm dev` 会实际启动桌面应用和内核。若电脑已经依赖其他代理联网，请先使用独立的高位测试端口，并确保系统代理和 TUN 默认关闭。
+
+## Android 客户端
+
+源码在 [`mobile/`](./mobile)，Flutter 3.44 + sing-box `libbox`，**仅 arm64-v8a**（不提供 armeabi-v7a 或 x86）。界面语言参照 [FlClash](https://github.com/chen08209/FlClash) 的 Material You 设计。
+
+桌面端不可协商的那几条约束在这里逐条保留：内核证明健康之前不放行流量、旧内核仍在服务时先校验候选配置、保留 last-known-good 并在候选被拒时自动回滚、无法安全转换时拒绝静默降级为直连。Windows 特有的机制（WinINET 系统代理、UAC 提权、托盘）不适用，取而代之的是 `VpnService`——在 Android 上 VPN 同时承担了系统代理和 TUN 两个角色。
+
+内核不随应用更新：`libbox.aar` 由 [`.github/workflows/android-libbox.yml`](./.github/workflows/android-libbox.yml) 从 `SagerNet/sing-box v1.13.14` 源码构建，锁定在 [`scripts/resources-lock.android.json`](./scripts/resources-lock.android.json)，并在 Gradle 链接之前由 `scripts/verify-android-core.mjs` 校验。SagerNet 不发布预编译 AAR；社区存在第三方镜像，但本项目**不采用**——那是无关联账号发布的不可复现二进制，会运行在 VPN 进程内、能看到全部流量。
+
+本地构建需要 Flutter 3.44.8、Android SDK 36、NDK r28 与 JDK 17：
+
+```powershell
+# 先产出内核绑定（需要 Go 1.25+ 与 SagerNet 的 gomobile 分支）
+go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
+go install github.com/sagernet/gomobile/cmd/gobind@v0.1.12
+go run ./cmd/internal/build_libbox -target android -platform android/arm64   # 在 sing-box 仓库内
+copy libbox.aar <AikoBox>\mobile\android\app\libs\libbox.aar
+
+cd mobile
+flutter pub get
+flutter analyze
+flutter test
+flutter build apk --release --target-platform android-arm64
+```
+
+转换器与订阅解析是纯 Dart 包，单独测试：
+
+```powershell
+cd mobile\packages\aikobox_convert;      dart test
+cd mobile\packages\aikobox_subscription; dart test
+```
+
+`aikobox_convert` 的测试会用真实的 sing-box 二进制对转换结果执行 `check`，并与 TypeScript 实现的逐字节黄金基准对照，两边不会各自漂移。
 
 ## 安全与许可
 

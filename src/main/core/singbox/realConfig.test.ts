@@ -72,6 +72,60 @@ describe.skipIf(!hasSidecar)('real sing-box configuration gate', () => {
     ).not.toThrow()
   })
 
+  it('emits a valid rule set for a fake-ip profile full of destination-ip rules', () => {
+    // the mainstream fixture only has MATCH, so nothing else in this file
+    // exercises ip_cidr / geoip rule sets, no-resolve options or fake-ip DNS.
+    const result = convertClashToSingbox(
+      {
+        'mixed-port': 17890,
+        dns: {
+          enable: true,
+          'enhanced-mode': 'fake-ip',
+          'fake-ip-range': '198.18.0.1/16',
+          nameserver: ['https://doh.pub/dns-query']
+        },
+        proxies: [
+          {
+            name: 'node',
+            type: 'ss',
+            server: '192.0.2.20',
+            port: 443,
+            cipher: 'aes-128-gcm',
+            password: 'x'
+          }
+        ],
+        'proxy-groups': [{ name: 'PROXY', type: 'select', proxies: ['node'] }],
+        rules: [
+          'IP-CIDR,1.2.3.4/32,DIRECT,no-resolve',
+          'IP-CIDR6,2620:0:2d0::/48,DIRECT',
+          'GEOIP,LAN,DIRECT',
+          'GEOIP,CN,DIRECT',
+          'GEOSITE,cn,DIRECT',
+          'AND,((GEOIP,CN),(NETWORK,udp)),DIRECT',
+          'MATCH,PROXY'
+        ]
+      },
+      { platform: 'win32', controllerSecret: 'fixture-controller-secret' }
+    )
+    expect(result.errors).toEqual([])
+    // a routing-time resolve action would make any DNS failure drop the connection
+    expect(
+      ((result.config.route as Record<string, unknown>).rules as Record<string, unknown>[]).some(
+        (rule) => rule.action === 'resolve'
+      )
+    ).toBe(false)
+
+    const configPath = join(workDir, 'sing-box-ip-rules.json')
+    writeFileSync(configPath, JSON.stringify(result.config, null, 2))
+    expect(() =>
+      execFileSync(corePath, ['check', '-D', workDir, '-c', configPath, '--disable-color'], {
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: 15000
+      })
+    ).not.toThrow()
+  })
+
   it('emits a valid ShadowTLS v3 outbound', () => {
     const result = convertClashToSingbox({
       'mixed-port': 17890,

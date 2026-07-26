@@ -1,0 +1,211 @@
+name: Android quality gate
+
+# Analyse, test and compile the Android client. The sing-box core binding is rebuilt from
+# source and cached rather than downloaded, so no step in this pipeline ever consumes a
+# binary whose provenance the repository cannot state.
+
+on:
+  push:
+    paths:
+      - 'mobile/**'
+      - 'spec/**'
+      - 'scripts/resources-lock.android.json'
+      - '.github/workflows/android.yml'
+  pull_request:
+    paths:
+      - 'mobile/**'
+      - 'spec/**'
+      - 'scripts/resources-lock.android.json'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SINGBOX_REF: v1.13.14
+  FLUTTER_VERSION: 3.44.8
+
+jobs:
+  libbox:
+    name: libbox.aar (arm64-v8a)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      sha256: ${{ steps.sum.outputs.sha256 }}
+    steps:
+      - name: Restore cached AAR
+        id: cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: out/libbox.aar
+          key: libbox-${{ env.SINGBOX_REF }}-arm64-ndk28.0.13004108-go1.25
+
+      - name: Check out sing-box
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: SagerNet/sing-box
+          ref: ${{ env.SINGBOX_REF }}
+          path: sing-box
+          persist-credentials: false
+
+      - name: Set up Go
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25'
+          check-latest: true
+
+      - name: Set up JDK 17
+        if: steps.cache.outputs.cache-hit != 'true'
+        # build_libbox refuses to run unless `java --version` reports openjdk 17.
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Build libbox.aar
+        if: steps.cache.outputs.cache-hit != 'true'
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;28.0.13004108"
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.0.13004108"
+          make lib_install
+          go run ./cmd/internal/build_libbox -target android -platform android/arm64
+          mkdir -p ../out
+          cp libbox.aar ../out/libbox.aar
+
+      - name: Verify the AAR ships exactly one ABI
+        run: |
+          set -euo pipefail
+          abis=$(unzip -Z1 out/libbox.aar 'jni/*/*' | cut -d/ -f2 | sort -u)
+          echo "ABIs: $abis"
+          test "$abis" = "arm64-v8a"
+
+      - name: Checksum
+        id: sum
+        run: |
+          set -euo pipefail
+          echo "sha256=$(sha256sum out/libbox.aar | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload for downstream jobs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: libbox-aar
+          path: out/libbox.aar
+          if-no-files-found: error
+          retention-days: 7
+
+  dart:
+    name: Analyse and test Dart
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: mobile
+        run: flutter pub get
+
+      - name: Check formatting
+        working-directory: mobile
+        # Explicit source roots, not `.`: dart format has no ignore file and walks into
+        # build/ and .dart_tool/, where it trips over Gradle's intermediates.
+        run: dart format --output=none --set-exit-if-changed lib test packages
+
+      - name: Analyse
+        working-directory: mobile
+        run: flutter analyze --fatal-infos
+
+      - name: Test the Flutter app
+        working-directory: mobile
+        run: flutter test
+
+      # The two pure-Dart packages hold the converter and the subscription parser — the
+      # parts that decide whether traffic is proxied at all. They are tested standalone so
+      # a Flutter regression can never mask a failure here.
+      - name: Test aikobox_convert
+        working-directory: mobile/packages/aikobox_convert
+        run: |
+          dart pub get
+          dart analyze --fatal-infos
+          dart test
+
+      - name: Test aikobox_subscription
+        working-directory: mobile/packages/aikobox_subscription
+        run: |
+          dart pub get
+          dart analyze --fatal-infos
+          dart test
+
+  apk:
+    name: Build arm64-v8a APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: [libbox, dart]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Fetch the core binding built by this run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: libbox-aar
+          path: mobile/android/app/libs
+
+      - name: Verify the core binding against the lock file
+        run: node scripts/verify-android-core.mjs
+
+      - name: Build
+        working-directory: mobile
+        run: flutter build apk --release --target-platform android-arm64
+
+      - name: Verify the APK ships exactly one ABI
+        working-directory: mobile
+        run: |
+          set -euo pipefail
+          apk=build/app/outputs/flutter-apk/app-release.apk
+          abis=$(unzip -Z1 "$apk" 'lib/*/*' | cut -d/ -f2 | sort -u)
+          echo "ABIs: $abis"
+          test "$abis" = "arm64-v8a"
+          unzip -Z1 "$apk" | grep -qx 'lib/arm64-v8a/libbox.so'
+          sha256sum "$apk"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: aikobox-android-arm64-v8a
+          path: mobile/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,16 @@
+name: aikobox_convert
+description: Pure-Dart Clash (mihomo) YAML to sing-box JSON converter, spec-locked against the AikoBox desktop implementation.
+version: 0.1.0
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.8.0 <4.0.0'
+
+dependencies:
+  collection: ^1.19.1
+  crypto: ^3.0.6
+  yaml: ^3.1.3
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.30.0

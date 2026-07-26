@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Values taken verbatim from mobile/assets/locales/zh-CN.json. -->
+<resources>
+
+    <string name="notification_channel_tunnel">VPN 服务</string>
+    <string name="notification_channel_tunnel_description">隧道运行期间 Android 要求显示的常驻通知。</string>
+    <string name="notification_channel_notices">提醒</string>
+    <string name="notification_channel_notices_description">订阅更新与内核故障。</string>
+
+    <string name="notification_title">AikoBox</string>
+    <string name="notification_starting_title">正在启动 AikoBox…</string>
+    <string name="notification_starting_body">正在等待内核就绪</string>
+    <string name="notification_running_title">AikoBox 运行中</string>
+    <string name="notification_running_body">%1$s · ↑ %2$s ↓ %3$s</string>
+    <string name="notification_running_body_no_mode">↑ %1$s ↓ %2$s</string>
+    <string name="notification_stopping_body">正在停止…</string>
+    <string name="notification_failed_title">AikoBox 启动失败</string>
+    <string name="notification_action_stop">停止</string>
+
+    <string name="notification_mode_rule">规则</string>
+    <string name="notification_mode_global">全局</string>
+    <string name="notification_mode_direct">直连</string>
+
+    <string name="tile_label">AikoBox</string>
+    <string name="tile_state_stopped">已停止</string>
+    <string name="tile_state_starting">正在启动…</string>
+    <string name="tile_state_running">运行中</string>
+    <string name="tile_state_stopping">正在停止…</string>
+    <string name="tile_state_failed">启动失败</string>
+
+</resources>

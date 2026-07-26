@@ -66,6 +66,9 @@ jobs:
       - name: Test the fail-closed third-party license audit
         run: pnpm run test:licenses
 
+      - name: Test the fail-closed translation-key audit
+        run: pnpm run test:i18n
+
       - name: Test final release extraction safety logic
         run: pnpm run test:verify-release
 

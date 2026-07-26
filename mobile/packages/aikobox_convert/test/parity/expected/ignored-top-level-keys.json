@@ -1,0 +1,90 @@
+{
+  "config": {
+    "log": {
+      "level": "info",
+      "timestamp": true
+    },
+    "dns": {
+      "servers": [
+        {
+          "type": "local",
+          "tag": "dns-local"
+        }
+      ],
+      "final": "dns-local"
+    },
+    "inbounds": [],
+    "outbounds": [
+      {
+        "type": "socks",
+        "tag": "n",
+        "version": "5",
+        "server": "127.0.0.1",
+        "server_port": 1080
+      },
+      {
+        "type": "selector",
+        "tag": "GLOBAL",
+        "outbounds": [
+          "n",
+          "direct"
+        ]
+      },
+      {
+        "type": "direct",
+        "tag": "direct"
+      }
+    ],
+    "route": {
+      "rules": [
+        {
+          "clash_mode": "Direct",
+          "outbound": "direct"
+        },
+        {
+          "clash_mode": "Global",
+          "outbound": "GLOBAL"
+        },
+        {
+          "clash_mode": "Rule",
+          "domain": [
+            "mode-placeholder.aikobox.invalid"
+          ],
+          "outbound": "direct"
+        }
+      ],
+      "final": "n",
+      "auto_detect_interface": true,
+      "default_domain_resolver": {
+        "server": "dns-local"
+      }
+    },
+    "experimental": {
+      "clash_api": {
+        "external_controller": "127.0.0.1:9090",
+        "default_mode": "Rule"
+      },
+      "cache_file": {
+        "enabled": true,
+        "store_fakeip": true
+      }
+    }
+  },
+  "warnings": [
+    "unified-delay is mihomo-specific, ignored",
+    "find-process-mode is mihomo-specific, ignored (process rules still work)",
+    "geodata-mode is mihomo-specific, ignored (rule-sets are used instead)",
+    "geo-auto-update is mihomo-specific, ignored",
+    "geox-url is mihomo-specific, ignored",
+    "keep-alive-interval is mihomo-specific, ignored",
+    "Clash rule-providers must be resolved before conversion; unresolved entries are refused",
+    "Clash tunnels are not supported, ignored"
+  ],
+  "errors": [],
+  "controller": {
+    "listen": "127.0.0.1:9090",
+    "host": "127.0.0.1",
+    "port": 9090,
+    "secret": ""
+  }
+}

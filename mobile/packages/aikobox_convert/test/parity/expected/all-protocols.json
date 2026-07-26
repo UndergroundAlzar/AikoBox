@@ -1,0 +1,801 @@
+{
+  "config": {
+    "log": {
+      "level": "info",
+      "timestamp": true
+    },
+    "dns": {
+      "servers": [
+        {
+          "type": "local",
+          "tag": "dns-local"
+        }
+      ],
+      "final": "dns-local"
+    },
+    "inbounds": [
+      {
+        "type": "mixed",
+        "tag": "mixed-in",
+        "listen": "127.0.0.1",
+        "listen_port": 7890
+      }
+    ],
+    "outbounds": [
+      {
+        "type": "shadowsocks",
+        "tag": "ss-obfs",
+        "server": "1.2.3.4",
+        "server_port": 8388,
+        "method": "aes-256-gcm",
+        "password": "pw",
+        "udp_over_tcp": true,
+        "plugin": "obfs-local",
+        "plugin_opts": "obfs=tls;obfs-host=bing.com"
+      },
+      {
+        "type": "shadowsocks",
+        "tag": "ss-v2ray",
+        "server": "ss2.example",
+        "server_port": 443,
+        "method": "chacha20-ietf-poly1305",
+        "password": "pw",
+        "plugin": "v2ray-plugin",
+        "plugin_opts": "mode=websocket;tls;host=a.com;path=/ws;skipVerify=true;mux=1"
+      },
+      {
+        "type": "vmess",
+        "tag": "vmess-ws",
+        "server": "vm.example",
+        "server_port": 443,
+        "uuid": "u-1",
+        "security": "auto",
+        "alter_id": 0,
+        "packet_encoding": "packetaddr",
+        "tls": {
+          "enabled": true,
+          "server_name": "sni.example"
+        },
+        "transport": {
+          "type": "ws",
+          "path": "/p",
+          "headers": {
+            "Host": "ws.example"
+          },
+          "max_early_data": 2048,
+          "early_data_header_name": "Sec-WebSocket-Protocol"
+        },
+        "bind_interface": "eth0",
+        "tcp_fast_open": true,
+        "tcp_multi_path": true,
+        "udp_fragment": true,
+        "domain_strategy": "prefer_ipv6"
+      },
+      {
+        "type": "vmess",
+        "tag": "vmess-h2",
+        "server": "vm2.example",
+        "server_port": 443,
+        "uuid": "u-2",
+        "security": "auto",
+        "alter_id": 3,
+        "tls": {
+          "enabled": true,
+          "server_name": "h2.example"
+        },
+        "transport": {
+          "type": "http",
+          "host": [
+            "a.example",
+            "b.example"
+          ],
+          "path": "/h2"
+        }
+      },
+      {
+        "type": "vmess",
+        "tag": "vmess-http",
+        "server": "vm3.example",
+        "server_port": 443,
+        "uuid": "u-3",
+        "security": "auto",
+        "alter_id": 0,
+        "transport": {
+          "type": "http",
+          "host": [
+            "f1.example"
+          ],
+          "method": "GET",
+          "path": "/one",
+          "headers": {
+            "X-Test": "1"
+          }
+        }
+      },
+      {
+        "type": "vless",
+        "tag": "vless-reality",
+        "server": "vl.example",
+        "server_port": 443,
+        "uuid": "u-5",
+        "flow": "xtls-rprx-vision",
+        "tls": {
+          "enabled": true,
+          "utls": {
+            "enabled": true,
+            "fingerprint": "chrome"
+          },
+          "reality": {
+            "enabled": true,
+            "public_key": "pbk",
+            "short_id": "ab12"
+          }
+        },
+        "transport": {
+          "type": "grpc",
+          "service_name": "svc"
+        }
+      },
+      {
+        "type": "vless",
+        "tag": "vless-badflow",
+        "server": "vl2.example",
+        "server_port": 443,
+        "uuid": "u-6",
+        "tls": {
+          "enabled": true
+        }
+      },
+      {
+        "type": "trojan",
+        "tag": "trojan-ws",
+        "server": "tj.example",
+        "server_port": 443,
+        "password": "pw",
+        "tls": {
+          "enabled": true,
+          "server_name": "tj.example",
+          "insecure": true,
+          "alpn": [
+            "h2",
+            "http/1.1"
+          ]
+        },
+        "transport": {
+          "type": "ws",
+          "path": "/tj"
+        }
+      },
+      {
+        "type": "hysteria",
+        "tag": "hy1",
+        "server": "hy.example",
+        "server_ports": [
+          "20000:30000",
+          "40001"
+        ],
+        "hop_interval": "20s",
+        "up": "1 Gbps",
+        "down": "100 Mbps",
+        "obfs": "xplus",
+        "auth_str": "secret",
+        "network": "faketcp",
+        "tls": {
+          "enabled": true,
+          "server_name": "hy.example",
+          "alpn": [
+            "h3"
+          ]
+        }
+      },
+      {
+        "type": "hysteria2",
+        "tag": "hy2",
+        "server": "hy2.example",
+        "server_ports": [
+          "40000:40100"
+        ],
+        "hop_interval": "30s",
+        "password": "pw",
+        "up_mbps": 16000,
+        "down_mbps": 1,
+        "tls": {
+          "enabled": true,
+          "server_name": "hy2.example",
+          "alpn": [
+            "h3"
+          ],
+          "disable_sni": true
+        },
+        "obfs": {
+          "type": "salamander",
+          "password": "ob"
+        }
+      },
+      {
+        "type": "tuic",
+        "tag": "tuic5",
+        "server": "tu.example",
+        "server_port": 443,
+        "uuid": "u-7",
+        "password": "pw",
+        "congestion_control": "cubic",
+        "udp_relay_mode": "quic",
+        "udp_over_stream": true,
+        "zero_rtt_handshake": true,
+        "heartbeat": "3000ms",
+        "tls": {
+          "enabled": true,
+          "alpn": [
+            "h3"
+          ]
+        }
+      },
+      {
+        "type": "http",
+        "tag": "http-tls",
+        "server": "h.example",
+        "server_port": 8080,
+        "username": "u",
+        "password": "p",
+        "tls": {
+          "enabled": true,
+          "server_name": "h.example",
+          "insecure": true
+        }
+      },
+      {
+        "type": "socks",
+        "tag": "socks",
+        "version": "5",
+        "server": "s.example",
+        "server_port": 1080,
+        "username": "u",
+        "password": "p"
+      },
+      {
+        "type": "anytls",
+        "tag": "anytls",
+        "server": "at.example",
+        "server_port": 443,
+        "password": "pw",
+        "idle_session_check_interval": "20s",
+        "idle_session_timeout": "40s",
+        "min_idle_session": 2,
+        "tls": {
+          "enabled": true,
+          "server_name": "at.example"
+        }
+      },
+      {
+        "type": "ssh",
+        "tag": "ssh",
+        "server": "ssh.example",
+        "server_port": 22,
+        "user": "root",
+        "private_key": "key",
+        "private_key_passphrase": "pp",
+        "host_key": [
+          "ssh-ed25519 AAAA"
+        ],
+        "host_key_algorithms": [
+          "ssh-ed25519"
+        ],
+        "client_version": "SSH-2.0-Aiko"
+      },
+      {
+        "type": "shadowtls",
+        "tag": "stls3",
+        "server": "st.example",
+        "server_port": 443,
+        "version": 3,
+        "password": "pw",
+        "tls": {
+          "enabled": true,
+          "server_name": "www.example.com"
+        }
+      },
+      {
+        "type": "direct",
+        "tag": "plain-direct"
+      },
+      {
+        "type": "shadowsocks",
+        "tag": "chained",
+        "server": "c.example",
+        "server_port": 443,
+        "method": "aes-128-gcm",
+        "password": "pw",
+        "detour": "socks"
+      },
+      {
+        "type": "shadowsocks",
+        "tag": "chained-missing",
+        "server": "c2.example",
+        "server_port": 443,
+        "method": "aes-128-gcm",
+        "password": "pw"
+      },
+      {
+        "type": "selector",
+        "tag": "Proxy",
+        "outbounds": [
+          "Auto",
+          "socks",
+          "direct"
+        ]
+      },
+      {
+        "type": "urltest",
+        "tag": "Auto",
+        "outbounds": [
+          "vmess-ws",
+          "vmess-h2",
+          "vmess-http",
+          "trojan-ws"
+        ],
+        "url": "http://cp.cloudflare.com/generate_204",
+        "interval": "300s",
+        "tolerance": 20
+      },
+      {
+        "type": "urltest",
+        "tag": "Balance",
+        "outbounds": [
+          "ss-obfs",
+          "ss-v2ray"
+        ]
+      },
+      {
+        "type": "urltest",
+        "tag": "Backup",
+        "outbounds": [
+          "ss-obfs"
+        ]
+      },
+      {
+        "type": "urltest",
+        "tag": "Smart",
+        "outbounds": [
+          "ss-obfs"
+        ]
+      },
+      {
+        "type": "selector",
+        "tag": "Unsafe",
+        "outbounds": [
+          "ss-obfs",
+          "ss-v2ray",
+          "vmess-ws",
+          "vmess-h2",
+          "vmess-http",
+          "vless-reality",
+          "vless-badflow",
+          "trojan-ws",
+          "hy1",
+          "hy2",
+          "tuic5",
+          "wg",
+          "wg-strres",
+          "http-tls",
+          "socks",
+          "anytls",
+          "ssh",
+          "stls3",
+          "plain-direct",
+          "chained",
+          "chained-missing"
+        ]
+      },
+      {
+        "type": "selector",
+        "tag": "GLOBAL",
+        "outbounds": [
+          "Proxy",
+          "Auto",
+          "Balance",
+          "Backup",
+          "Smart",
+          "Unsafe",
+          "ss-obfs",
+          "ss-v2ray",
+          "vmess-ws",
+          "vmess-h2",
+          "vmess-http",
+          "vless-reality",
+          "vless-badflow",
+          "trojan-ws",
+          "hy1",
+          "hy2",
+          "tuic5",
+          "wg",
+          "wg-strres",
+          "http-tls",
+          "socks",
+          "anytls",
+          "ssh",
+          "stls3",
+          "plain-direct",
+          "chained",
+          "chained-missing",
+          "direct"
+        ]
+      },
+      {
+        "type": "direct",
+        "tag": "direct"
+      }
+    ],
+    "route": {
+      "rules": [
+        {
+          "clash_mode": "Direct",
+          "outbound": "direct"
+        },
+        {
+          "clash_mode": "Global",
+          "outbound": "GLOBAL"
+        },
+        {
+          "clash_mode": "Rule",
+          "domain": [
+            "mode-placeholder.aikobox.invalid"
+          ],
+          "outbound": "direct"
+        },
+        {
+          "domain": [
+            "example.com"
+          ],
+          "outbound": "Proxy"
+        },
+        {
+          "domain_suffix": [
+            "google.com"
+          ],
+          "outbound": "Auto"
+        },
+        {
+          "domain_keyword": [
+            "ads"
+          ],
+          "action": "reject"
+        },
+        {
+          "domain_regex": [
+            "^ad[0-9]+\\.example\\.com$"
+          ],
+          "action": "reject",
+          "method": "drop"
+        },
+        {
+          "domain_regex": [
+            "^.*\\.cdn\\.example\\.com$"
+          ],
+          "outbound": "direct"
+        },
+        {
+          "ip_cidr": [
+            "10.0.0.0/8"
+          ],
+          "outbound": "direct"
+        },
+        {
+          "ip_cidr": [
+            "2620:0:2d0::/48"
+          ],
+          "outbound": "direct"
+        },
+        {
+          "source_ip_cidr": [
+            "192.168.1.0/24"
+          ],
+          "outbound": "direct"
+        },
+        {
+          "port": [
+            443
+          ],
+          "outbound": "Proxy"
+        },
+        {
+          "port_range": [
+            "8000:9000"
+          ],
+          "outbound": "Proxy"
+        },
+        {
+          "source_port": [
+            7777
+          ],
+          "outbound": "direct"
+        },
+        {
+          "source_port_range": [
+            "1000:2000"
+          ],
+          "outbound": "direct"
+        },
+        {
+          "process_name": [
+            "chrome.exe"
+          ],
+          "outbound": "Proxy"
+        },
+        {
+          "process_path": [
+            "/usr/bin/curl"
+          ],
+          "outbound": "direct"
+        },
+        {
+          "process_path_regex": [
+            "^/opt/.+/bin$"
+          ],
+          "outbound": "direct"
+        },
+        {
+          "process_path_regex": [
+            "^/opt/.*/bin$"
+          ],
+          "outbound": "direct"
+        },
+        {
+          "process_path_regex": [
+            "(?:^|[\\\\/])(?:chrome|firefox)$"
+          ],
+          "outbound": "Proxy"
+        },
+        {
+          "process_path_regex": [
+            "(?:^|[\\\\/])chrome.*\\.exe$"
+          ],
+          "outbound": "Proxy"
+        },
+        {
+          "network": [
+            "udp"
+          ],
+          "outbound": "direct"
+        },
+        {
+          "rule_set": [
+            "geosite-category-ads-all"
+          ],
+          "action": "reject"
+        },
+        {
+          "rule_set": [
+            "geoip-cn"
+          ],
+          "outbound": "direct"
+        },
+        {
+          "ip_is_private": true,
+          "outbound": "direct"
+        },
+        {
+          "source_ip_is_private": true,
+          "outbound": "direct"
+        },
+        {
+          "rule_set": [
+            "geoip-jp"
+          ],
+          "rule_set_ip_cidr_match_source": true,
+          "outbound": "direct"
+        },
+        {
+          "type": "logical",
+          "mode": "and",
+          "rules": [
+            {
+              "domain_suffix": [
+                "youtube.com"
+              ]
+            },
+            {
+              "network": [
+                "udp"
+              ]
+            }
+          ],
+          "action": "reject"
+        },
+        {
+          "type": "logical",
+          "mode": "or",
+          "rules": [
+            {
+              "domain": [
+                "a.com"
+              ]
+            },
+            {
+              "domain": [
+                "b.com"
+              ]
+            }
+          ],
+          "outbound": "Proxy"
+        },
+        {
+          "domain_suffix": [
+            "cn"
+          ],
+          "invert": true,
+          "outbound": "Proxy"
+        },
+        {
+          "source_ip_cidr": [
+            "192.168.1.0/24"
+          ],
+          "invert": true,
+          "outbound": "direct"
+        },
+        {
+          "type": "logical",
+          "mode": "and",
+          "rules": [
+            {
+              "type": "logical",
+              "mode": "and",
+              "rules": [
+                {
+                  "domain": [
+                    "x.com"
+                  ]
+                },
+                {
+                  "network": [
+                    "tcp"
+                  ]
+                }
+              ]
+            },
+            {
+              "port": [
+                443
+              ]
+            }
+          ],
+          "outbound": "Proxy"
+        }
+      ],
+      "rule_set": [
+        {
+          "type": "remote",
+          "tag": "geosite-category-ads-all",
+          "format": "binary",
+          "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/category-ads-all.srs",
+          "download_detour": "direct"
+        },
+        {
+          "type": "remote",
+          "tag": "geoip-cn",
+          "format": "binary",
+          "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/cn.srs",
+          "download_detour": "direct"
+        },
+        {
+          "type": "remote",
+          "tag": "geoip-jp",
+          "format": "binary",
+          "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/jp.srs",
+          "download_detour": "direct"
+        }
+      ],
+      "final": "Proxy",
+      "auto_detect_interface": true,
+      "default_domain_resolver": {
+        "server": "dns-local"
+      }
+    },
+    "experimental": {
+      "clash_api": {
+        "external_controller": "127.0.0.1:19090",
+        "secret": "fixed-secret",
+        "default_mode": "Rule"
+      },
+      "cache_file": {
+        "enabled": true,
+        "store_fakeip": true
+      }
+    },
+    "endpoints": [
+      {
+        "type": "wireguard",
+        "tag": "wg",
+        "address": [
+          "172.16.0.2/32",
+          "fd00::2/128"
+        ],
+        "private_key": "priv",
+        "mtu": 1408,
+        "peers": [
+          {
+            "address": "wg.example",
+            "port": 51820,
+            "public_key": "pub",
+            "pre_shared_key": "psk",
+            "allowed_ips": [
+              "0.0.0.0/0",
+              "::/0"
+            ],
+            "reserved": [
+              1,
+              2,
+              3
+            ]
+          }
+        ]
+      },
+      {
+        "type": "wireguard",
+        "tag": "wg-strres",
+        "address": [
+          "172.16.0.3/32"
+        ],
+        "private_key": "priv",
+        "peers": [
+          {
+            "address": "wg2.example",
+            "port": 51820,
+            "public_key": "pub",
+            "allowed_ips": [
+              "0.0.0.0/0",
+              "::/0"
+            ],
+            "reserved": "AQID"
+          }
+        ]
+      }
+    ]
+  },
+  "warnings": [
+    "external-controller was restricted to 127.0.0.1 for desktop security",
+    "proxy \"ss-badplugin\": shadowsocks plugin \"shadow-tls\" is not supported, proxy skipped",
+    "proxy \"vmess-quic\": transport network \"quic\" is not supported, proxy skipped",
+    "proxy \"vless-badflow\": vless flow \"xtls-rprx-direct\" is not supported and was dropped",
+    "proxy \"hy2-badobfs\": hysteria2 obfs \"chacha\" is not supported, proxy skipped",
+    "proxy \"tuic4\": TUIC v4 (token) is not supported, proxy skipped",
+    "proxy \"wg-noip\": wireguard is missing local ip, proxy skipped",
+    "proxy \"socks-tls\": socks5 over TLS is not supported, proxy skipped",
+    "proxy \"stls-nopw\": ShadowTLS v2 requires a password, proxy skipped",
+    "proxy \"stls-badver\": ShadowTLS version 9 is invalid, proxy skipped",
+    "proxy without a name was skipped",
+    "proxy \"direct\": duplicate or reserved name, skipped",
+    "proxy \"socks\": duplicate or reserved name, skipped",
+    "proxy \"unknown\": type \"ssr\" is not supported by sing-box, skipped",
+    "proxy \"chained-missing\": dialer-proxy \"nope\" not found, ignored",
+    "group \"Proxy\": built-in policy \"REJECT\" cannot be a sing-box group member, dropped",
+    "group \"Proxy\": built-in policy \"COMPATIBLE\" cannot be a sing-box group member, dropped",
+    "group \"Proxy\": member \"ghost\" not found or unsupported, dropped",
+    "group \"Balance\": load-balance approximated with url-test",
+    "group \"Backup\": fallback approximated with url-test",
+    "group \"Smart\": smart groups are not supported, approximated with url-test",
+    "group \"Chain\": relay groups are not supported by sing-box, skipped",
+    "group \"Bogus\": type \"made-up\" is not supported, skipped",
+    "group \"Proxy\": duplicate name, skipped",
+    "proxy-group without a name was skipped",
+    "rule \"NOT,((IP-CIDR,10.0.0.0/8)),DIRECT\": an inverted destination-IP condition would match every domain destination in sing-box, skipped",
+    "rule \"NOT,((DOMAIN,a.com),(DOMAIN,b.com)),Proxy\": NOT rule must contain exactly one sub-rule: \"((DOMAIN,a.com),(DOMAIN,b.com))\", skipped",
+    "rule \"AND,broken,Proxy\" could not be parsed, skipped",
+    "rule \"SUB-RULE,(DOMAIN,a.com),sub,Proxy\": SUB-RULE is not supported, skipped",
+    "rule \"DOMAIN,pass.com,PASS\": PASS has no sing-box equivalent, skipped",
+    "rule \"IN-TYPE,SOCKS,Proxy\": rule type \"IN-TYPE\" is not supported, skipped",
+    "rule \"justonefield\" could not be parsed, skipped",
+    "rule \"DOMAIN,incomplete\" is incomplete, skipped"
+  ],
+  "errors": [
+    "group \"Unsafe\": unsafe or invalid filter (Error: filter regex contains nested or repeated quantifiers)",
+    "rule \"RULE-SET,provider,Proxy\": unresolved rule-providers must be resolved before conversion",
+    "rule \"DOMAIN,ghost.com,Nowhere\": target \"Nowhere\" not found or unsupported"
+  ],
+  "controller": {
+    "listen": "127.0.0.1:19090",
+    "host": "127.0.0.1",
+    "port": 19090,
+    "secret": "fixed-secret"
+  }
+}

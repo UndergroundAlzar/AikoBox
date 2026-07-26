@@ -1,5 +1,10 @@
-import { describe, expect, it, vi } from 'vitest'
-import { ExactEndpointGuardian } from './exactEndpointGuardian'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  ExactEndpointGuardian,
+  beginExactEndpointGuardianShutdown,
+  cancelExactEndpointGuardianShutdown,
+  isExactEndpointGuardianShutdown
+} from './exactEndpointGuardian'
 
 describe('ExactEndpointGuardian', () => {
   const endpoint = { host: '127.0.0.1', port: 17890 }
@@ -102,5 +107,70 @@ describe('ExactEndpointGuardian', () => {
     ).rejects.toThrow(/already recovering/i)
     release()
     await first
+  })
+})
+
+describe('ExactEndpointGuardian shutdown', () => {
+  const endpoint = { host: '127.0.0.1', port: 17890 }
+
+  afterEach(() => {
+    cancelExactEndpointGuardianShutdown()
+  })
+
+  it('refuses to start a recovery once shutdown has begun', async () => {
+    beginExactEndpointGuardianShutdown()
+    expect(isExactEndpointGuardianShutdown()).toBe(true)
+    const guardian = new ExactEndpointGuardian()
+    const attempt = vi.fn(async () => {})
+
+    await expect(
+      guardian.ensure({ endpoint, isHealthy: () => false, attempt, delay: async () => {} })
+    ).rejects.toThrow(/shutting down/i)
+    expect(attempt).not.toHaveBeenCalled()
+  })
+
+  it('stops respawning an unhealthy endpoint when shutdown starts mid-recovery', async () => {
+    const guardian = new ExactEndpointGuardian()
+    const attempt = vi.fn(async () => {
+      beginExactEndpointGuardianShutdown()
+    })
+
+    await expect(
+      guardian.ensure({ endpoint, isHealthy: () => false, attempt, delay: async () => {} })
+    ).rejects.toThrow(/shutting down/i)
+    expect(attempt).toHaveBeenCalledOnce()
+  })
+
+  it('does not spawn again when shutdown starts during the recovery backoff', async () => {
+    const guardian = new ExactEndpointGuardian()
+    const attempt = vi.fn(async () => {
+      throw new Error('spawn failed')
+    })
+
+    await expect(
+      guardian.ensure({
+        endpoint,
+        isHealthy: () => false,
+        attempt,
+        onAttemptError: () => {},
+        delay: async () => {
+          beginExactEndpointGuardianShutdown()
+        }
+      })
+    ).rejects.toThrow(/shutting down/i)
+    expect(attempt).toHaveBeenCalledOnce()
+  })
+
+  it('resumes recovery after a cancelled shutdown', async () => {
+    beginExactEndpointGuardianShutdown()
+    cancelExactEndpointGuardianShutdown()
+    const guardian = new ExactEndpointGuardian()
+    let healthy = false
+    const attempt = vi.fn(async () => {
+      healthy = true
+    })
+
+    await guardian.ensure({ endpoint, isHealthy: () => healthy, attempt, delay: async () => {} })
+    expect(attempt).toHaveBeenCalledOnce()
   })
 })
