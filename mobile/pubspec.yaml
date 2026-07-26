@@ -1,0 +1,70 @@
+name: aikobox_mobile
+description: 'AikoBox for Android — a sing-box client that speaks Clash.'
+publish_to: 'none'
+
+# Mirrors the desktop package version. scripts/update-version.mjs keeps them in step.
+version: 0.1.0+1
+
+environment:
+  # 3.10 is the floor for dot-shorthands, which the Flutter 3.44 templates emit.
+  sdk: '>=3.10.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  intl: any
+
+  # State. Deliberately no riverpod_generator: code generation buys very little here and
+  # every generated file is one more thing that can go stale in CI.
+  flutter_riverpod: ^3.3.1
+
+  # Config pipeline. The two aikobox_* packages are pure Dart (no flutter dependency) so
+  # they can run under `dart test` against the shared golden corpus in spec/convert/.
+  aikobox_convert:
+    path: packages/aikobox_convert
+  aikobox_subscription:
+    path: packages/aikobox_subscription
+  yaml: ^3.1.3
+  yaml_edit: ^2.2.2
+  crypto: ^3.0.6
+  collection: ^1.19.1
+
+  # Storage. No database: the desktop app keeps profiles and settings as files written
+  # atomically, and this port keeps that model rather than introducing schema migrations
+  # the desktop side does not have.
+  path_provider: ^2.1.5
+  path: ^1.9.0
+  shared_preferences: ^2.5.3
+  flutter_secure_storage: ^10.0.0
+
+  # Networking. `http` rather than dio: every redirect hop has to be vetted individually
+  # by the subscription guard, and dio's adapter follows some hops internally.
+  http: ^1.5.0
+  web_socket_channel: ^3.0.3
+
+  # Platform integration
+  app_links: ^7.1.2
+  file_picker: ^11.0.2
+  url_launcher: ^6.3.2
+  # Held at 9.x: 10.1+ requires win32 ^6, which file_picker 11 does not allow. The
+  # conflict is over a Windows-only transitive dependency that this Android-only build
+  # never links, but pub resolves it regardless.
+  package_info_plus: ^9.0.1
+
+  # UI
+  dynamic_color: ^1.8.1
+  material_color_utilities: ^0.13.0
+  super_sliver_list: ^0.4.1
+  qr_flutter: ^4.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/locales/

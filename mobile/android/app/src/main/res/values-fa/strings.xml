@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Values taken verbatim from mobile/assets/locales/fa-IR.json. Right-to-left. -->
+<resources>
+
+    <string name="notification_channel_tunnel">سرویس VPN</string>
+    <string name="notification_channel_tunnel_description">اعلان دائمی که اندروید هنگام فعال بودن تونل لازم دارد.</string>
+    <string name="notification_channel_notices">هشدارها</string>
+    <string name="notification_channel_notices_description">به‌روزرسانی اشتراک‌ها و خطاهای هسته.</string>
+
+    <string name="notification_title">AikoBox</string>
+    <string name="notification_starting_title">در حال شروع AikoBox…</string>
+    <string name="notification_starting_body">در انتظار سالم‌شدن هسته</string>
+    <string name="notification_running_title">AikoBox در حال اجراست</string>
+    <string name="notification_running_body">%1$s · ↑ %2$s ↓ %3$s</string>
+    <string name="notification_running_body_no_mode">↑ %1$s ↓ %2$s</string>
+    <string name="notification_stopping_body">در حال توقف…</string>
+    <string name="notification_failed_title">AikoBox نتوانست شروع شود</string>
+    <string name="notification_action_stop">توقف</string>
+
+    <string name="notification_mode_rule">قانون</string>
+    <string name="notification_mode_global">جهانی</string>
+    <string name="notification_mode_direct">مستقیم</string>
+
+    <string name="tile_label">AikoBox</string>
+    <string name="tile_state_stopped">متوقف</string>
+    <string name="tile_state_starting">در حال شروع…</string>
+    <string name="tile_state_running">در حال اجرا</string>
+    <string name="tile_state_stopping">در حال توقف…</string>
+    <string name="tile_state_failed">ناموفق</string>
+
+</resources>

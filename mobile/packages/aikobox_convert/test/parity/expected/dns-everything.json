@@ -1,0 +1,217 @@
+{
+  "config": {
+    "log": {
+      "level": "info",
+      "timestamp": true
+    },
+    "dns": {
+      "servers": [
+        {
+          "type": "local",
+          "tag": "dns-local"
+        },
+        {
+          "type": "udp",
+          "tag": "dns-bootstrap-0",
+          "server": "1.1.1.1"
+        },
+        {
+          "type": "udp",
+          "tag": "dns-bootstrap-1",
+          "server": "8.8.8.8"
+        },
+        {
+          "type": "https",
+          "tag": "dns-proxy-server-0",
+          "server": "9.9.9.9"
+        },
+        {
+          "type": "udp",
+          "tag": "dns-direct-0",
+          "server": "223.5.5.5"
+        },
+        {
+          "type": "tcp",
+          "tag": "dns-direct-1",
+          "server": "114.114.114.114"
+        },
+        {
+          "type": "hosts",
+          "tag": "dns-hosts",
+          "predefined": {
+            "router.lan": "192.168.1.1",
+            "nas.lan": [
+              "192.168.1.2",
+              "fd00::2"
+            ]
+          }
+        },
+        {
+          "type": "https",
+          "tag": "dns-0",
+          "server": "doh.pub",
+          "domain_resolver": "dns-bootstrap-0"
+        },
+        {
+          "type": "tls",
+          "tag": "dns-1",
+          "server": "dns.google",
+          "server_port": 853,
+          "domain_resolver": "dns-bootstrap-0"
+        },
+        {
+          "type": "quic",
+          "tag": "dns-2",
+          "server": "dns.adguard.com",
+          "domain_resolver": "dns-bootstrap-0"
+        },
+        {
+          "type": "h3",
+          "tag": "dns-3",
+          "server": "cloudflare-dns.com",
+          "domain_resolver": "dns-bootstrap-0"
+        },
+        {
+          "type": "udp",
+          "tag": "dns-4",
+          "server": "2001:4860:4860::8888",
+          "server_port": 53
+        },
+        {
+          "type": "dhcp",
+          "tag": "dns-6",
+          "interface": "eth0"
+        },
+        {
+          "type": "dhcp",
+          "tag": "dns-7"
+        },
+        {
+          "type": "udp",
+          "tag": "dns-policy-14",
+          "server": "10.0.0.53"
+        },
+        {
+          "type": "fakeip",
+          "tag": "dns-fakeip",
+          "inet4_range": "198.18.0.1/16",
+          "inet6_range": "fc00::/18"
+        }
+      ],
+      "rules": [
+        {
+          "ip_accept_any": true,
+          "server": "dns-hosts"
+        },
+        {
+          "domain": [
+            "internal"
+          ],
+          "domain_suffix": [
+            ".internal"
+          ],
+          "server": "dns-policy-14"
+        },
+        {
+          "domain": [
+            "lan"
+          ],
+          "domain_suffix": [
+            ".lan",
+            ".local"
+          ],
+          "domain_regex": [
+            "^time\\.[^.]*\\.com$"
+          ],
+          "server": "dns-0"
+        },
+        {
+          "query_type": [
+            "A",
+            "AAAA"
+          ],
+          "server": "dns-fakeip"
+        }
+      ],
+      "final": "dns-0",
+      "independent_cache": true
+    },
+    "inbounds": [
+      {
+        "type": "mixed",
+        "tag": "mixed-in",
+        "listen": "127.0.0.1",
+        "listen_port": 7890
+      }
+    ],
+    "outbounds": [
+      {
+        "type": "selector",
+        "tag": "GLOBAL",
+        "outbounds": [
+          "direct"
+        ]
+      },
+      {
+        "type": "direct",
+        "tag": "direct",
+        "domain_resolver": "dns-direct-0"
+      }
+    ],
+    "route": {
+      "rules": [
+        {
+          "protocol": "dns",
+          "action": "hijack-dns"
+        },
+        {
+          "clash_mode": "Direct",
+          "outbound": "direct"
+        },
+        {
+          "clash_mode": "Global",
+          "outbound": "GLOBAL"
+        },
+        {
+          "clash_mode": "Rule",
+          "domain": [
+            "mode-placeholder.aikobox.invalid"
+          ],
+          "outbound": "direct"
+        }
+      ],
+      "final": "direct",
+      "auto_detect_interface": true,
+      "default_domain_resolver": {
+        "server": "dns-proxy-server-0"
+      }
+    },
+    "experimental": {
+      "clash_api": {
+        "external_controller": "127.0.0.1:9090",
+        "secret": "fixed-secret",
+        "default_mode": "Rule"
+      },
+      "cache_file": {
+        "enabled": true,
+        "store_fakeip": true
+      }
+    }
+  },
+  "warnings": [
+    "hosts pattern \"*.bad.lan\" is not an exact domain, skipped",
+    "DNS nameserver \"rcode://success\" (rcode) is not supported, skipped",
+    "DNS nameserver \"sdns://ohno\" has unsupported scheme, skipped",
+    "nameserver-policy pattern \"geosite:cn\" is not supported, skipped",
+    "nameserver-policy pattern \"*\" is not supported, skipped",
+    "fake-ip-filter entries not convertible were skipped: geosite:cn, *, rule-set:x",
+    "dns.fallback / fallback-filter have no sing-box equivalent, skipped"
+  ],
+  "errors": [],
+  "controller": {
+    "listen": "127.0.0.1:9090",
+    "host": "127.0.0.1",
+    "port": 9090,
+    "secret": "fixed-secret"
+  }
+}

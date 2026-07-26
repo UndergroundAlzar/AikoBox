@@ -1,0 +1,207 @@
+{
+  "config": {
+    "log": {
+      "level": "info",
+      "timestamp": true
+    },
+    "dns": {
+      "servers": [
+        {
+          "type": "local",
+          "tag": "dns-local"
+        }
+      ],
+      "final": "dns-local"
+    },
+    "inbounds": [
+      {
+        "type": "mixed",
+        "tag": "mixed-in",
+        "listen": "::",
+        "listen_port": 7890,
+        "users": [
+          {
+            "username": "user",
+            "password": "pass"
+          },
+          {
+            "username": "a",
+            "password": "b:c"
+          }
+        ]
+      },
+      {
+        "type": "socks",
+        "tag": "socks-in",
+        "listen": "::",
+        "listen_port": 7891,
+        "users": [
+          {
+            "username": "user",
+            "password": "pass"
+          },
+          {
+            "username": "a",
+            "password": "b:c"
+          }
+        ]
+      },
+      {
+        "type": "http",
+        "tag": "http-in",
+        "listen": "::",
+        "listen_port": 7892,
+        "users": [
+          {
+            "username": "user",
+            "password": "pass"
+          },
+          {
+            "username": "a",
+            "password": "b:c"
+          }
+        ]
+      },
+      {
+        "type": "redirect",
+        "tag": "redir-in",
+        "listen": "::",
+        "listen_port": 7893
+      },
+      {
+        "type": "tproxy",
+        "tag": "tproxy-in",
+        "listen": "::",
+        "listen_port": 7894
+      },
+      {
+        "type": "tun",
+        "tag": "tun-in",
+        "interface_name": "aiko0",
+        "address": [
+          "198.19.0.1/30",
+          "fdfe:dcba:9876::1/126"
+        ],
+        "mtu": 9000,
+        "auto_route": true,
+        "strict_route": true,
+        "stack": "system",
+        "route_address": [
+          "0.0.0.0/1"
+        ],
+        "route_exclude_address": [
+          "192.168.0.0/16"
+        ],
+        "endpoint_independent_nat": true,
+        "auto_redirect": true
+      }
+    ],
+    "outbounds": [
+      {
+        "type": "socks",
+        "tag": "n",
+        "version": "5",
+        "server": "127.0.0.1",
+        "server_port": 1080
+      },
+      {
+        "type": "selector",
+        "tag": "PROXY",
+        "outbounds": [
+          "n"
+        ]
+      },
+      {
+        "type": "selector",
+        "tag": "GLOBAL",
+        "outbounds": [
+          "PROXY",
+          "n",
+          "direct"
+        ]
+      },
+      {
+        "type": "direct",
+        "tag": "direct"
+      }
+    ],
+    "route": {
+      "rules": [
+        {
+          "inbound": [
+            "mixed-in",
+            "socks-in",
+            "http-in"
+          ],
+          "source_ip_cidr": [
+            "192.168.50.100/32"
+          ],
+          "action": "reject"
+        },
+        {
+          "type": "logical",
+          "mode": "and",
+          "rules": [
+            {
+              "inbound": [
+                "mixed-in",
+                "socks-in",
+                "http-in"
+              ]
+            },
+            {
+              "source_ip_cidr": [
+                "192.168.50.0/24",
+                "10.0.0.0/8",
+                "127.0.0.0/8",
+                "::1/128"
+              ],
+              "invert": true
+            }
+          ],
+          "action": "reject"
+        },
+        {
+          "clash_mode": "Direct",
+          "outbound": "direct"
+        },
+        {
+          "clash_mode": "Global",
+          "outbound": "GLOBAL"
+        },
+        {
+          "clash_mode": "Rule",
+          "domain": [
+            "mode-placeholder.aikobox.invalid"
+          ],
+          "outbound": "direct"
+        }
+      ],
+      "final": "PROXY",
+      "auto_detect_interface": true,
+      "default_domain_resolver": {
+        "server": "dns-local"
+      },
+      "default_interface": "eth0",
+      "default_mark": 1234
+    },
+    "experimental": {
+      "clash_api": {
+        "external_controller": "127.0.0.1:9090",
+        "default_mode": "Rule"
+      },
+      "cache_file": {
+        "enabled": true,
+        "store_fakeip": true
+      }
+    }
+  },
+  "warnings": [],
+  "errors": [],
+  "controller": {
+    "listen": "127.0.0.1:9090",
+    "host": "127.0.0.1",
+    "port": 9090,
+    "secret": ""
+  }
+}

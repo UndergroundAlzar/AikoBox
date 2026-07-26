@@ -1,0 +1,134 @@
+{
+  "config": {
+    "log": {
+      "level": "info",
+      "timestamp": true
+    },
+    "dns": {
+      "servers": [
+        {
+          "type": "local",
+          "tag": "dns-local"
+        }
+      ],
+      "final": "dns-local"
+    },
+    "inbounds": [],
+    "outbounds": [
+      {
+        "type": "shadowsocks",
+        "tag": "Direct SS2022",
+        "server": "ss2022.example",
+        "server_port": 443,
+        "method": "2022-blake3-aes-128-gcm",
+        "password": "MTIzNDU2Nzg5MDEyMzQ1Ng=="
+      },
+      {
+        "type": "urltest",
+        "tag": "Auto",
+        "outbounds": [
+          "Shared"
+        ],
+        "url": "https://www.gstatic.com/generate_204",
+        "interval": "300s"
+      },
+      {
+        "type": "selector",
+        "tag": "Proxy",
+        "outbounds": [
+          "Auto",
+          "Direct SS2022"
+        ]
+      },
+      {
+        "type": "selector",
+        "tag": "GLOBAL",
+        "outbounds": [
+          "Auto",
+          "Proxy",
+          "Shared",
+          "Direct SS2022",
+          "direct"
+        ]
+      },
+      {
+        "type": "direct",
+        "tag": "direct"
+      }
+    ],
+    "route": {
+      "rules": [
+        {
+          "clash_mode": "Direct",
+          "outbound": "direct"
+        },
+        {
+          "clash_mode": "Global",
+          "outbound": "GLOBAL"
+        },
+        {
+          "clash_mode": "Rule",
+          "domain": [
+            "mode-placeholder.aikobox.invalid"
+          ],
+          "outbound": "direct"
+        }
+      ],
+      "final": "Proxy",
+      "auto_detect_interface": true,
+      "default_domain_resolver": {
+        "server": "dns-local"
+      }
+    },
+    "experimental": {
+      "clash_api": {
+        "external_controller": "127.0.0.1:9090",
+        "secret": "fixture-controller-secret",
+        "default_mode": "Rule"
+      },
+      "cache_file": {
+        "enabled": true,
+        "store_fakeip": true
+      }
+    },
+    "endpoints": [
+      {
+        "type": "wireguard",
+        "tag": "Shared",
+        "address": [
+          "172.16.0.2/32",
+          "fd00::2/128"
+        ],
+        "private_key": "private-key",
+        "peers": [
+          {
+            "address": "wg.example",
+            "port": 51820,
+            "public_key": "public-key",
+            "allowed_ips": [
+              "0.0.0.0/0",
+              "::/0"
+            ],
+            "reserved": [
+              1,
+              2,
+              3
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "warnings": [
+    "Clash proxy-providers must be resolved before conversion; unresolved entries are refused"
+  ],
+  "errors": [
+    "group \"Auto\": unresolved proxy-providers (use) must be resolved before conversion"
+  ],
+  "controller": {
+    "listen": "127.0.0.1:9090",
+    "host": "127.0.0.1",
+    "port": 9090,
+    "secret": "fixture-controller-secret"
+  }
+}

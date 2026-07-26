@@ -12,7 +12,7 @@
   中文 · <a href="./README_EN.md">English</a>
 </p>
 
-AikoBox 是一款仅面向 **Windows x64** 的 sing-box 桌面客户端，界面与订阅工作流源自 Clash Party。Aiko 是项目的白毛红瞳看板娘。
+AikoBox 是一款以 sing-box 为唯一内核的客户端：桌面端面向 **Windows x64**，界面与订阅工作流源自 Clash Party；移动端为 **Android arm64-v8a**，界面参照 FlClash。Aiko 是项目的白毛红瞳看板娘。
 
 > 项目仍处于 `0.x` Beta 阶段。预发行版必须通过第三方许可审计和静态产物校验；若尚未配置受信任的 Windows 代码签名证书，Release 会明确标注“未签名 Beta”。在系统代理或 TUN 成为唯一联网路径前，请先保留可恢复的网络方案。
 
@@ -82,6 +82,39 @@ pnpm run build:win
 `pnpm test` 包含使用随项目资源准备的 sing-box 执行 `check` 的配置校验，但不会启动代理服务。`pnpm run build:win` 生成安装包、便携版和 SHA-256 文件到 `dist/`。
 
 开发时运行 `pnpm dev` 会实际启动桌面应用和内核。若电脑已经依赖其他代理联网，请先使用独立的高位测试端口，并确保系统代理和 TUN 默认关闭。
+
+## Android 客户端
+
+源码在 [`mobile/`](./mobile)，Flutter 3.44 + sing-box `libbox`，**仅 arm64-v8a**（不提供 armeabi-v7a 或 x86）。界面语言参照 [FlClash](https://github.com/chen08209/FlClash) 的 Material You 设计。
+
+桌面端不可协商的那几条约束在这里逐条保留：内核证明健康之前不放行流量、旧内核仍在服务时先校验候选配置、保留 last-known-good 并在候选被拒时自动回滚、无法安全转换时拒绝静默降级为直连。Windows 特有的机制（WinINET 系统代理、UAC 提权、托盘）不适用，取而代之的是 `VpnService`——在 Android 上 VPN 同时承担了系统代理和 TUN 两个角色。
+
+内核不随应用更新：`libbox.aar` 由 [`.github/workflows/android-libbox.yml`](./.github/workflows/android-libbox.yml) 从 `SagerNet/sing-box v1.13.14` 源码构建，锁定在 [`scripts/resources-lock.android.json`](./scripts/resources-lock.android.json)，并在 Gradle 链接之前由 `scripts/verify-android-core.mjs` 校验。SagerNet 不发布预编译 AAR；社区存在第三方镜像，但本项目**不采用**——那是无关联账号发布的不可复现二进制，会运行在 VPN 进程内、能看到全部流量。
+
+本地构建需要 Flutter 3.44.8、Android SDK 36、NDK r28 与 JDK 17：
+
+```powershell
+# 先产出内核绑定（需要 Go 1.25+ 与 SagerNet 的 gomobile 分支）
+go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
+go install github.com/sagernet/gomobile/cmd/gobind@v0.1.12
+go run ./cmd/internal/build_libbox -target android -platform android/arm64   # 在 sing-box 仓库内
+copy libbox.aar <AikoBox>\mobile\android\app\libs\libbox.aar
+
+cd mobile
+flutter pub get
+flutter analyze
+flutter test
+flutter build apk --release --target-platform android-arm64
+```
+
+转换器与订阅解析是纯 Dart 包，单独测试：
+
+```powershell
+cd mobile\packages\aikobox_convert;      dart test
+cd mobile\packages\aikobox_subscription; dart test
+```
+
+`aikobox_convert` 的测试会用真实的 sing-box 二进制对转换结果执行 `check`，并与 TypeScript 实现的逐字节黄金基准对照，两边不会各自漂移。
 
 ## 安全与许可
 

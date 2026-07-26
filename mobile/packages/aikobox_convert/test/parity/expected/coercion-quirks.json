@@ -1,0 +1,145 @@
+{
+  "config": {
+    "log": {
+      "level": "warn",
+      "timestamp": true
+    },
+    "dns": {
+      "servers": [
+        {
+          "type": "local",
+          "tag": "dns-local"
+        }
+      ],
+      "final": "dns-local",
+      "strategy": "ipv4_only"
+    },
+    "inbounds": [
+      {
+        "type": "mixed",
+        "tag": "mixed-in",
+        "listen": "0.0.0.0",
+        "listen_port": 7890
+      }
+    ],
+    "outbounds": [
+      {
+        "type": "shadowsocks",
+        "tag": "q1",
+        "server": "q.example",
+        "server_port": 443,
+        "method": "aes-128-gcm",
+        "password": "987654",
+        "tcp_fast_open": true,
+        "tcp_multi_path": false,
+        "domain_strategy": "ipv4_only"
+      },
+      {
+        "type": "socks",
+        "tag": "42",
+        "version": "5",
+        "server": "n.example",
+        "server_port": 1080
+      },
+      {
+        "type": "hysteria2",
+        "tag": "q2",
+        "server": "q2.example",
+        "server_port": 443,
+        "password": "pw",
+        "up_mbps": 56,
+        "down_mbps": 13,
+        "tls": {
+          "enabled": true,
+          "alpn": [
+            "h3"
+          ]
+        }
+      },
+      {
+        "type": "selector",
+        "tag": "G",
+        "outbounds": [
+          "q1",
+          "42",
+          "q2"
+        ]
+      },
+      {
+        "type": "selector",
+        "tag": "GLOBAL",
+        "outbounds": [
+          "G",
+          "q1",
+          "42",
+          "q2",
+          "direct"
+        ]
+      },
+      {
+        "type": "direct",
+        "tag": "direct"
+      }
+    ],
+    "route": {
+      "rules": [
+        {
+          "action": "sniff"
+        },
+        {
+          "clash_mode": "Direct",
+          "outbound": "direct"
+        },
+        {
+          "clash_mode": "Global",
+          "outbound": "GLOBAL"
+        },
+        {
+          "clash_mode": "Rule",
+          "domain": [
+            "mode-placeholder.aikobox.invalid"
+          ],
+          "outbound": "direct"
+        },
+        {
+          "port": [
+            0
+          ],
+          "outbound": "G"
+        },
+        {
+          "source_port": [
+            0
+          ],
+          "outbound": "G"
+        }
+      ],
+      "final": "G",
+      "auto_detect_interface": true,
+      "default_domain_resolver": {
+        "server": "dns-local"
+      }
+    },
+    "experimental": {
+      "clash_api": {
+        "external_controller": "127.0.0.1:9099",
+        "secret": "12345",
+        "default_mode": "Direct"
+      },
+      "cache_file": {
+        "enabled": true,
+        "store_fakeip": false
+      }
+    }
+  },
+  "warnings": [
+    "allow-lan is enabled without authentication; LAN clients can use the proxy"
+  ],
+  "errors": [],
+  "controller": {
+    "listen": "127.0.0.1:9099",
+    "host": "127.0.0.1",
+    "port": 9099,
+    "secret": "12345"
+  }
+}

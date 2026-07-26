@@ -12,7 +12,7 @@
   <a href="./README.md">中文</a> · English
 </p>
 
-AikoBox targets **Windows 10/11 x64 only**. Its interface and subscription workflow are derived from Clash Party, while sing-box is the sole proxy core. Aiko, the white-haired and red-eyed mascot, represents the project.
+AikoBox uses sing-box as its sole proxy core. The desktop client targets **Windows 10/11 x64**, with an interface and subscription workflow derived from Clash Party; the mobile client targets **Android arm64-v8a**, with an interface derived from FlClash. Aiko, the white-haired and red-eyed mascot, represents the project.
 
 > AikoBox is currently a `0.x` beta. Prereleases must pass the third-party redistribution audit and static artifact verification. Until a trusted Windows certificate is configured, a prerelease may ship only when it is clearly labeled as an unsigned beta.
 
@@ -55,6 +55,39 @@ pnpm run build:win
 ```
 
 `pnpm test` uses `sing-box check` for real configuration validation; it does not start the proxy service. Running `pnpm dev` does start the desktop application and core, so do not point it at ports used by another active proxy.
+
+## Android client
+
+Source lives in [`mobile/`](./mobile): Flutter 3.44 plus the sing-box `libbox` binding, **arm64-v8a only** (no armeabi-v7a, no x86). The visual language follows [FlClash](https://github.com/chen08209/FlClash)'s Material You design.
+
+The desktop client's non-negotiables carry over one for one: traffic is never exposed before the core proves healthy, a candidate configuration is validated while the old core is still serving, a last-known-good configuration is kept and restored automatically when a candidate is rejected, and the app refuses to degrade silently to a direct connection when a profile cannot be converted safely. The Windows-specific mechanisms — WinINET system proxy, UAC elevation, tray — do not apply; `VpnService` replaces them, because on Android the VPN is both the system proxy and the TUN device.
+
+The core does not update with the app. `libbox.aar` is built from `SagerNet/sing-box v1.13.14` source by [`.github/workflows/android-libbox.yml`](./.github/workflows/android-libbox.yml), pinned in [`scripts/resources-lock.android.json`](./scripts/resources-lock.android.json), and checked by `scripts/verify-android-core.mjs` before Gradle links it. SagerNet publishes no prebuilt AAR. A third-party mirror exists and is deliberately **not** used: it is an unaffiliated account's unreproducible binary that would run inside the VPN process with full visibility of the user's traffic.
+
+Building locally requires Flutter 3.44.8, Android SDK 36, NDK r28 and JDK 17:
+
+```powershell
+# Produce the core binding first (needs Go 1.25+ and the SagerNet gomobile fork)
+go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
+go install github.com/sagernet/gomobile/cmd/gobind@v0.1.12
+go run ./cmd/internal/build_libbox -target android -platform android/arm64   # inside the sing-box repo
+copy libbox.aar <AikoBox>\mobile\android\app\libs\libbox.aar
+
+cd mobile
+flutter pub get
+flutter analyze
+flutter test
+flutter build apk --release --target-platform android-arm64
+```
+
+The converter and the subscription parser are pure Dart packages, tested on their own:
+
+```powershell
+cd mobile\packages\aikobox_convert;      dart test
+cd mobile\packages\aikobox_subscription; dart test
+```
+
+`aikobox_convert`'s tests run the real sing-box binary's `check` over their output and compare it byte for byte against a golden corpus emitted by the TypeScript implementation, so the two cannot drift apart.
 
 ## Security and licensing
 

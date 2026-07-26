@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Strings owned by the Android layer.
+
+  The Flutter side has its own catalogue in assets/locales/*.json and Kotlin cannot reach
+  into it, so the handful of strings the platform renders itself — the ongoing notification
+  and the quick-settings tile — live here. Every value is taken verbatim from the matching
+  key in assets/locales/<locale>.json so the notification reads exactly like the UI that
+  raised it:
+
+    notification_channel_tunnel*   <- notification.channel.service.*
+    notification_channel_notices*  <- notification.channel.alerts.*
+    notification_starting_*        <- notification.starting.*
+    notification_running_*         <- notification.running.*
+    notification_failed_title      <- notification.failed.title
+    notification_action_stop       <- notification.action.stop
+    notification_mode_*            <- outbound.modes.*
+    tile_state_*                   <- dashboard.status.*
+
+  Locale set matches the app's: en-US (default), zh-CN, zh-TW, ru-RU, fa-IR. These are
+  resolved against the language chosen *inside AikoBox*, not the device language — see
+  TunnelNotification.applyLocale.
+-->
+<resources>
+
+    <!-- Notification channels -->
+    <string name="notification_channel_tunnel">VPN service</string>
+    <string name="notification_channel_tunnel_description">The ongoing notification Android requires while the tunnel is up.</string>
+    <string name="notification_channel_notices">Alerts</string>
+    <string name="notification_channel_notices_description">Subscription updates and core failures.</string>
+
+    <!-- Ongoing notification -->
+    <string name="notification_title">AikoBox</string>
+    <string name="notification_starting_title">Starting AikoBox…</string>
+    <string name="notification_starting_body">Waiting for the core to become healthy</string>
+    <string name="notification_running_title">AikoBox is running</string>
+    <!-- %1$s outbound mode, %2$s upload rate, %3$s download rate -->
+    <string name="notification_running_body">%1$s · ↑ %2$s ↓ %3$s</string>
+    <!-- %1$s upload rate, %2$s download rate -->
+    <string name="notification_running_body_no_mode">↑ %1$s ↓ %2$s</string>
+    <string name="notification_stopping_body">Stopping…</string>
+    <string name="notification_failed_title">AikoBox could not start</string>
+    <string name="notification_action_stop">Stop</string>
+
+    <!-- Outbound modes -->
+    <string name="notification_mode_rule">Rule</string>
+    <string name="notification_mode_global">Global</string>
+    <string name="notification_mode_direct">Direct</string>
+
+    <!-- Quick settings tile -->
+    <string name="tile_label">AikoBox</string>
+    <string name="tile_state_stopped">Stopped</string>
+    <string name="tile_state_starting">Starting…</string>
+    <string name="tile_state_running">Running</string>
+    <string name="tile_state_stopping">Stopping…</string>
+    <string name="tile_state_failed">Failed</string>
+
+</resources>

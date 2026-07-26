@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "target": "android-arm64",
+  "resources": {
+    "libbox": {
+      "type": "gomobile-aar",
+      "version": "1.13.14",
+      "sourceRepository": "https://github.com/SagerNet/sing-box",
+      "releaseTag": "v1.13.14",
+      "releaseTagCommit": "25a600db24f7680ad9806ce5427bd0ab8afe1114",
+      "buildCommand": "go run ./cmd/internal/build_libbox -target android -platform android/arm64",
+      "toolchain": {
+        "gomobile": "github.com/sagernet/gomobile@v0.1.12",
+        "ndk": "28.0.13004108",
+        "jdk": "temurin-17",
+        "go": ">=1.25"
+      },
+      "javaPackage": "io.nekohasekai.libbox",
+      "abi": ["arm64-v8a"],
+      "soName": "jni/arm64-v8a/libbox.so",
+      "output": "mobile/android/app/libs/libbox.aar",
+      "size": 22530357,
+      "sha256": "30b1521ff98ffb20de3eae44c4d798309686a2e2668ee6d37f7b637a8ccfe716",
+      "reproducible": false,
+      "notes": [
+        "SagerNet publishes no prebuilt libbox AAR on Maven Central, JitPack or GitHub Releases; it is built from source by .github/workflows/android-libbox.yml.",
+        "The third-party mirror com.github.singbox-android:libbox is deliberately NOT used: an unaffiliated publisher's unreproducible binary would run inside the VPN process with full traffic visibility.",
+        "sha256 records the AAR produced by the pinned toolchain above. gomobile output is not bit-reproducible across hosts even with -trimpath -buildvcs=false -buildid=, so a mismatch is a signal to re-verify provenance, not proof of tampering. The invariants that ARE enforced in CI are the source tag, the single arm64-v8a ABI and the presence of jni/arm64-v8a/libbox.so."
+      ]
+    }
+  }
+}

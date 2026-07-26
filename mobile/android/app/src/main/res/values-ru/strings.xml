@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Values taken verbatim from mobile/assets/locales/ru-RU.json. -->
+<resources>
+
+    <string name="notification_channel_tunnel">Служба VPN</string>
+    <string name="notification_channel_tunnel_description">Постоянное уведомление, которое Android требует, пока туннель работает.</string>
+    <string name="notification_channel_notices">Оповещения</string>
+    <string name="notification_channel_notices_description">Обновления подписок и сбои ядра.</string>
+
+    <string name="notification_title">AikoBox</string>
+    <string name="notification_starting_title">Запуск AikoBox…</string>
+    <string name="notification_starting_body">Ожидание готовности ядра</string>
+    <string name="notification_running_title">AikoBox работает</string>
+    <string name="notification_running_body">%1$s · ↑ %2$s ↓ %3$s</string>
+    <string name="notification_running_body_no_mode">↑ %1$s ↓ %2$s</string>
+    <string name="notification_stopping_body">Остановка…</string>
+    <string name="notification_failed_title">AikoBox не смог запуститься</string>
+    <string name="notification_action_stop">Остановить</string>
+
+    <string name="notification_mode_rule">Правило</string>
+    <string name="notification_mode_global">Глобальный</string>
+    <string name="notification_mode_direct">Прямой</string>
+
+    <string name="tile_label">AikoBox</string>
+    <string name="tile_state_stopped">Остановлено</string>
+    <string name="tile_state_starting">Запуск…</string>
+    <string name="tile_state_running">Работает</string>
+    <string name="tile_state_stopping">Остановка…</string>
+    <string name="tile_state_failed">Сбой</string>
+
+</resources>

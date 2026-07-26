@@ -1,0 +1,125 @@
+name: Android libbox core
+
+# Builds the sing-box gomobile binding (libbox.aar) that the Android client links against.
+#
+# This is a separate, manually-triggered workflow because the AAR is a ~21 MB binary that
+# changes only when the pinned sing-box version changes. It is published as a release asset
+# with a SHA-256 that scripts/resources-lock.android.json records, so the APK build can
+# verify provenance exactly the way the desktop build verifies sing-box.exe. Nothing here
+# runs automatically and nothing is ever installed silently.
+#
+# SagerNet publishes no prebuilt libbox AAR. A third-party JitPack mirror exists and is
+# deliberately NOT used: it is an unaffiliated account shipping an unreproducible binary
+# that would run inside the VPN process with full traffic visibility.
+
+on:
+  workflow_dispatch:
+    inputs:
+      singbox_ref:
+        description: sing-box git tag to build
+        required: true
+        default: v1.13.14
+      publish:
+        description: Publish the AAR as a release asset
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-libbox-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  libbox:
+    name: Build libbox.aar (android/arm64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out sing-box
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: SagerNet/sing-box
+          ref: ${{ inputs.singbox_ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Record the exact source commit
+        id: src
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25'
+          check-latest: true
+
+      # cmd/internal/build_libbox hard-fails unless `java --version` contains "openjdk 17".
+      - name: Set up JDK 17
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install NDK r28
+        run: |
+          set -euo pipefail
+          # build_libbox prefers this exact revision and only falls back to ANDROID_NDK_HOME
+          # with a reproducibility warning.
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;28.0.13004108"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.0.13004108" >> "$GITHUB_ENV"
+
+      - name: Install the SagerNet gomobile fork
+        # Upstream golang.org/x/mobile lacks -libname and produces libgojni.so instead of
+        # libbox.so, which the Kotlin loader will not find.
+        run: make lib_install
+
+      - name: Build libbox.aar for arm64 only
+        run: go run ./cmd/internal/build_libbox -target android -platform android/arm64
+
+      - name: Verify the AAR ships exactly one ABI
+        run: |
+          set -euo pipefail
+          unzip -l libbox.aar | tee /tmp/aar.txt
+          abis=$(unzip -Z1 libbox.aar 'jni/*/*' | cut -d/ -f2 | sort -u)
+          echo "ABIs: $abis"
+          test "$abis" = "arm64-v8a"
+          unzip -Z1 libbox.aar | grep -qx 'jni/arm64-v8a/libbox.so'
+
+      - name: Checksum
+        id: sum
+        run: |
+          set -euo pipefail
+          sha256sum libbox.aar | tee libbox.aar.sha256
+          {
+            echo "sha256=$(cut -d' ' -f1 libbox.aar.sha256)"
+            echo "size=$(stat -c%s libbox.aar)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Summarise
+        run: |
+          {
+            echo '### libbox.aar'
+            echo
+            echo "| field | value |"
+            echo "| --- | --- |"
+            echo "| sing-box ref | \`${{ inputs.singbox_ref }}\` |"
+            echo "| source commit | \`${{ steps.src.outputs.sha }}\` |"
+            echo "| size | ${{ steps.sum.outputs.size }} bytes |"
+            echo "| sha256 | \`${{ steps.sum.outputs.sha256 }}\` |"
+            echo
+            echo 'Copy these into `scripts/resources-lock.android.json`.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: libbox-${{ inputs.singbox_ref }}-arm64
+          path: |
+            libbox.aar
+            libbox.aar.sha256
+          if-no-files-found: error
+          retention-days: 90
