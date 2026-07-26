@@ -32,14 +32,24 @@ If you only use subscription URLs, read [docs/SELF_USE.md](./docs/SELF_USE.md):
 - Rejects unsafe conversion fallbacks instead of silently routing affected traffic directly.
 - Provides explicit sing-box core updates with upstream SHA-256 verification, platform/version checks, candidate validation, and automatic rollback.
 - Preserves the previous system-proxy state transactionally and keeps the core alive when Windows may still depend on its loopback endpoint.
-- Uses a per-machine Program Files installer for TUN; portable and development builds are limited to system-proxy mode.
+- Uses a per-machine Program Files installer for TUN; portable and development builds are limited to system-proxy mode. No macOS, Linux, Windows on ARM, or 32-bit desktop build.
 - Does not silently install application or core updates.
 
 ## Requirements
 
+**Desktop (Windows)**
+
 - Windows 10 or Windows 11, x64.
 - System-proxy mode does not require administrator privileges.
 - TUN is available only in the installed build and requires an explicit Windows elevation prompt.
+
+**Mobile (Android)**
+
+- Android 7.0 (API 24) or newer, **arm64-v8a**. No armeabi-v7a, no x86.
+- VPN permission is required. On Android 13 and newer, notification permission is required as well, or the ongoing notification — and the Stop button inside it — never appears.
+- There is no system-proxy mode: on Android the VPN is both the system proxy and the TUN device.
+
+**No APK has been released.** The source builds (see [Android client](#android-client)) and CI produces an unsigned arm64-v8a artifact for every commit, but that exists for developer verification only — no release signing key is configured, so it must not be installed or distributed as a release.
 
 ## Build from source
 

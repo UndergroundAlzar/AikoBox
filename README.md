@@ -32,23 +32,33 @@ AikoBox 是一款以 sing-box 为唯一内核的客户端：桌面端面向 **Wi
 - 支持普通节点、`proxy-providers` 和 `rule-providers`；无法安全转换的关键配置会拒绝生效
 - 保留 `clash://`、`mihomo://` 导入协议，并提供 `aikobox://`
 - 可由用户手动检查 sing-box 稳定版更新；下载后验证官方 SHA-256、版本、平台和候选配置，启动失败自动回滚
-- 提供安装到 Program Files 的按机器安装包和单文件便携版；不提供 macOS、Linux、ARM64 或 32 位版本
+- 桌面端提供安装到 Program Files 的按机器安装包和单文件便携版；不提供 macOS、Linux、Windows on ARM 或 32 位版本
 - 不静默安装应用或内核更新；所有内核切换都需要用户确认
 
 ## 系统要求
+
+**桌面端（Windows）**
 
 - Windows 10 或 Windows 11，x64
 - 普通系统代理模式不要求管理员权限
 - TUN 模式仅在安装包版本中可用，需要 Windows 管理员授权；拒绝授权不会影响当前正在运行的连接
 - 便携版和开发版只支持普通系统代理模式，不会请求 TUN 提权
 
+**移动端（Android）**
+
+- Android 7.0（API 24）或更高，**arm64-v8a**；不提供 armeabi-v7a 或 x86
+- 需要授予 VPN 权限；Android 13 及以上还需要通知权限，否则常驻通知与其中的「停止」按钮都不会出现
+- 没有普通系统代理模式这一说：在 Android 上 VPN 同时承担系统代理和 TUN 两个角色
+
 ## 下载与校验
 
-每个版本提供以下文件：
+桌面端每个版本提供以下文件：
 
 - `aikobox-windows-<version>-x64-setup.exe`：按机器安装到 Program Files，安装时需要管理员授权，支持 TUN
 - `aikobox-windows-<version>-x64-portable.exe`：单文件便携版，配置和日志保存在便携目录，仅支持普通系统代理模式
 - 与每个 `.exe` 同名的 `.sha256`：该可执行文件的 SHA-256 校验值
+
+**移动端目前没有发布任何 APK。** 源码可构建（见下方 [Android 客户端](#android-客户端)），CI 会为每次提交产出未签名的 arm64-v8a 构建产物，但那是给开发者验证用的，尚未配置发布签名密钥，不要当正式版安装或分发。
 
 请只从本项目的 GitHub Releases 下载。可在 PowerShell 中核对单个文件：
 
