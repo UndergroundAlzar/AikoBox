@@ -50,191 +50,193 @@ const String kSrcParam = 'src';
 
 /// The rule-type table, in the order the picker shows it.
 /// https://wiki.metacubex.one/config/rules/
-final Map<String, RuleDefinition> kRuleDefinitions =
-    Map<String, RuleDefinition>.unmodifiable(<String, RuleDefinition>{
-      'DOMAIN': const RuleDefinition(
-        'DOMAIN',
-        example: 'example.com',
-        validator: isValidDomain,
-      ),
-      'DOMAIN-SUFFIX': const RuleDefinition(
-        'DOMAIN-SUFFIX',
-        example: 'example.com',
-        validator: isValidDomainSuffix,
-      ),
-      'DOMAIN-KEYWORD': const RuleDefinition(
-        'DOMAIN-KEYWORD',
-        example: 'example',
-        validator: isValidDomainKeyword,
-      ),
-      'DOMAIN-REGEX': const RuleDefinition(
-        'DOMAIN-REGEX',
-        example: 'example.*',
-        validator: isValidRegex,
-      ),
-      'DOMAIN-WILDCARD': const RuleDefinition(
-        'DOMAIN-WILDCARD',
-        example: '*.google.com',
-        validator: isValidDomainWildcard,
-      ),
-      'GEOSITE': const RuleDefinition(
-        'GEOSITE',
-        example: 'youtube',
-        validator: isValidGeosite,
-      ),
-      'GEOIP': const RuleDefinition(
-        'GEOIP',
-        example: 'CN',
-        noResolve: true,
-        src: true,
-        validator: isValidCountryCode,
-      ),
-      'SRC-GEOIP': const RuleDefinition(
-        'SRC-GEOIP',
-        example: 'CN',
-        validator: isValidCountryCode,
-      ),
-      'IP-ASN': const RuleDefinition(
-        'IP-ASN',
-        example: '13335',
-        noResolve: true,
-        src: true,
-        validator: isValidAsn,
-      ),
-      'SRC-IP-ASN': const RuleDefinition(
-        'SRC-IP-ASN',
-        example: '9808',
-        validator: isValidAsn,
-      ),
-      'IP-CIDR': const RuleDefinition(
-        'IP-CIDR',
-        example: '127.0.0.0/8',
-        noResolve: true,
-        src: true,
-        validator: isValidIpCidr,
-      ),
-      'IP-CIDR6': const RuleDefinition(
-        'IP-CIDR6',
-        example: '2620:0:2d0:200::7/32',
-        noResolve: true,
-        src: true,
-        validator: isValidIpCidr,
-      ),
-      'SRC-IP-CIDR': const RuleDefinition(
-        'SRC-IP-CIDR',
-        example: '192.168.1.201/32',
-        validator: isValidIpCidr,
-      ),
-      'IP-SUFFIX': const RuleDefinition(
-        'IP-SUFFIX',
-        example: '8.8.8.8/24',
-        noResolve: true,
-        src: true,
-        validator: isValidIpCidr,
-      ),
-      'SRC-IP-SUFFIX': const RuleDefinition(
-        'SRC-IP-SUFFIX',
-        example: '192.168.1.201/8',
-        validator: isValidIpCidr,
-      ),
-      'SRC-PORT': const RuleDefinition(
-        'SRC-PORT',
-        example: '7777',
-        validator: isValidPortRange,
-      ),
-      'DST-PORT': const RuleDefinition(
-        'DST-PORT',
-        example: '80',
-        validator: isValidPortRange,
-      ),
-      'IN-PORT': const RuleDefinition(
-        'IN-PORT',
-        example: '7897',
-        validator: isValidPortRange,
-      ),
-      'DSCP': const RuleDefinition('DSCP', example: '4', validator: isValidDscp),
-      // The desktop switches these examples on `platform`; Android's answer to
-      // "what does a process look like" is a package name.
-      'PROCESS-NAME': const RuleDefinition(
-        'PROCESS-NAME',
-        example: 'com.android.chrome',
-        validator: isValidProcessName,
-      ),
-      'PROCESS-PATH': const RuleDefinition(
-        'PROCESS-PATH',
-        example: '/system/bin/ping',
-        validator: isValidProcessPath,
-      ),
-      'PROCESS-NAME-WILDCARD': const RuleDefinition(
-        'PROCESS-NAME-WILDCARD',
-        example: '*telegram*',
-        validator: isValidProcessNameWildcard,
-      ),
-      'PROCESS-NAME-REGEX': const RuleDefinition(
-        'PROCESS-NAME-REGEX',
-        example: '.*telegram.*',
-        validator: isValidRegex,
-      ),
-      'PROCESS-PATH-WILDCARD': const RuleDefinition(
-        'PROCESS-PATH-WILDCARD',
-        example: '/data/*/lib/*',
-        validator: isValidProcessPathWildcard,
-      ),
-      'PROCESS-PATH-REGEX': const RuleDefinition(
-        'PROCESS-PATH-REGEX',
-        example: '.*bin/ping',
-        validator: isValidRegex,
-      ),
-      'NETWORK': const RuleDefinition(
-        'NETWORK',
-        example: 'udp',
-        validator: isValidNetwork,
-      ),
-      'UID': const RuleDefinition('UID', example: '1001', validator: isValidUid),
-      'IN-TYPE': const RuleDefinition(
-        'IN-TYPE',
-        example: 'SOCKS/HTTP',
-        validator: isValidInboundType,
-      ),
-      'IN-USER': const RuleDefinition(
-        'IN-USER',
-        example: 'mihomo',
-        validator: isValidInboundUser,
-      ),
-      'IN-NAME': const RuleDefinition(
-        'IN-NAME',
-        example: 'ss',
-        validator: isValidIdentifier,
-      ),
-      'SUB-RULE': const RuleDefinition(
-        'SUB-RULE',
-        example: '(NETWORK,tcp)',
-        validator: isValidSubRule,
-      ),
-      'RULE-SET': const RuleDefinition(
-        'RULE-SET',
-        example: 'providername',
-        noResolve: true,
-        src: true,
-        validator: isValidIdentifier,
-      ),
-      'AND': const RuleDefinition(
-        'AND',
-        example: '((DOMAIN,baidu.com),(NETWORK,UDP))',
-        validator: isValidLogicRule,
-      ),
-      'OR': const RuleDefinition(
-        'OR',
-        example: '((NETWORK,UDP),(DOMAIN,baidu.com))',
-        validator: isValidLogicRule,
-      ),
-      'NOT': const RuleDefinition(
-        'NOT',
-        example: '((DOMAIN,baidu.com))',
-        validator: isValidLogicRule,
-      ),
-      kMatchRuleType: const RuleDefinition(kMatchRuleType),
-    });
+final Map<String, RuleDefinition>
+kRuleDefinitions = Map<String, RuleDefinition>.unmodifiable(
+  <String, RuleDefinition>{
+    'DOMAIN': const RuleDefinition(
+      'DOMAIN',
+      example: 'example.com',
+      validator: isValidDomain,
+    ),
+    'DOMAIN-SUFFIX': const RuleDefinition(
+      'DOMAIN-SUFFIX',
+      example: 'example.com',
+      validator: isValidDomainSuffix,
+    ),
+    'DOMAIN-KEYWORD': const RuleDefinition(
+      'DOMAIN-KEYWORD',
+      example: 'example',
+      validator: isValidDomainKeyword,
+    ),
+    'DOMAIN-REGEX': const RuleDefinition(
+      'DOMAIN-REGEX',
+      example: 'example.*',
+      validator: isValidRegex,
+    ),
+    'DOMAIN-WILDCARD': const RuleDefinition(
+      'DOMAIN-WILDCARD',
+      example: '*.google.com',
+      validator: isValidDomainWildcard,
+    ),
+    'GEOSITE': const RuleDefinition(
+      'GEOSITE',
+      example: 'youtube',
+      validator: isValidGeosite,
+    ),
+    'GEOIP': const RuleDefinition(
+      'GEOIP',
+      example: 'CN',
+      noResolve: true,
+      src: true,
+      validator: isValidCountryCode,
+    ),
+    'SRC-GEOIP': const RuleDefinition(
+      'SRC-GEOIP',
+      example: 'CN',
+      validator: isValidCountryCode,
+    ),
+    'IP-ASN': const RuleDefinition(
+      'IP-ASN',
+      example: '13335',
+      noResolve: true,
+      src: true,
+      validator: isValidAsn,
+    ),
+    'SRC-IP-ASN': const RuleDefinition(
+      'SRC-IP-ASN',
+      example: '9808',
+      validator: isValidAsn,
+    ),
+    'IP-CIDR': const RuleDefinition(
+      'IP-CIDR',
+      example: '127.0.0.0/8',
+      noResolve: true,
+      src: true,
+      validator: isValidIpCidr,
+    ),
+    'IP-CIDR6': const RuleDefinition(
+      'IP-CIDR6',
+      example: '2620:0:2d0:200::7/32',
+      noResolve: true,
+      src: true,
+      validator: isValidIpCidr,
+    ),
+    'SRC-IP-CIDR': const RuleDefinition(
+      'SRC-IP-CIDR',
+      example: '192.168.1.201/32',
+      validator: isValidIpCidr,
+    ),
+    'IP-SUFFIX': const RuleDefinition(
+      'IP-SUFFIX',
+      example: '8.8.8.8/24',
+      noResolve: true,
+      src: true,
+      validator: isValidIpCidr,
+    ),
+    'SRC-IP-SUFFIX': const RuleDefinition(
+      'SRC-IP-SUFFIX',
+      example: '192.168.1.201/8',
+      validator: isValidIpCidr,
+    ),
+    'SRC-PORT': const RuleDefinition(
+      'SRC-PORT',
+      example: '7777',
+      validator: isValidPortRange,
+    ),
+    'DST-PORT': const RuleDefinition(
+      'DST-PORT',
+      example: '80',
+      validator: isValidPortRange,
+    ),
+    'IN-PORT': const RuleDefinition(
+      'IN-PORT',
+      example: '7897',
+      validator: isValidPortRange,
+    ),
+    'DSCP': const RuleDefinition('DSCP', example: '4', validator: isValidDscp),
+    // The desktop switches these examples on `platform`; Android's answer to
+    // "what does a process look like" is a package name.
+    'PROCESS-NAME': const RuleDefinition(
+      'PROCESS-NAME',
+      example: 'com.android.chrome',
+      validator: isValidProcessName,
+    ),
+    'PROCESS-PATH': const RuleDefinition(
+      'PROCESS-PATH',
+      example: '/system/bin/ping',
+      validator: isValidProcessPath,
+    ),
+    'PROCESS-NAME-WILDCARD': const RuleDefinition(
+      'PROCESS-NAME-WILDCARD',
+      example: '*telegram*',
+      validator: isValidProcessNameWildcard,
+    ),
+    'PROCESS-NAME-REGEX': const RuleDefinition(
+      'PROCESS-NAME-REGEX',
+      example: '.*telegram.*',
+      validator: isValidRegex,
+    ),
+    'PROCESS-PATH-WILDCARD': const RuleDefinition(
+      'PROCESS-PATH-WILDCARD',
+      example: '/data/*/lib/*',
+      validator: isValidProcessPathWildcard,
+    ),
+    'PROCESS-PATH-REGEX': const RuleDefinition(
+      'PROCESS-PATH-REGEX',
+      example: '.*bin/ping',
+      validator: isValidRegex,
+    ),
+    'NETWORK': const RuleDefinition(
+      'NETWORK',
+      example: 'udp',
+      validator: isValidNetwork,
+    ),
+    'UID': const RuleDefinition('UID', example: '1001', validator: isValidUid),
+    'IN-TYPE': const RuleDefinition(
+      'IN-TYPE',
+      example: 'SOCKS/HTTP',
+      validator: isValidInboundType,
+    ),
+    'IN-USER': const RuleDefinition(
+      'IN-USER',
+      example: 'mihomo',
+      validator: isValidInboundUser,
+    ),
+    'IN-NAME': const RuleDefinition(
+      'IN-NAME',
+      example: 'ss',
+      validator: isValidIdentifier,
+    ),
+    'SUB-RULE': const RuleDefinition(
+      'SUB-RULE',
+      example: '(NETWORK,tcp)',
+      validator: isValidSubRule,
+    ),
+    'RULE-SET': const RuleDefinition(
+      'RULE-SET',
+      example: 'providername',
+      noResolve: true,
+      src: true,
+      validator: isValidIdentifier,
+    ),
+    'AND': const RuleDefinition(
+      'AND',
+      example: '((DOMAIN,baidu.com),(NETWORK,UDP))',
+      validator: isValidLogicRule,
+    ),
+    'OR': const RuleDefinition(
+      'OR',
+      example: '((NETWORK,UDP),(DOMAIN,baidu.com))',
+      validator: isValidLogicRule,
+    ),
+    'NOT': const RuleDefinition(
+      'NOT',
+      example: '((DOMAIN,baidu.com))',
+      validator: isValidLogicRule,
+    ),
+    kMatchRuleType: const RuleDefinition(kMatchRuleType),
+  },
+);
 
 /// Rule types in picker order.
 final List<String> kRuleTypes = List<String>.unmodifiable(
@@ -419,10 +421,7 @@ bool canAddRule(ClashRule rule) {
 
 // Written with escapes rather than literal characters so the source file's
 // encoding can never change what these match.
-final RegExp _fqdnPart = RegExp(
-  '^[a-z_¡-￿0-9-]+\$',
-  caseSensitive: false,
-);
+final RegExp _fqdnPart = RegExp('^[a-z_¡-￿0-9-]+\$', caseSensitive: false);
 final RegExp _fullWidth = RegExp('[\uff01-\uff5e]');
 final RegExp _fqdnTld = RegExp(
   '^([a-z¡-￿]{2,}|xn[a-z0-9-]{2,})\$',
@@ -614,9 +613,7 @@ bool isValidProcessPath(String value) {
 
 bool isValidProcessPathWildcard(String value) {
   if (value.isEmpty) return false;
-  return isValidProcessPath(
-    value.replaceAll('*', 'a').replaceAll('?', 'a'),
-  );
+  return isValidProcessPath(value.replaceAll('*', 'a').replaceAll('?', 'a'));
 }
 
 bool isValidProcessName(String value) {
@@ -626,9 +623,7 @@ bool isValidProcessName(String value) {
 
 bool isValidProcessNameWildcard(String value) {
   if (value.isEmpty) return false;
-  return isValidProcessName(
-    value.replaceAll('*', 'a').replaceAll('?', 'a'),
-  );
+  return isValidProcessName(value.replaceAll('*', 'a').replaceAll('?', 'a'));
 }
 
 bool isValidInboundType(String value) {

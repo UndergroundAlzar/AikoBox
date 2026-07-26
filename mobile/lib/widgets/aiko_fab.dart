@@ -115,7 +115,8 @@ class _AikoFabState extends State<AikoFab> {
     final scheme = theme.colorScheme;
     final fabTheme = theme.floatingActionButtonTheme;
 
-    final Color background = fabTheme.backgroundColor ?? scheme.primaryContainer;
+    final Color background =
+        fabTheme.backgroundColor ?? scheme.primaryContainer;
     final Color foreground =
         fabTheme.foregroundColor ?? scheme.onPrimaryContainer;
 

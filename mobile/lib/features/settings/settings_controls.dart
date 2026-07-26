@@ -138,8 +138,7 @@ class SettingsBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding:
-          padding ?? const EdgeInsets.only(bottom: AikoDims.fabClearance),
+      padding: padding ?? const EdgeInsets.only(bottom: AikoDims.fabClearance),
       children: children,
     );
   }
@@ -224,10 +223,7 @@ class SettingsSwitchTile extends StatelessWidget {
       leading: icon == null ? null : Icon(icon, size: 22),
       title: Text(title),
       subtitle: subtitle == null ? null : Text(subtitle!),
-      trailing: Switch(
-        value: value,
-        onChanged: live ? onChanged : null,
-      ),
+      trailing: Switch(value: value, onChanged: live ? onChanged : null),
       onTap: live ? () => onChanged!(!value) : null,
     );
   }

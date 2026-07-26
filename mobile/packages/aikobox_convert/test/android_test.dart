@@ -13,8 +13,10 @@ import 'support.dart';
 
 void main() {
   const ConvertOptions android = ConvertOptions(platform: 'android');
-  const ConvertOptions androidRedirect =
-      ConvertOptions(platform: 'android', autoRedirect: true);
+  const ConvertOptions androidRedirect = ConvertOptions(
+    platform: 'android',
+    autoRedirect: true,
+  );
 
   group('android inbounds', () {
     test('skips redir-port with a warning', () {
@@ -23,7 +25,10 @@ void main() {
         options: android,
       );
       expect(
-        findWhere(inboundsOf(result.config), (Dict i) => i['type'] == 'redirect'),
+        findWhere(
+          inboundsOf(result.config),
+          (Dict i) => i['type'] == 'redirect',
+        ),
         isNull,
       );
       expect(
@@ -71,12 +76,14 @@ void main() {
 
   group('android auto_redirect gate', () {
     Dict tunProfile() => base(<String, dynamic>{
-          'tun': <String, dynamic>{'enable': true, 'auto-redirect': true},
-        });
+      'tun': <String, dynamic>{'enable': true, 'auto-redirect': true},
+    });
 
     test('is emitted when the app allows it', () {
-      final ConvertResult result =
-          convertClashToSingbox(tunProfile(), options: androidRedirect);
+      final ConvertResult result = convertClashToSingbox(
+        tunProfile(),
+        options: androidRedirect,
+      );
       final Dict tun = findWhere(
         inboundsOf(result.config),
         (Dict i) => i['type'] == 'tun',
@@ -86,8 +93,10 @@ void main() {
     });
 
     test('is withheld with a warning when the app disallows it', () {
-      final ConvertResult result =
-          convertClashToSingbox(tunProfile(), options: android);
+      final ConvertResult result = convertClashToSingbox(
+        tunProfile(),
+        options: android,
+      );
       final Dict tun = findWhere(
         inboundsOf(result.config),
         (Dict i) => i['type'] == 'tun',

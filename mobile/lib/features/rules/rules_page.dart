@@ -65,8 +65,7 @@ class _RulesPageState extends ConsumerState<RulesPage>
         if (_onProviders)
           IconButton(
             tooltip: l10n.t('resources.ruleProviders.updateAll'),
-            onPressed:
-                updating.isNotEmpty || (providers.value?.isEmpty ?? true)
+            onPressed: updating.isNotEmpty || (providers.value?.isEmpty ?? true)
                 ? null
                 : () => _updateAll(providers.value!),
             icon: const Icon(Icons.cloud_sync_outlined),
@@ -194,9 +193,9 @@ class _RulesPageState extends ConsumerState<RulesPage>
     );
     final int failed = await ref
         .read(ruleProviderUpdatesProvider.notifier)
-        .updateAll(
-          <String>[for (final ProviderInfo item in providers) item.name],
-        );
+        .updateAll(<String>[
+          for (final ProviderInfo item in providers) item.name,
+        ]);
     // N5: an update that partly failed says so rather than looking clean.
     messenger?.showSnackBar(
       SnackBar(
@@ -303,9 +302,7 @@ class _AsyncSection<T> extends StatelessWidget {
       data: (T data) => isEmpty(data)
           ? EmptyState(
               icon: emptyIcon,
-              title: running
-                  ? emptyTitle
-                  : l10n.t('dashboard.core.notRunning'),
+              title: running ? emptyTitle : l10n.t('dashboard.core.notRunning'),
             )
           : builder(data),
     );

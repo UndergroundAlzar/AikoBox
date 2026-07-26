@@ -112,7 +112,9 @@ class FakeAppConfigNotifier extends AppConfigNotifier {
   AppConfig build() => initial;
 
   @override
-  Future<AppConfig> update(AppConfig Function(AppConfig current) updater) async {
+  Future<AppConfig> update(
+    AppConfig Function(AppConfig current) updater,
+  ) async {
     if (failWrites) throw StateError('write refused');
     state = updater(state);
     writes.add(state);
@@ -189,7 +191,8 @@ class FakeCoreChannel implements CoreChannel {
   Future<String?> checkConfig(String json) async => null;
 
   @override
-  Stream<CoreStatusEvent> statusEvents() => const Stream<CoreStatusEvent>.empty();
+  Stream<CoreStatusEvent> statusEvents() =>
+      const Stream<CoreStatusEvent>.empty();
 
   @override
   Stream<LogLine> logEvents() => const Stream<LogLine>.empty();
@@ -318,8 +321,20 @@ Future<void> pumpSettings(
 
 /// A handful of installed apps, one of them ours and one a system package.
 List<InstalledApp> sampleApps() => const <InstalledApp>[
-  InstalledApp(packageName: 'com.example.browser', label: 'Browser', isSystem: false),
+  InstalledApp(
+    packageName: 'com.example.browser',
+    label: 'Browser',
+    isSystem: false,
+  ),
   InstalledApp(packageName: 'com.example.chat', label: 'Chat', isSystem: false),
-  InstalledApp(packageName: 'com.android.settings', label: 'Settings', isSystem: true),
-  InstalledApp(packageName: kTestPackageName, label: 'AikoBox', isSystem: false),
+  InstalledApp(
+    packageName: 'com.android.settings',
+    label: 'Settings',
+    isSystem: true,
+  ),
+  InstalledApp(
+    packageName: kTestPackageName,
+    label: 'AikoBox',
+    isSystem: false,
+  ),
 ];

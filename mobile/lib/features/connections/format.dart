@@ -57,7 +57,10 @@ TrafficAmount splitTraffic(int bytes) {
     value /= 1024;
     unit++;
   }
-  return (value: formatTrafficMagnitude(value), unitKey: kTrafficUnitKeys[unit]);
+  return (
+    value: formatTrafficMagnitude(value),
+    unitKey: kTrafficUnitKeys[unit],
+  );
 }
 
 /// `"1.20 MB"` — [splitTraffic] with its unit key resolved.

@@ -23,10 +23,7 @@ void main() {
       tester,
     ) async {
       await tester.pumpWidget(
-        hostWidget(
-          const CommonCard(child: Text('body')),
-          width: 300,
-        ),
+        hostWidget(const CommonCard(child: Text('body')), width: 300),
       );
 
       expect(find.text('body'), findsOneWidget);
@@ -166,10 +163,7 @@ void main() {
 
       await tester.pumpWidget(
         hostWidget(
-          const CommonCard(
-            selectedOverlay: overlay,
-            child: Text('body'),
-          ),
+          const CommonCard(selectedOverlay: overlay, child: Text('body')),
           width: 300,
         ),
       );

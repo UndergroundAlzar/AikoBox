@@ -56,9 +56,11 @@ List<String>? splitLogicalPayload(String payload) {
   return parts
       .map((String part) => part.trim())
       .where((String part) => part.isNotEmpty)
-      .map((String part) => part.startsWith('(') && part.endsWith(')')
-          ? part.substring(1, part.length - 1).trim()
-          : part)
+      .map(
+        (String part) => part.startsWith('(') && part.endsWith(')')
+            ? part.substring(1, part.length - 1).trim()
+            : part,
+      )
       .toList();
 }
 
@@ -186,7 +188,11 @@ ConditionBuild buildRuleCondition(
     case 'PROCESS-NAME-REGEX':
       return ConditionBuild(
         fields: <String, dynamic>{
-          'process_path_regex': <String>[r'(?:^|[\\/])(?:' '$payload' r')$'],
+          'process_path_regex': <String>[
+            r'(?:^|[\\/])(?:'
+                '$payload'
+                r')$',
+          ],
         },
       );
     case 'PROCESS-NAME-WILDCARD':
@@ -272,10 +278,13 @@ ConditionBuild buildLogicalRule(
     // Strip trailing options such as no-resolve on sub-rules.
     final String subPayload =
         const <String>['AND', 'OR', 'NOT'].contains(subType.toUpperCase())
-            ? subPayloadFull
-            : subPayloadFull.split(',').first.trim();
-    final ConditionBuild condition =
-        buildRuleCondition(subType, subPayload, ruleSets);
+        ? subPayloadFull
+        : subPayloadFull.split(',').first.trim();
+    final ConditionBuild condition = buildRuleCondition(
+      subType,
+      subPayload,
+      ruleSets,
+    );
     if (condition.warning != null || condition.fields == null) {
       return ConditionBuild(
         warning: condition.warning ?? 'invalid logical sub-rule "$part"',
@@ -360,12 +369,14 @@ String splitRuleOptions(String rule) {
 bool needsDestinationIp(Dict fields) {
   if (fields['rule_set_ip_cidr_match_source'] == true) return false;
   if (fields['ip_cidr'] != null || fields['ip_is_private'] != null) return true;
-  if (toStrArray(fields['rule_set'])
-      .any((String tag) => tag.startsWith('geoip-'))) {
+  if (toStrArray(
+    fields['rule_set'],
+  ).any((String tag) => tag.startsWith('geoip-'))) {
     return true;
   }
-  return asArray(fields['rules'])
-      .any((Object? sub) => needsDestinationIp(asDict(sub)));
+  return asArray(
+    fields['rules'],
+  ).any((Object? sub) => needsDestinationIp(asDict(sub)));
 }
 
 /// Converts the whole `rules:` list.
@@ -380,15 +391,17 @@ RulesBuild convertRules(List<String> rules, Set<String> knownOutbounds) {
       return <String, dynamic>{'action': 'reject', 'method': 'drop'};
     }
     if (target == 'PASS') {
-      build.warnings
-          .add('rule "$ruleStr": PASS has no sing-box equivalent, skipped');
+      build.warnings.add(
+        'rule "$ruleStr": PASS has no sing-box equivalent, skipped',
+      );
       return null;
     }
     if (knownOutbounds.contains(target)) {
       return <String, dynamic>{'outbound': target};
     }
-    build.errors
-        .add('rule "$ruleStr": target "$target" not found or unsupported');
+    build.errors.add(
+      'rule "$ruleStr": target "$target" not found or unsupported',
+    );
     return null;
   }
 
@@ -415,8 +428,9 @@ RulesBuild convertRules(List<String> rules, Set<String> knownOutbounds) {
       } else if (knownOutbounds.contains(target)) {
         build.finalOutbound = target;
       } else {
-        build.errors
-            .add('MATCH target "$target" not found; refusing fallback to direct');
+        build.errors.add(
+          'MATCH target "$target" not found; refusing fallback to direct',
+        );
       }
       continue;
     }
@@ -429,8 +443,7 @@ RulesBuild convertRules(List<String> rules, Set<String> knownOutbounds) {
       continue;
     }
     if (upper == 'SUB-RULE') {
-      build.warnings
-          .add('rule "$ruleStr": SUB-RULE is not supported, skipped');
+      build.warnings.add('rule "$ruleStr": SUB-RULE is not supported, skipped');
       continue;
     }
 
@@ -455,8 +468,11 @@ RulesBuild convertRules(List<String> rules, Set<String> knownOutbounds) {
       target = parts[2].trim();
     }
 
-    final ConditionBuild condition =
-        buildRuleCondition(type, payload, ruleSets);
+    final ConditionBuild condition = buildRuleCondition(
+      type,
+      payload,
+      ruleSets,
+    );
     if (condition.warning != null || condition.fields == null) {
       build.warnings.add(
         'rule "$ruleStr": ${condition.warning ?? 'not convertible'}, skipped',
@@ -481,8 +497,10 @@ RulesBuild convertRules(List<String> rules, Set<String> knownOutbounds) {
     final Dict? targetFields = mapTarget(target, ruleStr);
     if (targetFields == null) continue;
 
-    build.routeRules
-        .add(<String, dynamic>{...condition.fields!, ...targetFields});
+    build.routeRules.add(<String, dynamic>{
+      ...condition.fields!,
+      ...targetFields,
+    });
   }
 
   build.ruleSets = ruleSets.values;

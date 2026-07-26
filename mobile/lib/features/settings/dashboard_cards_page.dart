@@ -129,7 +129,10 @@ class DashboardCardsPage extends ConsumerWidget {
                 context,
                 ref,
                 (AppConfig c) => c.copyWith(
-                  cardStatus: <String, CardStatus>{...c.cardStatus, key: picked},
+                  cardStatus: <String, CardStatus>{
+                    ...c.cardStatus,
+                    key: picked,
+                  },
                 ),
               );
             },

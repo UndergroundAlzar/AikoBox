@@ -101,7 +101,13 @@ void main() {
 
     test('filters a list down to its stringifiable members', () {
       expect(
-        toStrArray(<Object?>['a', 1, true, null, <String>['x']]),
+        toStrArray(<Object?>[
+          'a',
+          1,
+          true,
+          null,
+          <String>['x'],
+        ]),
         <String>['a', '1'],
       );
     });
@@ -114,10 +120,7 @@ void main() {
 
   group('compact', () {
     test('drops null and empty lists', () {
-      expect(
-        compact(<String, dynamic>{'a': null, 'b': <Object?>[]}),
-        isEmpty,
-      );
+      expect(compact(<String, dynamic>{'a': null, 'b': <Object?>[]}), isEmpty);
     });
 
     test('keeps the empty string, zero, false and the empty map', () {
@@ -194,14 +197,8 @@ void main() {
   group('portRanges', () {
     test('normalises dashes to colons and splits on commas', () {
       expect(portRanges('20000-30000'), <String>['20000:30000']);
-      expect(
-        portRanges('20000-30000,40001'),
-        <String>['20000:30000', '40001'],
-      );
-      expect(
-        portRanges(<String>['1-2', '3 - 4']),
-        <String>['1:2', '3:4'],
-      );
+      expect(portRanges('20000-30000,40001'), <String>['20000:30000', '40001']);
+      expect(portRanges(<String>['1-2', '3 - 4']), <String>['1:2', '3:4']);
       expect(portRanges(null), isEmpty);
       expect(portRanges(''), isEmpty);
     });
@@ -254,8 +251,10 @@ void main() {
     });
 
     test('a bare IPv6 literal keeps all of its colons', () {
-      expect(parseHostPort('2001:4860:4860::8888').host,
-          '2001:4860:4860::8888');
+      expect(
+        parseHostPort('2001:4860:4860::8888').host,
+        '2001:4860:4860::8888',
+      );
       expect(parseHostPort('2001:4860:4860::8888').port, isNull);
     });
 
@@ -295,8 +294,11 @@ void main() {
 
   group('dedupe', () {
     test('keeps first occurrence order', () {
-      expect(dedupe(<String>['b', 'a', 'b', 'c', 'a']),
-          <String>['b', 'a', 'c']);
+      expect(dedupe(<String>['b', 'a', 'b', 'c', 'a']), <String>[
+        'b',
+        'a',
+        'c',
+      ]);
     });
   });
 }

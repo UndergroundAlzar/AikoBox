@@ -146,8 +146,11 @@ class AikoL10n {
     Map<String, String> strings, {
     Map<String, String> fallback = const <String, String>{},
   }) {
-    return AikoL10n._(info, Map<String, String>.unmodifiable(strings),
-        Map<String, String>.unmodifiable(fallback));
+    return AikoL10n._(
+      info,
+      Map<String, String>.unmodifiable(strings),
+      Map<String, String>.unmodifiable(fallback),
+    );
   }
 
   final AikoLocaleInfo info;
@@ -172,19 +175,19 @@ class AikoL10n {
 
   static const List<LocalizationsDelegate<dynamic>> localizationsDelegates =
       <LocalizationsDelegate<dynamic>>[
-    AikoL10nDelegate(),
-    GlobalMaterialLocalizations.delegate,
-    GlobalWidgetsLocalizations.delegate,
-    GlobalCupertinoLocalizations.delegate,
-  ];
+        AikoL10nDelegate(),
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ];
 
   static bool isSupportedTag(String tag) =>
       kAikoLocales.any((AikoLocaleInfo e) => e.tag == tag);
 
   static AikoLocaleInfo infoForTag(String tag) => kAikoLocales.firstWhere(
-        (AikoLocaleInfo e) => e.tag == tag,
-        orElse: () => infoForTag(kBaseLocaleTag),
-      );
+    (AikoLocaleInfo e) => e.tag == tag,
+    orElse: () => infoForTag(kBaseLocaleTag),
+  );
 
   /// Maps an arbitrary platform [Locale] onto one of the shipped tags.
   ///
@@ -236,7 +239,9 @@ class AikoL10n {
 
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     final String? stored = prefs.getString(LocaleSettingNotifier.prefsKey);
-    _bootstrappedTag = (stored != null && isSupportedTag(stored)) ? stored : null;
+    _bootstrappedTag = (stored != null && isSupportedTag(stored))
+        ? stored
+        : null;
     _bootstrapped = true;
 
     await _bundleFor(kBaseLocaleTag, b);
@@ -308,8 +313,9 @@ class AikoL10n {
     final AssetBundle b = bundle ?? rootBundle;
     final String tag = resolveTag(locale);
     final Map<String, String> fallback = await _bundleFor(kBaseLocaleTag, b);
-    final Map<String, String> strings =
-        tag == kBaseLocaleTag ? fallback : await _bundleFor(tag, b);
+    final Map<String, String> strings = tag == kBaseLocaleTag
+        ? fallback
+        : await _bundleFor(tag, b);
     return AikoL10n._(infoForTag(tag), strings, fallback);
   }
 
@@ -458,8 +464,9 @@ class AikoL10nDelegate extends LocalizationsDelegate<AikoL10n> {
   const AikoL10nDelegate();
 
   @override
-  bool isSupported(Locale locale) => kAikoLocales
-      .any((AikoLocaleInfo e) => e.languageCode == locale.languageCode);
+  bool isSupported(Locale locale) => kAikoLocales.any(
+    (AikoLocaleInfo e) => e.languageCode == locale.languageCode,
+  );
 
   @override
   Future<AikoL10n> load(Locale locale) => AikoL10n.load(locale);
@@ -531,13 +538,14 @@ final Provider<Locale?> activeLocaleProvider = Provider<Locale?>((Ref ref) {
 /// The locale actually in effect, system resolution included.
 final Provider<AikoLocaleInfo> activeLocaleInfoProvider =
     Provider<AikoLocaleInfo>((Ref ref) {
-  final String? tag = ref.watch(localeSettingProvider);
-  if (tag != null) return AikoL10n.infoForTag(tag);
-  return AikoL10n.infoForLocale(PlatformDispatcher.instance.locale);
-});
+      final String? tag = ref.watch(localeSettingProvider);
+      if (tag != null) return AikoL10n.infoForTag(tag);
+      return AikoL10n.infoForLocale(PlatformDispatcher.instance.locale);
+    });
 
 /// Reading direction of the active locale — `rtl` for `fa-IR`.
-final Provider<TextDirection> textDirectionProvider =
-    Provider<TextDirection>((Ref ref) {
+final Provider<TextDirection> textDirectionProvider = Provider<TextDirection>((
+  Ref ref,
+) {
   return ref.watch(activeLocaleInfoProvider).textDirection;
 });

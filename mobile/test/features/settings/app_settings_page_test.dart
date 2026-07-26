@@ -123,7 +123,10 @@ void main() {
       isNull,
     );
 
-    await tester.enterText(find.byKey(const Key('aiko-text-sheet-field')), '90');
+    await tester.enterText(
+      find.byKey(const Key('aiko-text-sheet-field')),
+      '90',
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('aiko-text-sheet-save')));
     await tester.pumpAndSettle();

@@ -20,13 +20,15 @@ class OutboundBuild {
 
 /// Dial options every protocol shares, applied after the protocol mapping.
 void applyCommonDialFields(Dict target, Dict proxy) {
-  target.addAll(compact(<String, dynamic>{
-    'bind_interface': toStr(proxy['interface-name']),
-    'tcp_fast_open': toBool(proxy['tfo']),
-    'tcp_multi_path': toBool(proxy['mptcp']),
-    'udp_fragment': toBool(proxy['udp-fragment']),
-    'domain_strategy': mapIpVersion(proxy['ip-version']),
-  }));
+  target.addAll(
+    compact(<String, dynamic>{
+      'bind_interface': toStr(proxy['interface-name']),
+      'tcp_fast_open': toBool(proxy['tfo']),
+      'tcp_multi_path': toBool(proxy['mptcp']),
+      'udp_fragment': toBool(proxy['udp-fragment']),
+      'domain_strategy': mapIpVersion(proxy['ip-version']),
+    }),
+  );
 }
 
 /// Opt-in TLS (`tls: true`), or implicit TLS because reality is configured.
@@ -184,7 +186,9 @@ OutboundBuild convertShadowsocks(Dict p, String tag) {
       final String? path = toStr(opts['path']);
       if (host != null && host.isNotEmpty) parts.add('host=$host');
       if (path != null && path.isNotEmpty) parts.add('path=$path');
-      if (toBool(opts['skip-cert-verify']) == true) parts.add('skipVerify=true');
+      if (toBool(opts['skip-cert-verify']) == true) {
+        parts.add('skipVerify=true');
+      }
       outbound['plugin'] = 'v2ray-plugin';
       outbound['plugin_opts'] = parts.join(';');
       if (toBool(opts['mux']) == true) {
@@ -192,7 +196,8 @@ OutboundBuild convertShadowsocks(Dict p, String tag) {
       }
     } else {
       return OutboundBuild(
-        warning: 'proxy "$tag": shadowsocks plugin "$plugin" is not supported, '
+        warning:
+            'proxy "$tag": shadowsocks plugin "$plugin" is not supported, '
             'proxy skipped',
       );
     }
@@ -254,7 +259,8 @@ OutboundBuild convertVless(Dict p, String tag) {
   if (flow != null && flow.isNotEmpty && !visionFlow) {
     return OutboundBuild(
       outbound: outbound,
-      warning: 'proxy "$tag": vless flow "$flow" is not supported and was '
+      warning:
+          'proxy "$tag": vless flow "$flow" is not supported and was '
           'dropped',
     );
   }
@@ -281,8 +287,9 @@ OutboundBuild convertTrojan(Dict p, String tag) {
 }
 
 OutboundBuild convertHysteria2(Dict p, String tag) {
-  final List<String> serverPorts =
-      portRanges(jsTruthy(p['ports']) ? p['ports'] : p['server-ports']);
+  final List<String> serverPorts = portRanges(
+    jsTruthy(p['ports']) ? p['ports'] : p['server-ports'],
+  );
   final num? hopInterval = toNum(p['hop-interval']);
   final Dict outbound = compact(<String, dynamic>{
     'type': 'hysteria2',
@@ -307,7 +314,8 @@ OutboundBuild convertHysteria2(Dict p, String tag) {
     });
   } else if (obfs != null && obfs.isNotEmpty) {
     return OutboundBuild(
-      warning: 'proxy "$tag": hysteria2 obfs "$obfs" is not supported, '
+      warning:
+          'proxy "$tag": hysteria2 obfs "$obfs" is not supported, '
           'proxy skipped',
     );
   }
@@ -356,8 +364,9 @@ String withIntegerMantissa(String value) {
 }
 
 OutboundBuild convertHysteria(Dict p, String tag) {
-  final List<String> serverPorts =
-      portRanges(jsTruthy(p['ports']) ? p['ports'] : p['server-ports']);
+  final List<String> serverPorts = portRanges(
+    jsTruthy(p['ports']) ? p['ports'] : p['server-ports'],
+  );
 
   String? formatBandwidth(Object? value) {
     if (value is String && _containsLetter.hasMatch(value)) {
@@ -456,8 +465,9 @@ OutboundBuild convertWireguard(Dict p, String tag) {
   Object? reserved;
   final Object? rawReserved = p['reserved'];
   if (rawReserved is List) {
-    final List<num> nums =
-        asArray(rawReserved).map(toNum).whereType<num>().toList();
+    final List<num> nums = asArray(
+      rawReserved,
+    ).map(toNum).whereType<num>().toList();
     if (nums.length == 3) reserved = nums;
   } else if (rawReserved is String) {
     reserved = rawReserved;
@@ -474,8 +484,10 @@ OutboundBuild convertWireguard(Dict p, String tag) {
         'address': toStr(p['server']),
         'port': toNum(p['port']),
         'public_key': toStr(p['public-key']),
-        'pre_shared_key':
-            strOr(toStr(p['pre-shared-key']), toStr(p['preshared-key'])),
+        'pre_shared_key': strOr(
+          toStr(p['pre-shared-key']),
+          toStr(p['preshared-key']),
+        ),
         'allowed_ips': <String>['0.0.0.0/0', '::/0'],
         'reserved': reserved,
       }),
@@ -525,8 +537,7 @@ OutboundBuild convertAnytls(Dict p, String tag) {
       'server': toStr(p['server']),
       'server_port': toNum(p['port']),
       'password': toStr(p['password']),
-      'idle_session_check_interval':
-          toStr(p['idle-session-check-interval']),
+      'idle_session_check_interval': toStr(p['idle-session-check-interval']),
       'idle_session_timeout': toStr(p['idle-session-timeout']),
       'min_idle_session': toNum(p['min-idle-session']),
       'tls': buildForcedTls(p),
@@ -538,14 +549,16 @@ OutboundBuild convertShadowTls(Dict p, String tag) {
   final num version = toNum(p['version']) ?? 1;
   if (!const <num>[1, 2, 3].contains(version)) {
     return OutboundBuild(
-      warning: 'proxy "$tag": ShadowTLS version ${jsNumToString(version)} is '
+      warning:
+          'proxy "$tag": ShadowTLS version ${jsNumToString(version)} is '
           'invalid, proxy skipped',
     );
   }
   final String? password = toStr(p['password']);
   if (version > 1 && (password == null || password.isEmpty)) {
     return OutboundBuild(
-      warning: 'proxy "$tag": ShadowTLS v${jsNumToString(version)} requires a '
+      warning:
+          'proxy "$tag": ShadowTLS v${jsNumToString(version)} requires a '
           'password, proxy skipped',
     );
   }
@@ -602,7 +615,8 @@ OutboundBuild convertProxy(Dict p) {
       );
     default:
       return OutboundBuild(
-        warning: 'proxy "$tag": type "${strOrElse(type, 'unknown')}" is not '
+        warning:
+            'proxy "$tag": type "${strOrElse(type, 'unknown')}" is not '
             'supported by sing-box, skipped',
       );
   }

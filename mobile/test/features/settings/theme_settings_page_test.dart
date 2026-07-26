@@ -135,10 +135,7 @@ void main() {
     await tester.tap(find.byKey(const Key('theme-reset')));
     await tester.pumpAndSettle();
 
-    expect(
-      container.read(themeControllerProvider),
-      AikoThemeSettings.defaults,
-    );
+    expect(container.read(themeControllerProvider), AikoThemeSettings.defaults);
     expect(
       container.read(appConfigProvider).seedColor,
       kAikoDefaultSeedColorValue.toARGB32(),

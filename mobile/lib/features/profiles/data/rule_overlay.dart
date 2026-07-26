@@ -312,11 +312,7 @@ List<String> applyRuleOverlay(List<String> baseRules, RuleOverlay overlay) {
   }
 
   if (overlay.append.isNotEmpty) {
-    final split = processRulesWithOffset(
-      overlay.append,
-      rules,
-      isAppend: true,
-    );
+    final split = processRulesWithOffset(overlay.append, rules, isAppend: true);
     rules = <String>[...split.insertRules, ...split.normalRules];
   }
 
@@ -361,8 +357,7 @@ List<String> _stringList(Object? node) {
   if (node is! List) return const <String>[];
   return <String>[
     for (final entry in node)
-      if (entry != null && entry.toString().trim().isNotEmpty)
-        entry.toString(),
+      if (entry != null && entry.toString().trim().isNotEmpty) entry.toString(),
   ];
 }
 

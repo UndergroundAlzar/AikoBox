@@ -240,9 +240,7 @@ class _LevelMenu extends ConsumerWidget {
       ),
       onSelected: (String value) => ref
           .read(logsViewProvider.notifier)
-          .setLevel(
-            value == _allValue ? null : LogLevel.fromWire(value),
-          ),
+          .setLevel(value == _allValue ? null : LogLevel.fromWire(value)),
       itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
         CheckedPopupMenuItem<String>(
           value: _allValue,
@@ -324,9 +322,10 @@ class _LogsMenu extends StatelessWidget {
         PopupMenuItem<String>(
           enabled: false,
           child: Text(
-            l10n.t('logs.bufferHint', args: <String, Object?>{
-              'count': kLogsViewLineLimit,
-            }),
+            l10n.t(
+              'logs.bufferHint',
+              args: <String, Object?>{'count': kLogsViewLineLimit},
+            ),
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ),

@@ -9,8 +9,7 @@ ProfileItem _remote(String id, {String name = ''}) => ProfileItem(
   url: 'https://example.com/$id',
 );
 
-ProfileItem _local(String id) =>
-    ProfileItem(id: id, type: 'local', name: id);
+ProfileItem _local(String id) => ProfileItem(id: id, type: 'local', name: id);
 
 void main() {
   group('isBatchUpdatable', () {

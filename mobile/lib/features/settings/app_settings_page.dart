@@ -164,8 +164,9 @@ class AppSettingsPage extends ConsumerWidget {
                     context,
                     ref,
                     (AppConfig c) => c.copyWith(
-                      connectionDirection:
-                          c.connectionDirection == 'asc' ? 'desc' : 'asc',
+                      connectionDirection: c.connectionDirection == 'asc'
+                          ? 'desc'
+                          : 'asc',
                     ),
                   ),
                 ),

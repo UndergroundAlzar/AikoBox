@@ -114,14 +114,15 @@ void main() {
           ClashRuleTarget(ClashRulePrefix.domainSuffix, 'cdn.example.com'),
         ],
       );
-      expect(candidates.map((ClashRuleCandidate c) => c.text).toList(), <
-        String
-      >[
-        'cdn.example.com',
-        'DOMAIN,cdn.example.com',
-        'DOMAIN-SUFFIX,cdn.example.com',
-        'DOMAIN-SUFFIX,example.com',
-      ]);
+      expect(
+        candidates.map((ClashRuleCandidate c) => c.text).toList(),
+        <String>[
+          'cdn.example.com',
+          'DOMAIN,cdn.example.com',
+          'DOMAIN-SUFFIX,cdn.example.com',
+          'DOMAIN-SUFFIX,example.com',
+        ],
+      );
     });
 
     test('drops exact duplicates so the menu never repeats a line', () {

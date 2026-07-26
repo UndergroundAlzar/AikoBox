@@ -28,11 +28,7 @@ enum RuleRowState {
 
 /// One row as the list renders it.
 class RuleRow {
-  const RuleRow({
-    required this.index,
-    required this.rule,
-    required this.state,
-  });
+  const RuleRow({required this.index, required this.rule, required this.state});
 
   /// Position in [RuleEditorState.rules]. Stable for the lifetime of one state
   /// object; every mutation returns a new state with fresh indices.
@@ -60,10 +56,7 @@ class RuleEditorState {
   ///
   /// Mirrors the desktop's load path exactly, including the quirk that a
   /// `delete:` entry only marks the *first* matching row.
-  factory RuleEditorState.load(
-    List<ClashRule> baseRules,
-    RuleOverlay overlay,
-  ) {
+  factory RuleEditorState.load(List<ClashRule> baseRules, RuleOverlay overlay) {
     var rules = List<ClashRule>.of(baseRules);
     final prepend = <int>{};
     final append = <int>{};
@@ -151,22 +144,22 @@ class RuleEditorState {
   List<RuleRow> search(String query) {
     final needle = query.trim().toLowerCase();
     if (needle.isEmpty) return rows();
-    return rows().where((row) {
-      final rule = row.rule;
-      return rule.type.toLowerCase().contains(needle) ||
-          rule.payload.toLowerCase().contains(needle) ||
-          rule.proxy.toLowerCase().contains(needle) ||
-          rule.params.any((param) => param.toLowerCase().contains(needle));
-    }).toList(growable: false);
+    return rows()
+        .where((row) {
+          final rule = row.rule;
+          return rule.type.toLowerCase().contains(needle) ||
+              rule.payload.toLowerCase().contains(needle) ||
+              rule.proxy.toLowerCase().contains(needle) ||
+              rule.params.any((param) => param.toLowerCase().contains(needle));
+        })
+        .toList(growable: false);
   }
 
   /// Inserts [rule] as a prepend (top, or at its own offset) or an append
   /// (bottom, or `offset` rows up from the bottom).
   RuleEditorState insert(ClashRule rule, {required bool asPrepend}) {
     final position = asPrepend
-        ? (rule.offset != null
-              ? rule.offset!.clamp(0, rules.length)
-              : 0)
+        ? (rule.offset != null ? rule.offset!.clamp(0, rules.length) : 0)
         : (rule.offset != null
               ? (rules.length - rule.offset!).clamp(0, rules.length)
               : rules.length);

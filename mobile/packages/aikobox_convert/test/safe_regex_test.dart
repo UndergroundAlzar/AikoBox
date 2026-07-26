@@ -155,13 +155,13 @@ void main() {
         matches(RegExp('unsafe or invalid filter')),
       );
       // and the group still ends up structurally valid
-      expect(
-        strings(outbound(result.config, 'Bad')['outbounds']),
-        isNotEmpty,
-      );
+      expect(strings(outbound(result.config, 'Bad')['outbounds']), isNotEmpty);
     });
   });
 }
 
-Matcher _message(Matcher inner) => isA<ClashRegexException>()
-    .having((ClashRegexException e) => e.message, 'message', inner);
+Matcher _message(Matcher inner) => isA<ClashRegexException>().having(
+  (ClashRegexException e) => e.message,
+  'message',
+  inner,
+);

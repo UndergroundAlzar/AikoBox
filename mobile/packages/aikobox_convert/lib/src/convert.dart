@@ -91,10 +91,10 @@ const Map<String, String> kIgnoredTopLevelKeys = <String, String>{
   'keep-alive-interval': 'keep-alive-interval is mihomo-specific, ignored',
   'proxy-providers':
       'Clash proxy-providers must be resolved before conversion; unresolved '
-          'entries are refused',
+      'entries are refused',
   'rule-providers':
       'Clash rule-providers must be resolved before conversion; unresolved '
-          'entries are refused',
+      'entries are refused',
   'listeners': 'Clash listeners are not supported, ignored',
   'tunnels': 'Clash tunnels are not supported, ignored',
 };
@@ -117,11 +117,14 @@ ConvertResult convertClashToSingbox(
 
   final bool ipv6Enabled = toBool(input['ipv6']) != false;
   SingboxController controller = deriveController(input);
-  final String requestedController =
-      strOrElse(toStr(input['external-controller'])?.trim(), '');
+  final String requestedController = strOrElse(
+    toStr(input['external-controller'])?.trim(),
+    '',
+  );
   if (requestedController.isNotEmpty) {
-    final String requestedHost =
-        parseHostPort(requestedController).host.toLowerCase();
+    final String requestedHost = parseHostPort(
+      requestedController,
+    ).host.toLowerCase();
     if (requestedHost.isNotEmpty && !_loopbackHosts.contains(requestedHost)) {
       warnings.add(
         'external-controller was restricted to 127.0.0.1 for desktop security',
@@ -213,10 +216,8 @@ ConvertResult convertClashToSingbox(
   }
 
   /* ---- groups ---- */
-  final List<Dict> groups =
-      asArray(input['proxy-groups']).map(asDict).toList();
-  final GroupBuild groupBuild =
-      convertGroups(groups, proxyTags, availableTags);
+  final List<Dict> groups = asArray(input['proxy-groups']).map(asDict).toList();
+  final GroupBuild groupBuild = convertGroups(groups, proxyTags, availableTags);
   warnings.addAll(groupBuild.warnings);
   errors.addAll(groupBuild.errors);
 
@@ -231,8 +232,9 @@ ConvertResult convertClashToSingbox(
     groupBuild.outbounds.add(<String, dynamic>{
       'type': 'selector',
       'tag': 'GLOBAL',
-      'outbounds':
-          globalMembers.isNotEmpty ? globalMembers : <String>['direct'],
+      'outbounds': globalMembers.isNotEmpty
+          ? globalMembers
+          : <String>['direct'],
     });
   }
 
@@ -243,9 +245,9 @@ ConvertResult convertClashToSingbox(
     ...proxyTags,
     ...groupBuild.groupTags,
   };
-  final List<String> ruleStrings = asArray(input['rules'])
-      .map((Object? r) => r is String ? r : jsStringify(r))
-      .toList();
+  final List<String> ruleStrings = asArray(
+    input['rules'],
+  ).map((Object? r) => r is String ? r : jsStringify(r)).toList();
   final RulesBuild rulesBuild = convertRules(ruleStrings, knownOutbounds);
   if (ruleStrings.isEmpty && proxyTags.isNotEmpty) {
     rulesBuild.finalOutbound = groupBuild.groupTags.isNotEmpty
@@ -265,24 +267,36 @@ ConvertResult convertClashToSingbox(
   final bool dnsEnabled = toBool(asDict(input['dns'])['enable']) == true;
 
   /* ---- inbounds ---- */
-  final InboundsBuild inboundsBuild =
-      buildInbounds(input, ipv6Enabled: ipv6Enabled, options: options);
+  final InboundsBuild inboundsBuild = buildInbounds(
+    input,
+    ipv6Enabled: ipv6Enabled,
+    options: options,
+  );
   warnings.addAll(inboundsBuild.warnings);
 
   /* ---- route rules (actions + clash modes + converted rules) ---- */
-  final List<Dict> routeRules =
-      buildLanAccessRules(input, inboundsBuild.inbounds, warnings);
+  final List<Dict> routeRules = buildLanAccessRules(
+    input,
+    inboundsBuild.inbounds,
+    warnings,
+  );
   if (toBool(asDict(input['sniffer'])['enable']) == true) {
     routeRules.add(<String, dynamic>{'action': 'sniff'});
   }
   if (dnsEnabled) {
-    routeRules
-        .add(<String, dynamic>{'protocol': 'dns', 'action': 'hijack-dns'});
+    routeRules.add(<String, dynamic>{
+      'protocol': 'dns',
+      'action': 'hijack-dns',
+    });
   }
-  routeRules
-      .add(<String, dynamic>{'clash_mode': 'Direct', 'outbound': 'direct'});
-  routeRules
-      .add(<String, dynamic>{'clash_mode': 'Global', 'outbound': 'GLOBAL'});
+  routeRules.add(<String, dynamic>{
+    'clash_mode': 'Direct',
+    'outbound': 'direct',
+  });
+  routeRules.add(<String, dynamic>{
+    'clash_mode': 'Global',
+    'outbound': 'GLOBAL',
+  });
   // sing-box only offers the clash_mode values that appear in a rule, so a
   // never-matching placeholder is what keeps "Rule" switchable.
   routeRules.add(<String, dynamic>{
@@ -301,7 +315,8 @@ ConvertResult convertClashToSingbox(
     'rules': routeRules,
     'rule_set': rulesBuild.ruleSets,
     'final': rulesBuild.finalOutbound,
-    'auto_detect_interface': toBool(tun['auto-detect-interface']) ??
+    'auto_detect_interface':
+        toBool(tun['auto-detect-interface']) ??
         toBool(input['auto-detect-interface']) ??
         true,
     'default_domain_resolver': <String, dynamic>{
@@ -335,7 +350,8 @@ ConvertResult convertClashToSingbox(
         'external_controller': controller.listen,
         'secret': controller.secret.isNotEmpty ? controller.secret : null,
         'default_mode':
-            mode.substring(0, 1).toUpperCase() + mode.substring(1).toLowerCase(),
+            mode.substring(0, 1).toUpperCase() +
+            mode.substring(1).toLowerCase(),
       }),
       'cache_file': <String, dynamic>{
         'enabled': true,

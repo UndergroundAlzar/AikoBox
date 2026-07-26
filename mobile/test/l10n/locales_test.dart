@@ -22,8 +22,11 @@ Directory _localesDir() {
 Map<String, String> _readLocale(String tag) {
   final File file = File('${_localesDir().path}/$tag.json');
   final Object? decoded = jsonDecode(file.readAsStringSync());
-  expect(decoded, isA<Map<String, dynamic>>(),
-      reason: '$tag.json must be a JSON object');
+  expect(
+    decoded,
+    isA<Map<String, dynamic>>(),
+    reason: '$tag.json must be a JSON object',
+  );
   final Map<String, dynamic> map = decoded! as Map<String, dynamic>;
   return map.map((String k, dynamic v) {
     expect(v, isA<String>(), reason: '$tag.json: "$k" must be a string');
@@ -76,8 +79,9 @@ class _DiskBundle extends CachingAssetBundle {
 }
 
 void main() {
-  final List<String> tags =
-      kAikoLocales.map((AikoLocaleInfo e) => e.tag).toList(growable: false);
+  final List<String> tags = kAikoLocales
+      .map((AikoLocaleInfo e) => e.tag)
+      .toList(growable: false);
 
   group('locale assets', () {
     late Map<String, Map<String, String>> bundles;
@@ -89,14 +93,15 @@ void main() {
     });
 
     test('every shipped locale has an asset and there are no stray files', () {
-      final List<String> onDisk = _localesDir()
-          .listSync()
-          .whereType<File>()
-          .map((File f) => f.uri.pathSegments.last)
-          .where((String name) => name.endsWith('.json'))
-          .map((String name) => name.substring(0, name.length - 5))
-          .toList()
-        ..sort();
+      final List<String> onDisk =
+          _localesDir()
+              .listSync()
+              .whereType<File>()
+              .map((File f) => f.uri.pathSegments.last)
+              .where((String name) => name.endsWith('.json'))
+              .map((String name) => name.substring(0, name.length - 5))
+              .toList()
+            ..sort();
       expect(onDisk, equals(<String>[...tags]..sort()));
     });
 
@@ -113,16 +118,18 @@ void main() {
         final List<String> missing = base.difference(keys).toList()..sort();
         final List<String> extra = keys.difference(base).toList()..sort();
         expect(missing, isEmpty, reason: '$tag is missing keys: $missing');
-        expect(extra, isEmpty,
-            reason: '$tag has keys en-US does not: $extra');
+        expect(extra, isEmpty, reason: '$tag has keys en-US does not: $extra');
       }
     });
 
     test('no value is empty or whitespace only', () {
       for (final String tag in tags) {
         bundles[tag]!.forEach((String key, String value) {
-          expect(value.trim(), isNotEmpty,
-              reason: '$tag: "$key" has an empty value');
+          expect(
+            value.trim(),
+            isNotEmpty,
+            reason: '$tag: "$key" has an empty value',
+          );
         });
       }
     });
@@ -132,23 +139,33 @@ void main() {
       for (final String tag in tags) {
         if (tag == kBaseLocaleTag) continue;
         bundles[tag]!.forEach((String key, String value) {
-          expect(_placeholders(value), equals(_placeholders(base[key]!)),
-              reason: '$tag: "$key" placeholders differ from en-US');
+          expect(
+            _placeholders(value),
+            equals(_placeholders(base[key]!)),
+            reason: '$tag: "$key" placeholders differ from en-US',
+          );
         });
       }
     });
 
     test('no duplicate keys survive in the raw JSON text', () {
-      final RegExp keyLine = RegExp(r'^\s*"((?:[^"\\]|\\.)*)"\s*:', multiLine: true);
+      final RegExp keyLine = RegExp(
+        r'^\s*"((?:[^"\\]|\\.)*)"\s*:',
+        multiLine: true,
+      );
       for (final String tag in tags) {
-        final String raw =
-            File('${_localesDir().path}/$tag.json').readAsStringSync();
+        final String raw = File(
+          '${_localesDir().path}/$tag.json',
+        ).readAsStringSync();
         final List<String> keys = keyLine
             .allMatches(raw)
             .map((Match m) => m.group(1)!)
             .toList(growable: false);
-        expect(keys.length, bundles[tag]!.length,
-            reason: '$tag.json contains duplicate keys');
+        expect(
+          keys.length,
+          bundles[tag]!.length,
+          reason: '$tag.json contains duplicate keys',
+        );
       }
     });
 
@@ -218,24 +235,33 @@ void main() {
     tearDown(AikoL10n.resetForTests);
 
     test('loads a locale and reports its direction', () async {
-      final AikoL10n fa =
-          await AikoL10n.load(const Locale('fa', 'IR'), bundle: bundle);
+      final AikoL10n fa = await AikoL10n.load(
+        const Locale('fa', 'IR'),
+        bundle: bundle,
+      );
       expect(fa.localeTag, 'fa-IR');
       expect(fa.textDirection, TextDirection.rtl);
       expect(fa.isRtl, isTrue);
       expect(fa.t('nav.dashboard'), 'داشبورد');
 
-      final AikoL10n zh =
-          await AikoL10n.load(const Locale('zh', 'CN'), bundle: bundle);
+      final AikoL10n zh = await AikoL10n.load(
+        const Locale('zh', 'CN'),
+        bundle: bundle,
+      );
       expect(zh.textDirection, TextDirection.ltr);
       expect(zh.t('perApp.title'), '分应用代理');
     });
 
     test('interpolates named placeholders', () async {
-      final AikoL10n en =
-          await AikoL10n.load(const Locale('en', 'US'), bundle: bundle);
+      final AikoL10n en = await AikoL10n.load(
+        const Locale('en', 'US'),
+        bundle: bundle,
+      );
       expect(
-        en.t('profiles.switchSuccess', args: <String, Object?>{'name': 'HK 01'}),
+        en.t(
+          'profiles.switchSuccess',
+          args: <String, Object?>{'name': 'HK 01'},
+        ),
         'Switched to “HK 01”',
       );
       // Unknown tokens survive untouched instead of turning into a plausible
@@ -244,27 +270,35 @@ void main() {
     });
 
     test('pluralises per locale', () async {
-      final AikoL10n en =
-          await AikoL10n.load(const Locale('en', 'US'), bundle: bundle);
+      final AikoL10n en = await AikoL10n.load(
+        const Locale('en', 'US'),
+        bundle: bundle,
+      );
       expect(en.plural('plural.days', 1), '1 day');
       expect(en.plural('plural.days', 3), '3 days');
 
-      final AikoL10n ru =
-          await AikoL10n.load(const Locale('ru', 'RU'), bundle: bundle);
+      final AikoL10n ru = await AikoL10n.load(
+        const Locale('ru', 'RU'),
+        bundle: bundle,
+      );
       expect(ru.plural('plural.days', 1), '1 день');
       expect(ru.plural('plural.days', 3), '3 дня');
       expect(ru.plural('plural.days', 11), '11 дней');
 
-      final AikoL10n zh =
-          await AikoL10n.load(const Locale('zh', 'CN'), bundle: bundle);
+      final AikoL10n zh = await AikoL10n.load(
+        const Locale('zh', 'CN'),
+        bundle: bundle,
+      );
       expect(zh.plural('plural.days', 1), '1 天');
       expect(zh.plural('plural.days', 7), '7 天');
     });
 
     test('a locale with no bundle still resolves through en-US', () async {
       // 'de' is not shipped, so resolveTag lands on the base locale.
-      final AikoL10n de =
-          await AikoL10n.load(const Locale('de', 'DE'), bundle: bundle);
+      final AikoL10n de = await AikoL10n.load(
+        const Locale('de', 'DE'),
+        bundle: bundle,
+      );
       expect(de.localeTag, kBaseLocaleTag);
       expect(de.t('nav.dashboard'), 'Dashboard');
     });
@@ -321,12 +355,16 @@ void main() {
 
     test('interpolate accepts both brace styles and leaves unknowns alone', () {
       expect(
-        AikoL10n.interpolate('a {one} b {{two}} c {three}',
-            <String, Object?>{'one': 1, 'two': 2}),
+        AikoL10n.interpolate('a {one} b {{two}} c {three}', <String, Object?>{
+          'one': 1,
+          'two': 2,
+        }),
         'a 1 b 2 c {three}',
       );
-      expect(AikoL10n.interpolate('no tokens', <String, Object?>{'x': 1}),
-          'no tokens');
+      expect(
+        AikoL10n.interpolate('no tokens', <String, Object?>{'x': 1}),
+        'no tokens',
+      );
     });
 
     test('flattenLocaleJson handles nested maps as well as flat ones', () {

@@ -125,7 +125,9 @@ jobs:
 
       - name: Check formatting
         working-directory: mobile
-        run: dart format --output=none --set-exit-if-changed .
+        # Explicit source roots, not `.`: dart format has no ignore file and walks into
+        # build/ and .dart_tool/, where it trips over Gradle's intermediates.
+        run: dart format --output=none --set-exit-if-changed lib test packages
 
       - name: Analyse
         working-directory: mobile

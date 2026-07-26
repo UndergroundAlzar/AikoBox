@@ -91,8 +91,7 @@ class StaggeredGrid extends StatelessWidget {
             ? constraints.maxWidth
             : 0;
         final int columns =
-            crossAxisCount ??
-            (maxWidth > 0 ? columnsForWidth(maxWidth) : 1);
+            crossAxisCount ?? (maxWidth > 0 ? columnsForWidth(maxWidth) : 1);
 
         final double cellWidth = math.max(
           0,

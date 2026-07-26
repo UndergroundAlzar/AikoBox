@@ -33,11 +33,7 @@ void showProfileError(
   final messenger = ScaffoldMessenger.maybeOf(context);
   if (l10n == null || messenger == null) return;
 
-  final described = describeProfileError(
-    l10n,
-    error,
-    fallbackKey: fallbackKey,
-  );
+  final described = describeProfileError(l10n, error, fallbackKey: fallbackKey);
   final detail = described.detail;
 
   messenger
@@ -50,7 +46,8 @@ void showProfileError(
             ? null
             : SnackBarAction(
                 label: l10n.t('common.details'),
-                onPressed: () => _showDetail(context, described.message, detail),
+                onPressed: () =>
+                    _showDetail(context, described.message, detail),
               ),
       ),
     );

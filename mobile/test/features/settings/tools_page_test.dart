@@ -69,10 +69,7 @@ void main() {
     );
 
     // "All except selected apps · 2 apps"
-    expect(
-      find.textContaining(en['perApp.mode.denylist']!),
-      findsOneWidget,
-    );
+    expect(find.textContaining(en['perApp.mode.denylist']!), findsOneWidget);
     expect(find.textContaining('2 apps'), findsOneWidget);
     // Theme mode defaults to "follow the system".
     expect(find.text(en['settings.backgroundAuto']!), findsOneWidget);

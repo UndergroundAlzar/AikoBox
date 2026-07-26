@@ -43,7 +43,15 @@ void main() {
       expect(decoded['version'], kBackupFormatVersion);
       expect(decoded['appConfig'], isA<Map<String, dynamic>>());
       // Nothing but settings: no profiles, no subscription URLs, no tokens.
-      expect(decoded.keys, unorderedEquals(<String>['format', 'version', 'exportedAt', 'appConfig']));
+      expect(
+        decoded.keys,
+        unorderedEquals(<String>[
+          'format',
+          'version',
+          'exportedAt',
+          'appConfig',
+        ]),
+      );
     });
   });
 
@@ -146,10 +154,7 @@ void main() {
       });
       final AikoBackup restored = decodeAikoBackup(raw);
       expect(restored.appConfig.maxLogLines, 250);
-      expect(
-        restored.appConfig.delayTestUrl,
-        AppConfig.defaults.delayTestUrl,
-      );
+      expect(restored.appConfig.delayTestUrl, AppConfig.defaults.delayTestUrl);
     });
 
     test('a missing exportedAt does not throw', () {

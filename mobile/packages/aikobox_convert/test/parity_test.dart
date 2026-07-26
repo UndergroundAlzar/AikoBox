@@ -47,78 +47,85 @@ void main() {
     '${parityDir.path}${Platform.pathSeparator}cases.json',
   );
 
-  group('cross-implementation parity corpus', () {
-    final List<Object?> cases =
-        jsonDecode(casesFile.readAsStringSync()) as List<Object?>;
+  group(
+    'cross-implementation parity corpus',
+    () {
+      final List<Object?> cases =
+          jsonDecode(casesFile.readAsStringSync()) as List<Object?>;
 
-    test('the corpus is non-trivial', () {
-      expect(cases.length, greaterThanOrEqualTo(19));
-    });
-
-    for (final Object? raw in cases) {
-      final Map<String, dynamic> entry = (raw as Map).cast<String, dynamic>();
-      final String id = entry['id'] as String;
-
-      test(id, () {
-        final Object? inline = entry['clash'];
-        Map<String, dynamic> clash;
-        if (inline is Map) {
-          clash = inline.cast<String, dynamic>();
-        } else {
-          final File yamlFile = File(
-            '${parityDir.path}${Platform.pathSeparator}'
-            '${(entry['clashYamlFile'] as String).replaceAll('/', Platform.pathSeparator)}',
-          );
-          if (!yamlFile.existsSync()) {
-            markTestSkipped('fixture missing: ${yamlFile.path}');
-            return;
-          }
-          clash = parseClashYamlLikeDesktop(yamlFile.readAsStringSync());
-        }
-
-        final Map<String, dynamic> options =
-            ((entry['options'] as Map?) ?? const <String, dynamic>{})
-                .cast<String, dynamic>();
-        final ConvertResult result = convertClashToSingbox(
-          clash,
-          options: ConvertOptions(
-            platform: (options['platform'] as String?) ?? '',
-            controllerSecret: options['controllerSecret'] as String?,
-            autoRedirect: (options['autoRedirect'] as bool?) ?? false,
-          ),
-        );
-
-        final File expectedFile = File(
-          '${parityDir.path}${Platform.pathSeparator}expected'
-          '${Platform.pathSeparator}$id.json',
-        );
-        expect(expectedFile.existsSync(), isTrue,
-            reason: 'missing frozen output for "$id"');
-        final Map<String, dynamic> expectedJson =
-            (jsonDecode(expectedFile.readAsStringSync()) as Map)
-                .cast<String, dynamic>();
-
-        // Compare the encoded form so key order is part of the contract: the
-        // emitted JSON is what the core parses, and a reordered `outbounds`
-        // list is a different config.
-        const JsonEncoder encoder = JsonEncoder.withIndent('  ');
-        expect(
-          encoder.convert(result.config),
-          encoder.convert(expectedJson['config']),
-        );
-        expect(
-          result.warnings,
-          equals((expectedJson['warnings'] as List<Object?>).cast<String>()),
-        );
-        expect(
-          result.errors,
-          equals((expectedJson['errors'] as List<Object?>).cast<String>()),
-        );
-        expect(
-          result.controller.toJson(),
-          equals((expectedJson['controller'] as Map).cast<String, dynamic>()),
-        );
+      test('the corpus is non-trivial', () {
+        expect(cases.length, greaterThanOrEqualTo(19));
       });
-    }
-  }, skip: casesFile.existsSync() ? null : 'parity corpus not found');
+
+      for (final Object? raw in cases) {
+        final Map<String, dynamic> entry = (raw as Map).cast<String, dynamic>();
+        final String id = entry['id'] as String;
+
+        test(id, () {
+          final Object? inline = entry['clash'];
+          Map<String, dynamic> clash;
+          if (inline is Map) {
+            clash = inline.cast<String, dynamic>();
+          } else {
+            final File yamlFile = File(
+              '${parityDir.path}${Platform.pathSeparator}'
+              '${(entry['clashYamlFile'] as String).replaceAll('/', Platform.pathSeparator)}',
+            );
+            if (!yamlFile.existsSync()) {
+              markTestSkipped('fixture missing: ${yamlFile.path}');
+              return;
+            }
+            clash = parseClashYamlLikeDesktop(yamlFile.readAsStringSync());
+          }
+
+          final Map<String, dynamic> options =
+              ((entry['options'] as Map?) ?? const <String, dynamic>{})
+                  .cast<String, dynamic>();
+          final ConvertResult result = convertClashToSingbox(
+            clash,
+            options: ConvertOptions(
+              platform: (options['platform'] as String?) ?? '',
+              controllerSecret: options['controllerSecret'] as String?,
+              autoRedirect: (options['autoRedirect'] as bool?) ?? false,
+            ),
+          );
+
+          final File expectedFile = File(
+            '${parityDir.path}${Platform.pathSeparator}expected'
+            '${Platform.pathSeparator}$id.json',
+          );
+          expect(
+            expectedFile.existsSync(),
+            isTrue,
+            reason: 'missing frozen output for "$id"',
+          );
+          final Map<String, dynamic> expectedJson =
+              (jsonDecode(expectedFile.readAsStringSync()) as Map)
+                  .cast<String, dynamic>();
+
+          // Compare the encoded form so key order is part of the contract: the
+          // emitted JSON is what the core parses, and a reordered `outbounds`
+          // list is a different config.
+          const JsonEncoder encoder = JsonEncoder.withIndent('  ');
+          expect(
+            encoder.convert(result.config),
+            encoder.convert(expectedJson['config']),
+          );
+          expect(
+            result.warnings,
+            equals((expectedJson['warnings'] as List<Object?>).cast<String>()),
+          );
+          expect(
+            result.errors,
+            equals((expectedJson['errors'] as List<Object?>).cast<String>()),
+          );
+          expect(
+            result.controller.toJson(),
+            equals((expectedJson['controller'] as Map).cast<String, dynamic>()),
+          );
+        });
+      }
+    },
+    skip: casesFile.existsSync() ? null : 'parity corpus not found',
+  );
 }

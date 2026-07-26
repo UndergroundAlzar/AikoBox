@@ -64,10 +64,11 @@ class EmptyState extends StatelessWidget {
             Text(
               title,
               textAlign: TextAlign.center,
-              style: (compact
-                      ? theme.textTheme.titleSmall
-                      : theme.textTheme.titleMedium)
-                  ?.copyWith(color: scheme.onSurface),
+              style:
+                  (compact
+                          ? theme.textTheme.titleSmall
+                          : theme.textTheme.titleMedium)
+                      ?.copyWith(color: scheme.onSurface),
             ),
             if (message != null) ...<Widget>[
               const SizedBox(height: 6),

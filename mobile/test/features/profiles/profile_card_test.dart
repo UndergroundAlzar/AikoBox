@@ -41,7 +41,9 @@ void main() {
     Size surface = const Size(400, 800),
   }) => pumpPage(
     tester,
-    Scaffold(body: Padding(padding: const EdgeInsets.all(8), child: card)),
+    Scaffold(
+      body: Padding(padding: const EdgeInsets.all(8), child: card),
+    ),
     container: container,
     surface: surface,
   );
@@ -227,7 +229,10 @@ void main() {
       ),
     );
 
-    expect(find.textContaining(en['profiles.traffic.unlimited']!), findsOneWidget);
+    expect(
+      find.textContaining(en['profiles.traffic.unlimited']!),
+      findsOneWidget,
+    );
     final bar = tester.widget<LinearProgressIndicator>(
       find.byType(LinearProgressIndicator),
     );

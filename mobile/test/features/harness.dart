@@ -76,8 +76,7 @@ class TestL10nDelegate extends LocalizationsDelegate<AikoL10n> {
   bool isSupported(Locale locale) => true;
 
   @override
-  Future<AikoL10n> load(Locale locale) =>
-      AikoL10n.load(locale, bundle: bundle);
+  Future<AikoL10n> load(Locale locale) => AikoL10n.load(locale, bundle: bundle);
 
   @override
   bool shouldReload(covariant LocalizationsDelegate<AikoL10n> old) => false;
@@ -185,7 +184,9 @@ class FakeAppConfigNotifier extends AppConfigNotifier {
   AppConfig build() => initial;
 
   @override
-  Future<AppConfig> update(AppConfig Function(AppConfig current) updater) async {
+  Future<AppConfig> update(
+    AppConfig Function(AppConfig current) updater,
+  ) async {
     if (failWrites) throw StateError('write refused');
     state = updater(state);
     return state;

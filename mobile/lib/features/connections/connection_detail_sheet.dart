@@ -107,7 +107,8 @@ class ConnectionDetailSheet extends ConsumerWidget {
                 ),
                 ConnectionDetailRow(
                   label: l10n.t('connections.detail.establishTime'),
-                  value: '${formatTimestamp(connection.start)}  '
+                  value:
+                      '${formatTimestamp(connection.start)}  '
                       '(${formatElapsedClock(DateTime.now().difference(connection.start))})',
                 ),
                 if (fields.rule.isNotEmpty)
@@ -244,11 +245,8 @@ class ConnectionDetailRow extends StatelessWidget {
           ? PopupMenuButton<String>(
               tooltip: l10n.t('connections.detail.copyRule'),
               icon: const Icon(Icons.copy_rounded, size: 18),
-              onSelected: (String text) => _copy(
-                context,
-                text,
-                isRule: text != value,
-              ),
+              onSelected: (String text) =>
+                  _copy(context, text, isRule: text != value),
               itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
                 for (final ClashRuleCandidate candidate in candidates)
                   PopupMenuItem<String>(
@@ -304,11 +302,7 @@ class ConnectionDetailRow extends StatelessWidget {
     );
   }
 
-  static void _copy(
-    BuildContext context,
-    String text, {
-    required bool isRule,
-  }) {
+  static void _copy(BuildContext context, String text, {required bool isRule}) {
     final AikoL10n l10n = context.l10n;
     // Fire and forget: the platform side of setData cannot fail in a way the
     // user could act on, and blocking the menu dismissal on it would be worse.

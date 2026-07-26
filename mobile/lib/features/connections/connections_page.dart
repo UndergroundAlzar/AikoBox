@@ -113,12 +113,7 @@ class _ConnectionsPageState extends ConsumerState<ConnectionsPage>
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AikoDims.pagePadding,
-                0,
-                8,
-                8,
-              ),
+              padding: const EdgeInsets.fromLTRB(AikoDims.pagePadding, 0, 8, 8),
               child: Row(
                 children: <Widget>[
                   Expanded(
@@ -164,8 +159,8 @@ class _ConnectionsPageState extends ConsumerState<ConnectionsPage>
                     color: theme.colorScheme.error,
                     onPressed:
                         (_tab == ConnectionsTab.active
-                            ? visibleActive
-                            : visibleClosed)
+                                ? visibleActive
+                                : visibleClosed)
                             .isEmpty
                         ? null
                         : () => _closeVisible(
@@ -262,13 +257,13 @@ class _ConnectionsPageState extends ConsumerState<ConnectionsPage>
     if (!confirmed || !mounted) return;
 
     if (_tab == ConnectionsTab.closed) {
-      ref.read(connectionsFeedProvider.notifier).clearClosed(
-        ids: _query.isEmpty
-            ? null
-            : <String>{
-                for (final ConnectionInfo item in visible) item.id,
-              },
-      );
+      ref
+          .read(connectionsFeedProvider.notifier)
+          .clearClosed(
+            ids: _query.isEmpty
+                ? null
+                : <String>{for (final ConnectionInfo item in visible) item.id},
+          );
       return;
     }
 
@@ -356,9 +351,7 @@ class _TotalsBar extends StatelessWidget {
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.end,
-        children: <Widget>[
-          ConnectionTrafficPill(up: upload, down: download),
-        ],
+        children: <Widget>[ConnectionTrafficPill(up: upload, down: download)],
       ),
     );
   }
@@ -448,9 +441,7 @@ class _SortMenu extends ConsumerWidget {
       tooltip: l10n.t('connections.orderBy'),
       icon: const Icon(Icons.sort_rounded),
       onSelected: (String value) async {
-        final AppConfigNotifier notifier = ref.read(
-          appConfigProvider.notifier,
-        );
+        final AppConfigNotifier notifier = ref.read(appConfigProvider.notifier);
         final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(
           context,
         );

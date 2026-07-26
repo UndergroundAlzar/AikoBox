@@ -98,7 +98,9 @@ class _PerAppSettingsPageState extends ConsumerState<PerAppSettingsPage> {
     final AsyncValue<List<InstalledApp>> apps = ref.watch(
       installedAppsProvider,
     );
-    final String? ownPackage = ref.watch(appPackageInfoProvider).value
+    final String? ownPackage = ref
+        .watch(appPackageInfoProvider)
+        .value
         ?.packageName;
     final bool running = ref.watch(
       coreStatusProvider.select((CoreStatus s) => s.state.isActive),
@@ -111,7 +113,8 @@ class _PerAppSettingsPageState extends ConsumerState<PerAppSettingsPage> {
         PopupMenuButton<String>(
           key: const Key('per-app-menu'),
           icon: const Icon(Icons.more_vert_rounded),
-          onSelected: (String action) => _onMenu(action, apps.value ?? const <InstalledApp>[], ownPackage),
+          onSelected: (String action) =>
+              _onMenu(action, apps.value ?? const <InstalledApp>[], ownPackage),
           itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
             PopupMenuItem<String>(
               enabled: listEnabled,
@@ -166,7 +169,11 @@ class _PerAppSettingsPageState extends ConsumerState<PerAppSettingsPage> {
           ),
           const SizedBox(height: 8),
           SettingsNote(_hintFor(l10n, mode)),
-          if (running) SettingsNote(l10n.t('perApp.restartHint'), icon: Icons.info_outline_rounded),
+          if (running)
+            SettingsNote(
+              l10n.t('perApp.restartHint'),
+              icon: Icons.info_outline_rounded,
+            ),
           if (listEnabled) ...<Widget>[
             Padding(
               padding: const EdgeInsets.fromLTRB(
@@ -356,12 +363,11 @@ class _PerAppSettingsPageState extends ConsumerState<PerAppSettingsPage> {
     }
   }
 
-  static String _hintFor(AikoL10n l10n, SplitTunnelMode mode) =>
-      switch (mode) {
-        SplitTunnelMode.off => l10n.t('perApp.mode.offHint'),
-        SplitTunnelMode.allow => l10n.t('perApp.mode.allowlistHint'),
-        SplitTunnelMode.deny => l10n.t('perApp.mode.denylistHint'),
-      };
+  static String _hintFor(AikoL10n l10n, SplitTunnelMode mode) => switch (mode) {
+    SplitTunnelMode.off => l10n.t('perApp.mode.offHint'),
+    SplitTunnelMode.allow => l10n.t('perApp.mode.allowlistHint'),
+    SplitTunnelMode.deny => l10n.t('perApp.mode.denylistHint'),
+  };
 }
 
 class _Loading extends StatelessWidget {
@@ -417,9 +423,9 @@ class _AppGlyph extends StatelessWidget {
       ),
       child: Text(
         initial,
-        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-          color: scheme.onSurfaceVariant,
-        ),
+        style: Theme.of(
+          context,
+        ).textTheme.titleSmall?.copyWith(color: scheme.onSurfaceVariant),
       ),
     );
   }

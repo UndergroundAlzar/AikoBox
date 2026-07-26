@@ -49,7 +49,9 @@ void main() {
     test('a different seed produces a different palette', () {
       expect(
         AikoTheme.light(seedColor: kAikoSeedAzure.color).colorScheme.primary,
-        isNot(AikoTheme.light(seedColor: kAikoSeedJade.color).colorScheme.primary),
+        isNot(
+          AikoTheme.light(seedColor: kAikoSeedJade.color).colorScheme.primary,
+        ),
       );
     });
   });
@@ -144,9 +146,7 @@ void main() {
           SizedBox(
             width: 200,
             height: 60,
-            child: Sparkline.single(
-              values: const <double>[0, 4, 2, 9, 3, 7],
-            ),
+            child: Sparkline.single(values: const <double>[0, 4, 2, 9, 3, 7]),
           ),
         ),
       );
@@ -158,9 +158,7 @@ void main() {
           SizedBox(
             width: 200,
             height: 60,
-            child: Sparkline.single(
-              values: const <double>[4, 2, 9, 3, 7, 1],
-            ),
+            child: Sparkline.single(values: const <double>[4, 2, 9, 3, 7, 1]),
           ),
         ),
       );
@@ -291,10 +289,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           theme: AikoTheme.light(),
-          home: const AikoScaffold(
-            title: 'Dashboard',
-            body: Text('content'),
-          ),
+          home: const AikoScaffold(title: 'Dashboard', body: Text('content')),
         ),
       );
 

@@ -143,10 +143,9 @@ class _SparklineState extends State<Sparkline>
     super.dispose();
   }
 
-  static List<List<double>> _snapshotOf(List<SparklineSeries> series) =>
-      series
-          .map((s) => List<double>.unmodifiable(s.values))
-          .toList(growable: false);
+  static List<List<double>> _snapshotOf(List<SparklineSeries> series) => series
+      .map((s) => List<double>.unmodifiable(s.values))
+      .toList(growable: false);
 
   static bool _sameShape(List<List<double>> a, List<List<double>> b) {
     if (a.length != b.length) return false;

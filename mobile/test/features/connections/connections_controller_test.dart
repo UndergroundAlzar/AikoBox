@@ -53,7 +53,10 @@ void main() {
     });
 
     test('falls back to time for anything unrecognised', () {
-      expect(ConnectionSortField.fromWire('nonsense'), ConnectionSortField.time);
+      expect(
+        ConnectionSortField.fromWire('nonsense'),
+        ConnectionSortField.time,
+      );
       expect(ConnectionSortField.fromWire(null), ConnectionSortField.time);
     });
   });
@@ -107,9 +110,17 @@ void main() {
   group('sortConnections', () {
     final DateTime base = DateTime.utc(2026, 7, 26, 12);
     final List<ConnectionInfo> source = <ConnectionInfo>[
-      makeConnection(id: 'b', start: base.add(const Duration(seconds: 2)), download: 10),
+      makeConnection(
+        id: 'b',
+        start: base.add(const Duration(seconds: 2)),
+        download: 10,
+      ),
       makeConnection(id: 'a', start: base, download: 30),
-      makeConnection(id: 'c', start: base.add(const Duration(seconds: 1)), download: 20),
+      makeConnection(
+        id: 'c',
+        start: base.add(const Duration(seconds: 1)),
+        download: 20,
+      ),
     ];
 
     test('orders by start time', () {
@@ -168,8 +179,9 @@ void main() {
     });
 
     test('leaves the source list untouched', () {
-      final List<String> before =
-          source.map((ConnectionInfo c) => c.id).toList();
+      final List<String> before = source
+          .map((ConnectionInfo c) => c.id)
+          .toList();
       sortConnections(
         source,
         field: ConnectionSortField.download,
@@ -186,8 +198,8 @@ void main() {
 
     setUp(() {
       socket = StreamController<ConnectionsSnapshot>.broadcast();
-      final ({ProviderContainer container, FakeCoreStatusNotifier core})
-      made = makeContainer(socket.stream);
+      final ({ProviderContainer container, FakeCoreStatusNotifier core}) made =
+          makeContainer(socket.stream);
       container = made.container;
       core = made.core;
       addTearDown(socket.close);
@@ -216,18 +228,21 @@ void main() {
       expect(read().closed, isEmpty);
     });
 
-    test('moves a connection to closed once the core stops reporting it', () async {
-      await push(<ConnectionInfo>[
-        makeConnection(id: 'a', upload: 111),
-        makeConnection(id: 'b'),
-      ]);
-      await push(<ConnectionInfo>[makeConnection(id: 'b')]);
+    test(
+      'moves a connection to closed once the core stops reporting it',
+      () async {
+        await push(<ConnectionInfo>[
+          makeConnection(id: 'a', upload: 111),
+          makeConnection(id: 'b'),
+        ]);
+        await push(<ConnectionInfo>[makeConnection(id: 'b')]);
 
-      expect(read().active.map((ConnectionInfo c) => c.id), <String>['b']);
-      expect(read().closed.map((ConnectionInfo c) => c.id), <String>['a']);
-      // The final counters of the closed connection survive.
-      expect(read().closed.single.upload, 111);
-    });
+        expect(read().active.map((ConnectionInfo c) => c.id), <String>['b']);
+        expect(read().closed.map((ConnectionInfo c) => c.id), <String>['a']);
+        // The final counters of the closed connection survive.
+        expect(read().closed.single.upload, 111);
+      },
+    );
 
     test('zeroes the speeds of a closed connection', () async {
       await push(<ConnectionInfo>[
@@ -276,9 +291,7 @@ void main() {
 
     test('drops frames while paused and picks up again on resume', () async {
       await push(<ConnectionInfo>[makeConnection(id: 'a')]);
-      container
-          .read(connectionsFeedProvider.notifier)
-          .setPaused(paused: true);
+      container.read(connectionsFeedProvider.notifier).setPaused(paused: true);
 
       await push(<ConnectionInfo>[
         makeConnection(id: 'a'),
@@ -286,9 +299,7 @@ void main() {
       ]);
       expect(read().active.map((ConnectionInfo c) => c.id), <String>['a']);
 
-      container
-          .read(connectionsFeedProvider.notifier)
-          .setPaused(paused: false);
+      container.read(connectionsFeedProvider.notifier).setPaused(paused: false);
       await push(<ConnectionInfo>[
         makeConnection(id: 'a'),
         makeConnection(id: 'b'),
@@ -321,9 +332,9 @@ void main() {
       await push(<ConnectionInfo>[makeConnection(id: 'c')]);
       expect(read().closed.length, 2);
 
-      container.read(connectionsFeedProvider.notifier).clearClosed(
-        ids: <String>{'a'},
-      );
+      container
+          .read(connectionsFeedProvider.notifier)
+          .clearClosed(ids: <String>{'a'});
       expect(read().closed.map((ConnectionInfo c) => c.id), <String>['b']);
 
       container.read(connectionsFeedProvider.notifier).clearClosed();

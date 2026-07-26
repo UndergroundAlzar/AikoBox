@@ -66,9 +66,7 @@ final Provider<AsyncValue<List<RuleItem>>> filteredRulesProvider =
       final String query = ref.watch(rulesQueryProvider);
       return ref
           .watch(rulesProvider)
-          .whenData(
-            (List<RuleItem> rules) => filterRules(rules, query),
-          );
+          .whenData((List<RuleItem> rules) => filterRules(rules, query));
     });
 
 /// True when [provider] matches [query] on any of the fields the row shows.
@@ -90,18 +88,19 @@ bool providerMatchesQuery(ProviderInfo provider, String query) {
 final Provider<AsyncValue<List<ProviderInfo>>> filteredRuleProvidersProvider =
     Provider<AsyncValue<List<ProviderInfo>>>((Ref ref) {
       final String query = ref.watch(ruleProvidersQueryProvider);
-      return ref
-          .watch(ruleProvidersProvider)
-          .whenData((Map<String, ProviderInfo> providers) {
-            final List<ProviderInfo> out = <ProviderInfo>[
+      return ref.watch(ruleProvidersProvider).whenData((
+        Map<String, ProviderInfo> providers,
+      ) {
+        final List<ProviderInfo> out =
+            <ProviderInfo>[
               for (final ProviderInfo provider in providers.values)
                 if (providerMatchesQuery(provider, query)) provider,
             ]..sort(
               (ProviderInfo a, ProviderInfo b) =>
                   a.name.toLowerCase().compareTo(b.name.toLowerCase()),
             );
-            return List<ProviderInfo>.unmodifiable(out);
-          });
+        return List<ProviderInfo>.unmodifiable(out);
+      });
     });
 
 /// Tracks which rule providers have an update in flight, so their rows can show

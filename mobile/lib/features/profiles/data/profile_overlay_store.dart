@@ -183,10 +183,7 @@ class ProfileOverlayStore {
       await writeFileAtomically(baseFile(id), await _readProfile(id));
     }
 
-    await writeFileAtomically(
-      overlayFile(id),
-      source ?? _emitOverlay(overlay),
-    );
+    await writeFileAtomically(overlayFile(id), source ?? _emitOverlay(overlay));
 
     if (overlay.changesConfig) {
       await _materialiseUnlocked(id, overlay);

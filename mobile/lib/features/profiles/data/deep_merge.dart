@@ -97,13 +97,13 @@ Map<String, dynamic> _asStringMap(Map<dynamic, dynamic> value) =>
       for (final entry in value.entries) entry.key.toString(): entry.value,
     };
 
-Map<String, dynamic> _cloneMap(Map<String, dynamic> value) =>
-    <String, dynamic>{
-      for (final entry in value.entries) entry.key: _cloneValue(entry.value),
-    };
+Map<String, dynamic> _cloneMap(Map<String, dynamic> value) => <String, dynamic>{
+  for (final entry in value.entries) entry.key: _cloneValue(entry.value),
+};
 
-List<dynamic> _cloneList(List<dynamic> value) =>
-    <dynamic>[for (final entry in value) _cloneValue(entry)];
+List<dynamic> _cloneList(List<dynamic> value) => <dynamic>[
+  for (final entry in value) _cloneValue(entry),
+];
 
 Object? _cloneValue(Object? value) {
   if (value is Map) return _cloneMap(_asStringMap(value));

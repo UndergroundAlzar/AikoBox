@@ -11,10 +11,9 @@ LogLine line(String level, String payload, {int second = 0}) => LogLine(
   time: DateTime.utc(2026, 7, 26, 12, 0, second),
 );
 
-ProviderContainer containerWith(List<LogLine> lines) =>
-    ProviderContainer.test(
-      overrides: [logsProvider.overrideWith(() => FakeLogsNotifier(lines))],
-    );
+ProviderContainer containerWith(List<LogLine> lines) => ProviderContainer.test(
+  overrides: [logsProvider.overrideWith(() => FakeLogsNotifier(lines))],
+);
 
 void main() {
   group('logPassesLevel', () {
@@ -46,7 +45,10 @@ void main() {
   group('logMatchesQuery', () {
     test('searches the payload', () {
       expect(logMatchesQuery(line('info', 'DNS lookup failed'), 'dns'), isTrue);
-      expect(logMatchesQuery(line('info', 'DNS lookup failed'), 'tcp'), isFalse);
+      expect(
+        logMatchesQuery(line('info', 'DNS lookup failed'), 'tcp'),
+        isFalse,
+      );
     });
 
     test('searches the level name, as the desktop does', () {
@@ -113,8 +115,10 @@ void main() {
         line('info', 'TCP connect'),
       ]);
       container.read(logsViewProvider.notifier).setQuery('  EXAMPLE.COM ');
-      expect(container.read(visibleLogsProvider).single.payload,
-          'DNS lookup for example.com');
+      expect(
+        container.read(visibleLogsProvider).single.payload,
+        'DNS lookup for example.com',
+      );
     });
 
     test('pausing freezes the list against later lines', () {
@@ -123,8 +127,9 @@ void main() {
       ]);
       container.read(logsViewProvider.notifier).setPaused(paused: true);
 
-      (container.read(logsProvider.notifier) as FakeLogsNotifier)
-          .emit(line('info', 'after'));
+      (container.read(logsProvider.notifier) as FakeLogsNotifier).emit(
+        line('info', 'after'),
+      );
 
       expect(container.read(visibleLogsProvider).length, 1);
       expect(container.read(visibleLogsProvider).single.payload, 'before');

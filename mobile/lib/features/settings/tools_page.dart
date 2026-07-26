@@ -109,8 +109,7 @@ class ToolsPage extends ConsumerWidget {
                 itemKey: const Key('tools-core'),
                 icon: Icons.memory_rounded,
                 title: l10n.t('mihomo.title'),
-                subtitle:
-                    status.version ?? l10n.t('dashboard.status.stopped'),
+                subtitle: status.version ?? l10n.t('dashboard.status.stopped'),
                 onTap: () => _push(
                   context,
                   kCoreSettingsRoute,
@@ -128,11 +127,8 @@ class ToolsPage extends ConsumerWidget {
                 icon: Icons.tune_rounded,
                 title: l10n.t('settings.title'),
                 subtitle: l10n.t('settings.general'),
-                onTap: () => _push(
-                  context,
-                  kAppSettingsRoute,
-                  const AppSettingsPage(),
-                ),
+                onTap: () =>
+                    _push(context, kAppSettingsRoute, const AppSettingsPage()),
               ),
               SectionListTile(
                 itemKey: const Key('tools-dashboard-cards'),

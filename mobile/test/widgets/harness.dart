@@ -20,7 +20,9 @@ Widget hostWidget(
 
   return MaterialApp(
     theme: theme,
-    home: Scaffold(body: Align(alignment: alignment, child: body)),
+    home: Scaffold(
+      body: Align(alignment: alignment, child: body),
+    ),
   );
 }
 

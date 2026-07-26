@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 // CorePalette is soft-deprecated upstream in favour of DynamicScheme, but it is
-// still exactly what `dynamic_color`'s plugin returns on Android, and the build
-// contract pins the Material You path to it.
-import 'package:material_color_utilities/material_color_utilities.dart'
-    // ignore: deprecated_member_use
-    show CorePalette;
+// still exactly what `dynamic_color`'s plugin returns on Android, so the Material
+// You path has to name it. Imported without a `show` clause on purpose: a
+// `show CorePalette` is itself a deprecated-member reference, and dart format
+// reflows the line such that a narrow `// ignore` no longer attaches to it.
+import 'package:material_color_utilities/material_color_utilities.dart';
 
 import 'seed_colors.dart';
 
@@ -284,10 +284,7 @@ abstract final class AikoTheme {
 
   static ThemeData _build(Brightness brightness, Color seed) {
     final isDark = brightness == Brightness.dark;
-    final raw = ColorScheme.fromSeed(
-      seedColor: seed,
-      brightness: brightness,
-    );
+    final raw = ColorScheme.fromSeed(seedColor: seed, brightness: brightness);
     final scheme = isDark ? _tuneDark(raw) : _tuneLight(raw);
     final textTheme = _textTheme(scheme, brightness);
     final statusColors = AikoStatusColors.forBrightness(brightness);
@@ -459,9 +456,7 @@ abstract final class AikoTheme {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AikoDims.sheetRadius),
         ),
-        titleTextStyle: textTheme.titleLarge?.copyWith(
-          color: scheme.onSurface,
-        ),
+        titleTextStyle: textTheme.titleLarge?.copyWith(color: scheme.onSurface),
         contentTextStyle: textTheme.bodyMedium?.copyWith(
           color: scheme.onSurfaceVariant,
         ),
@@ -600,9 +595,7 @@ abstract final class AikoTheme {
         waitDuration: const Duration(milliseconds: 400),
         decoration: ShapeDecoration(
           color: scheme.inverseSurface,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
         textStyle: textTheme.bodySmall?.copyWith(
           color: scheme.onInverseSurface,
@@ -623,9 +616,7 @@ abstract final class AikoTheme {
         indicatorSize: TabBarIndicatorSize.label,
         labelColor: scheme.onSurface,
         unselectedLabelColor: scheme.onSurfaceVariant,
-        labelStyle: textTheme.titleSmall?.copyWith(
-          fontWeight: FontWeight.w600,
-        ),
+        labelStyle: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
         unselectedLabelStyle: textTheme.titleSmall,
         overlayColor: const WidgetStatePropertyAll(Colors.transparent),
       ),

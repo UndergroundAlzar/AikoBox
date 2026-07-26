@@ -200,8 +200,7 @@ class _YamlSourceFieldState extends State<YamlSourceField> {
                             enableSuggestions: false,
                             smartDashesType: SmartDashesType.disabled,
                             smartQuotesType: SmartQuotesType.disabled,
-                            scrollPhysics:
-                                const NeverScrollableScrollPhysics(),
+                            scrollPhysics: const NeverScrollableScrollPhysics(),
                             decoration: const InputDecoration(
                               isDense: true,
                               border: InputBorder.none,

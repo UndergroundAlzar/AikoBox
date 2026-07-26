@@ -35,9 +35,7 @@ import '../widgets/profile_messages.dart';
 /// Opens the editor for a new subscription. Returns true when one was imported.
 Future<bool> pushImportSubscription(BuildContext context) async =>
     await Navigator.of(context).push<bool>(
-      MaterialPageRoute<bool>(
-        builder: (_) => const ProfileEditorPage.import(),
-      ),
+      MaterialPageRoute<bool>(builder: (_) => const ProfileEditorPage.import()),
     ) ??
     false;
 
@@ -86,9 +84,7 @@ class _ProfileEditorPageState extends ConsumerState<ProfileEditorPage> {
     _url = TextEditingController(text: item?.url ?? '');
     _authToken = TextEditingController();
     _userAgent = TextEditingController(text: item?.userAgent ?? '');
-    _interval = TextEditingController(
-      text: item?.interval?.toString() ?? '',
-    );
+    _interval = TextEditingController(text: item?.interval?.toString() ?? '');
     _timeout = TextEditingController(
       text: item?.updateTimeout?.toString() ?? '',
     );
@@ -100,7 +96,9 @@ class _ProfileEditorPageState extends ConsumerState<ProfileEditorPage> {
   /// the page is up. Both are off the profile index, so neither is on [item].
   void _loadStoredExtras(String id) {
     Future<void>(() async {
-      final token = await ref.read(profileSecretStoreProvider).readAuthToken(id);
+      final token = await ref
+          .read(profileSecretStoreProvider)
+          .readAuthToken(id);
       final overlay = await ref.read(profileOverlayProvider(id).future);
       if (!mounted) return;
       setState(() {
@@ -197,8 +195,7 @@ class _ProfileEditorPageState extends ConsumerState<ProfileEditorPage> {
                       : Icons.visibility_off_outlined,
                   size: 20,
                 ),
-                onPressed: () =>
-                    setState(() => _obscureToken = !_obscureToken),
+                onPressed: () => setState(() => _obscureToken = !_obscureToken),
               ),
             ),
             const SizedBox(height: 16),

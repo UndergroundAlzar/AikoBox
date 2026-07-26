@@ -49,15 +49,12 @@ Future<void> main(List<String> args) async {
     final Map<String, dynamic> entry = (raw as Map).cast<String, dynamic>();
     final String id = entry['id'] as String;
     final Map<String, dynamic> clash = _loadClash(entry, casesFile);
-    final ConvertResult result =
-        convertClashToSingbox(clash, options: _loadOptions(entry['options']));
+    final ConvertResult result = convertClashToSingbox(
+      clash,
+      options: _loadOptions(entry['options']),
+    );
     File('${outDir.path}${Platform.pathSeparator}$id.json').writeAsStringSync(
-      '${encoder.convert(<String, dynamic>{
-            'config': result.config,
-            'warnings': result.warnings,
-            'errors': result.errors,
-            'controller': result.controller.toJson(),
-          })}\n',
+      '${encoder.convert(<String, dynamic>{'config': result.config, 'warnings': result.warnings, 'errors': result.errors, 'controller': result.controller.toJson()})}\n',
     );
     stdout.writeln(
       '$id: ${result.warnings.length} warning(s), '
@@ -72,9 +69,7 @@ Map<String, dynamic> _loadClash(Map<String, dynamic> entry, File casesFile) {
   final String path = entry['clashYamlFile'] as String;
   final File file = File(path).isAbsolute
       ? File(path)
-      : File(
-          '${casesFile.parent.path}${Platform.pathSeparator}$path',
-        );
+      : File('${casesFile.parent.path}${Platform.pathSeparator}$path');
   return parseClashYamlLikeDesktop(file.readAsStringSync());
 }
 
@@ -87,4 +82,3 @@ ConvertOptions _loadOptions(Object? raw) {
     autoRedirect: (map['autoRedirect'] as bool?) ?? false,
   );
 }
-

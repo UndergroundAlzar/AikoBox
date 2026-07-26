@@ -86,8 +86,7 @@ class SectionList extends StatelessWidget {
       controller: controller,
       shrinkWrap: shrinkWrap,
       physics: physics,
-      padding:
-          padding ?? const EdgeInsets.only(bottom: AikoDims.fabClearance),
+      padding: padding ?? const EdgeInsets.only(bottom: AikoDims.fabClearance),
       itemCount: entries.length,
       itemBuilder: (context, index) => entries[index].build(context),
     );
@@ -118,7 +117,11 @@ class SectionList extends StatelessWidget {
 /// The primary-tinted section header, exposed for pages that need one outside a
 /// [SectionList].
 class SectionListHeader extends StatelessWidget {
-  const SectionListHeader({super.key, required this.title, this.isFirst = false});
+  const SectionListHeader({
+    super.key,
+    required this.title,
+    this.isFirst = false,
+  });
 
   final String title;
   final bool isFirst;
@@ -205,17 +208,9 @@ class _TileEntry extends _Entry {
       leading:
           tile.leading ??
           (tile.icon != null ? Icon(tile.icon, size: 22) : null),
-      title: Text(
-        tile.title,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-      ),
+      title: Text(tile.title, maxLines: 2, overflow: TextOverflow.ellipsis),
       subtitle: tile.subtitle != null
-          ? Text(
-              tile.subtitle!,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-            )
+          ? Text(tile.subtitle!, maxLines: 3, overflow: TextOverflow.ellipsis)
           : null,
       trailing: tile.trailing,
       onTap: tile.enabled ? tile.onTap : null,

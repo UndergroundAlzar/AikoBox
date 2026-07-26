@@ -76,9 +76,7 @@ class _RulesEditorState extends ConsumerState<_RulesEditor>
   late final TabController _tabs = TabController(length: 2, vsync: this);
   final TextEditingController _search = TextEditingController();
   final TextEditingController _payload = TextEditingController();
-  final TextEditingController _outbound = TextEditingController(
-    text: 'DIRECT',
-  );
+  final TextEditingController _outbound = TextEditingController(text: 'DIRECT');
 
   String _type = 'DOMAIN';
   final Set<String> _params = <String>{};
@@ -114,45 +112,45 @@ class _RulesEditorState extends ConsumerState<_RulesEditor>
     final l10n = context.l10n;
 
     return AikoScaffold(
-        titleWidget: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Text(l10n.t('profiles.editRules.title')),
-            Text(
-              widget.item.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+      titleWidget: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Text(l10n.t('profiles.editRules.title')),
+          Text(
+            widget.item.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
-          ],
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: _saving || !_dirty ? null : _save,
-            child: Text(l10n.t('common.save')),
           ),
         ],
-        bottom: TabBar(
-          controller: _tabs,
-          tabs: <Widget>[
-            Tab(text: l10n.t('profiles.editRules.currentRules')),
-            Tab(text: l10n.t('profiles.editRules.addRule')),
-          ],
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: _saving || !_dirty ? null : _save,
+          child: Text(l10n.t('common.save')),
         ),
-        body: Column(
-          children: <Widget>[
-            if (_saving) const LinearProgressIndicator(),
-            Expanded(
-              child: TabBarView(
-                controller: _tabs,
-                children: <Widget>[_buildList(context), _buildForm(context)],
-              ),
+      ],
+      bottom: TabBar(
+        controller: _tabs,
+        tabs: <Widget>[
+          Tab(text: l10n.t('profiles.editRules.currentRules')),
+          Tab(text: l10n.t('profiles.editRules.addRule')),
+        ],
+      ),
+      body: Column(
+        children: <Widget>[
+          if (_saving) const LinearProgressIndicator(),
+          Expanded(
+            child: TabBarView(
+              controller: _tabs,
+              children: <Widget>[_buildList(context), _buildForm(context)],
             ),
-          ],
-        ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -231,9 +229,7 @@ class _RulesEditorState extends ConsumerState<_RulesEditor>
 
   Widget _buildForm(BuildContext context) {
     final l10n = context.l10n;
-    final outbounds = ref.watch(
-      profileOutboundNamesProvider(widget.item.id),
-    );
+    final outbounds = ref.watch(profileOutboundNamesProvider(widget.item.id));
     final canAdd = canAddRule(_draft);
 
     return ListView(

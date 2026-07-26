@@ -76,7 +76,10 @@ List<String> resolveGroupMembers(
     try {
       final RegExp regex = compileSafeClashRegexOrThrow(pattern);
       return list
-          .where((String name) => keep ? regex.hasMatch(name) : !regex.hasMatch(name))
+          .where(
+            (String name) =>
+                keep ? regex.hasMatch(name) : !regex.hasMatch(name),
+          )
           .toList();
     } on ClashRegexException catch (error) {
       errors.add(
@@ -125,18 +128,22 @@ List<String> resolveGroupMembers(
     // A Clash filter targets provider nodes; static members are filtered too,
     // but sub-groups and `direct` are never removed by it.
     filtered = filtered
-        .where((String name) =>
-            name == 'direct' ||
-            groupNames.contains(name) ||
-            applyRegex(<String>[name], filter, true).isNotEmpty)
+        .where(
+          (String name) =>
+              name == 'direct' ||
+              groupNames.contains(name) ||
+              applyRegex(<String>[name], filter, true).isNotEmpty,
+        )
         .toList();
   }
   if (excludeFilter != null && excludeFilter.isNotEmpty) {
     filtered = filtered
-        .where((String name) =>
-            name == 'direct' ||
-            groupNames.contains(name) ||
-            applyRegex(<String>[name], excludeFilter, true).isEmpty)
+        .where(
+          (String name) =>
+              name == 'direct' ||
+              groupNames.contains(name) ||
+              applyRegex(<String>[name], excludeFilter, true).isEmpty,
+        )
         .toList();
   }
 
@@ -206,8 +213,9 @@ GroupBuild convertGroups(
       continue;
     }
 
-    final Set<String> memberNames =
-        groupNames.where((String n) => n != name).toSet();
+    final Set<String> memberNames = groupNames
+        .where((String n) => n != name)
+        .toSet();
     final List<String> members = resolveGroupMembers(
       group,
       name,
@@ -219,19 +227,24 @@ GroupBuild convertGroups(
     );
 
     if (type == 'select') {
-      build.outbounds.add(compact(<String, dynamic>{
-        'type': 'selector',
-        'tag': name,
-        'outbounds': members,
-      }));
+      build.outbounds.add(
+        compact(<String, dynamic>{
+          'type': 'selector',
+          'tag': name,
+          'outbounds': members,
+        }),
+      );
       build.groupTags.add(name);
       emitted.add(name);
     } else {
       if (type == 'fallback') {
-        build.warnings.add('group "$name": fallback approximated with url-test');
+        build.warnings.add(
+          'group "$name": fallback approximated with url-test',
+        );
       } else if (type == 'load-balance') {
-        build.warnings
-            .add('group "$name": load-balance approximated with url-test');
+        build.warnings.add(
+          'group "$name": load-balance approximated with url-test',
+        );
       } else if (type == 'smart') {
         build.warnings.add(
           'group "$name": smart groups are not supported, approximated with '
@@ -239,16 +252,18 @@ GroupBuild convertGroups(
         );
       }
       final num? interval = toNum(group['interval']);
-      build.outbounds.add(compact(<String, dynamic>{
-        'type': 'urltest',
-        'tag': name,
-        'outbounds': members,
-        'url': toStr(group['url']),
-        'interval': interval != null && interval > 0
-            ? '${jsNumToString(interval)}s'
-            : null,
-        'tolerance': toNum(group['tolerance']),
-      }));
+      build.outbounds.add(
+        compact(<String, dynamic>{
+          'type': 'urltest',
+          'tag': name,
+          'outbounds': members,
+          'url': toStr(group['url']),
+          'interval': interval != null && interval > 0
+              ? '${jsNumToString(interval)}s'
+              : null,
+          'tolerance': toNum(group['tolerance']),
+        }),
+      );
       build.groupTags.add(name);
       emitted.add(name);
     }

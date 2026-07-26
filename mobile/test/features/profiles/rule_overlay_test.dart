@@ -201,13 +201,9 @@ void main() {
     });
 
     test('angle brackets escape a key that really ends in + or !', () {
-      final result = deepMerge(
-        <String, dynamic>{},
-        <String, dynamic>{
-          '<rules+>': <String>['a'],
-        },
-        isOverride: true,
-      );
+      final result = deepMerge(<String, dynamic>{}, <String, dynamic>{
+        '<rules+>': <String>['a'],
+      }, isOverride: true);
       expect(result['rules+'], <String>['a']);
     });
 
@@ -320,10 +316,7 @@ void main() {
           },
         ),
       );
-      expect(result['rules'], <String>[
-        'DOMAIN,a.com,DIRECT',
-        'MATCH,PROXY',
-      ]);
+      expect(result['rules'], <String>['DOMAIN,a.com,DIRECT', 'MATCH,PROXY']);
     });
   });
 }

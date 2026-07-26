@@ -70,16 +70,24 @@ void main() {
       ),
     );
 
-    expect(find.byKey(const ValueKey<String>('per-app-com.example.browser')),
-        findsOneWidget);
-    expect(find.byKey(const ValueKey<String>('per-app-com.example.chat')),
-        findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('per-app-com.example.browser')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('per-app-com.example.chat')),
+      findsOneWidget,
+    );
     // System apps are behind the toggle...
-    expect(find.byKey(const ValueKey<String>('per-app-com.android.settings')),
-        findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('per-app-com.android.settings')),
+      findsNothing,
+    );
     // ...and AikoBox can never be excluded from its own tunnel.
-    expect(find.byKey(const ValueKey<String>('per-app-$kTestPackageName')),
-        findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('per-app-$kTestPackageName')),
+      findsNothing,
+    );
     expect(find.text(en['perApp.selfLocked']!), findsOneWidget);
   });
 
@@ -96,8 +104,10 @@ void main() {
     await tester.tap(find.byKey(const Key('per-app-system')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey<String>('per-app-com.android.settings')),
-        findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('per-app-com.android.settings')),
+      findsOneWidget,
+    );
     expect(find.textContaining(en['perApp.systemLabel']!), findsOneWidget);
   });
 
@@ -154,10 +164,14 @@ void main() {
     await tester.enterText(find.byKey(const Key('per-app-search')), 'chat');
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey<String>('per-app-com.example.chat')),
-        findsOneWidget);
-    expect(find.byKey(const ValueKey<String>('per-app-com.example.browser')),
-        findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('per-app-com.example.chat')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('per-app-com.example.browser')),
+      findsNothing,
+    );
   });
 
   testWidgets('select all only takes the rows the filter is showing', (
@@ -178,10 +192,9 @@ void main() {
     await tester.tap(find.text(en['common.selectAll']!).last);
     await tester.pumpAndSettle();
 
-    expect(
-      configOf(tester).splitTunnelPackages,
-      <String>['com.example.browser'],
-    );
+    expect(configOf(tester).splitTunnelPackages, <String>[
+      'com.example.browser',
+    ]);
   });
 
   testWidgets('a tick that could not be written is put back', (
@@ -213,7 +226,10 @@ void main() {
           .value,
       isFalse,
     );
-    expect(find.text(en['common.error.updateAppConfigFailed']!), findsOneWidget);
+    expect(
+      find.text(en['common.error.updateAppConfigFailed']!),
+      findsOneWidget,
+    );
   });
 
   testWidgets('a running core gets the restart caveat', (

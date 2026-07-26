@@ -135,11 +135,7 @@ void main() {
     await pumpPage(tester, const ConnectionsPage(), container: makeContainer());
     await pushFrame(tester, <ConnectionInfo>[
       makeConnection(id: 'a', host: 'example.com:443'),
-      makeConnection(
-        id: 'b',
-        host: 'tracker.net:80',
-        process: 'com.other.app',
-      ),
+      makeConnection(id: 'b', host: 'tracker.net:80', process: 'com.other.app'),
     ]);
     expect(find.text('example.com:443'), findsOneWidget);
     expect(find.text('tracker.net:80'), findsOneWidget);

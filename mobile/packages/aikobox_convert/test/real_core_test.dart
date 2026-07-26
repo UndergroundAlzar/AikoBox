@@ -40,22 +40,19 @@ void main() {
 
       void expectAccepted(String name, ConvertResult result) {
         expect(result.errors, isEmpty, reason: 'conversion refused $name');
-        final File configFile = File(
-          '${workDir.path}${Platform.pathSeparator}$name.json',
-        )..writeAsStringSync(
-            const JsonEncoder.withIndent('  ').convert(result.config),
-          );
-        final ProcessResult run = Process.runSync(
-          core!.path,
-          <String>[
-            'check',
-            '-D',
-            workDir.path,
-            '-c',
-            configFile.path,
-            '--disable-color',
-          ],
-        );
+        final File configFile =
+            File('${workDir.path}${Platform.pathSeparator}$name.json')
+              ..writeAsStringSync(
+                const JsonEncoder.withIndent('  ').convert(result.config),
+              );
+        final ProcessResult run = Process.runSync(core!.path, <String>[
+          'check',
+          '-D',
+          workDir.path,
+          '-c',
+          configFile.path,
+          '--disable-color',
+        ]);
         expect(
           run.exitCode,
           0,
@@ -362,33 +359,30 @@ void main() {
         // `auto-redirect` is deliberately absent: it needs nftables, so the
         // Windows sidecar fails to initialise the inbound even though the JSON
         // is correct. Its emission is covered structurally in android_test.dart.
-        final ConvertResult result = convertClashToSingbox(
-          <String, dynamic>{
-            'mixed-port': 17890,
-            'ipv6': true,
-            'tun': <String, dynamic>{
-              'enable': true,
-              'stack': 'mixed',
-              'device': 'aiko0',
-              'mtu': 9000,
-              'auto-route': true,
-              'strict-route': true,
-              'endpoint-independent-nat': true,
-              'route-exclude-address': <String>['192.168.0.0/16'],
-            },
-            'sniffer': <String, dynamic>{'enable': true},
-            'proxies': <Object?>[
-              <String, dynamic>{
-                'name': 'node',
-                'type': 'socks5',
-                'server': '127.0.0.1',
-                'port': 1080,
-              },
-            ],
-            'rules': <String>['MATCH,node'],
+        final ConvertResult result = convertClashToSingbox(<String, dynamic>{
+          'mixed-port': 17890,
+          'ipv6': true,
+          'tun': <String, dynamic>{
+            'enable': true,
+            'stack': 'mixed',
+            'device': 'aiko0',
+            'mtu': 9000,
+            'auto-route': true,
+            'strict-route': true,
+            'endpoint-independent-nat': true,
+            'route-exclude-address': <String>['192.168.0.0/16'],
           },
-          options: const ConvertOptions(platform: 'android'),
-        );
+          'sniffer': <String, dynamic>{'enable': true},
+          'proxies': <Object?>[
+            <String, dynamic>{
+              'name': 'node',
+              'type': 'socks5',
+              'server': '127.0.0.1',
+              'port': 1080,
+            },
+          ],
+          'rules': <String>['MATCH,node'],
+        }, options: const ConvertOptions(platform: 'android'));
         expectAccepted('tun', result);
       });
     },
@@ -610,11 +604,7 @@ Map<String, dynamic> _everyProtocolProfile() {
       <String, dynamic>{'name': 'plain-direct', 'type': 'direct'},
     ],
     'proxy-groups': <Object?>[
-      <String, dynamic>{
-        'name': 'PROXY',
-        'type': 'select',
-        'include-all': true,
-      },
+      <String, dynamic>{'name': 'PROXY', 'type': 'select', 'include-all': true},
       <String, dynamic>{
         'name': 'Auto',
         'type': 'url-test',
@@ -634,8 +624,7 @@ Map<String, dynamic> _everyProtocolProfile() {
 }
 
 File? _findCore() {
-  final String name =
-      Platform.isWindows ? 'sing-box.exe' : 'sing-box';
+  final String name = Platform.isWindows ? 'sing-box.exe' : 'sing-box';
   Directory? dir = Directory.current.absolute;
   for (int depth = 0; depth < 8 && dir != null; depth++) {
     final File candidate = File(

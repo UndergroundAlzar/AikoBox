@@ -21,16 +21,11 @@ void main() {
 
   group('normaliseCardOrder', () {
     test('fills in cards a stale config never heard of', () {
-      expect(
-        normaliseCardOrder(<String>['log', 'network']),
-        <String>[
-          'log',
-          'network',
-          ...kDefaultCardOrder.where(
-            (String k) => k != 'log' && k != 'network',
-          ),
-        ],
-      );
+      expect(normaliseCardOrder(<String>['log', 'network']), <String>[
+        'log',
+        'network',
+        ...kDefaultCardOrder.where((String k) => k != 'log' && k != 'network'),
+      ]);
     });
 
     test('drops unknown keys and duplicates', () {
@@ -90,7 +85,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(configOf(tester).statusOfCard('log'), CardStatus.hidden);
-    expect(configOf(tester).toJson()['cardStatus'], containsPair('log', 'hidden'));
+    expect(
+      configOf(tester).toJson()['cardStatus'],
+      containsPair('log', 'hidden'),
+    );
     // Untouched cards keep their defaults.
     expect(configOf(tester).statusOfCard('network'), CardStatus.colSpan2);
   });

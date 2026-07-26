@@ -37,12 +37,13 @@ List<String> buildTunAddresses(
           ...(legacyIpv6.isNotEmpty
               ? legacyIpv6
               : ipv6Enabled
-                  ? <String>[kDefaultTunIpv6Address]
-                  : <String>[]),
+              ? <String>[kDefaultTunIpv6Address]
+              : <String>[]),
         ];
 
-  final List<String> ipv6Addresses =
-      configured.where((String item) => item.contains(':')).toList();
+  final List<String> ipv6Addresses = configured
+      .where((String item) => item.contains(':'))
+      .toList();
   List<String> enabledAddresses = ipv6Enabled
       ? configured
       : configured.where((String item) => !item.contains(':')).toList();
@@ -92,8 +93,9 @@ InboundsBuild buildInbounds(
   final InboundsBuild build = InboundsBuild();
   final String platform = options.platform;
   final bool allowLan = toBool(clash['allow-lan']) == true;
-  final String listen =
-      allowLan ? (ipv6Enabled ? '::' : '0.0.0.0') : '127.0.0.1';
+  final String listen = allowLan
+      ? (ipv6Enabled ? '::' : '0.0.0.0')
+      : '127.0.0.1';
 
   final List<Dict> users = <Dict>[];
   for (final String entry in toStrArray(clash['authentication'])) {
@@ -107,17 +109,19 @@ InboundsBuild buildInbounds(
 
   void addListener(String type, String tag, num? port) {
     if (port == null || port <= 0) return;
-    build.inbounds.add(compact(<String, dynamic>{
-      'type': type,
-      'tag': tag,
-      'listen': listen,
-      'listen_port': port,
-      'users':
-          const <String>['mixed', 'socks', 'http'].contains(type) &&
-                  users.isNotEmpty
-              ? users
-              : null,
-    }));
+    build.inbounds.add(
+      compact(<String, dynamic>{
+        'type': type,
+        'tag': tag,
+        'listen': listen,
+        'listen_port': port,
+        'users':
+            const <String>['mixed', 'socks', 'http'].contains(type) &&
+                users.isNotEmpty
+            ? users
+            : null,
+      }),
+    );
   }
 
   addListener('mixed', 'mixed-in', toNum(clash['mixed-port']));
@@ -162,9 +166,10 @@ InboundsBuild buildInbounds(
       'auto_route': toBool(tun['auto-route']) ?? true,
       'strict_route': toBool(tun['strict-route']) == true ? true : null,
       'stack':
-          stack != null && const <String>['gvisor', 'system', 'mixed'].contains(stack)
-              ? stack
-              : null,
+          stack != null &&
+              const <String>['gvisor', 'system', 'mixed'].contains(stack)
+          ? stack
+          : null,
       'route_address': toStrArray(tun['route-address']),
       'route_exclude_address': toStrArray(tun['route-exclude-address']),
       'endpoint_independent_nat':
@@ -200,8 +205,13 @@ List<Dict> buildLanAccessRules(
   if (toBool(clash['allow-lan']) != true) return <Dict>[];
 
   final List<String> inboundTags = inbounds
-      .where((Dict inbound) => const <String>['mixed', 'http', 'socks']
-          .contains(strOrElse(toStr(inbound['type']), '')))
+      .where(
+        (Dict inbound) => const <String>[
+          'mixed',
+          'http',
+          'socks',
+        ].contains(strOrElse(toStr(inbound['type']), '')),
+      )
       .map((Dict inbound) => toStr(inbound['tag']))
       .whereType<String>()
       .where((String tag) => tag.isNotEmpty)
@@ -214,9 +224,9 @@ List<Dict> buildLanAccessRules(
   final List<String> denied = dedupe(
     toStrArray(clash['lan-disallowed-ips']).map((String item) => item.trim()),
   ).where((String item) => item.isNotEmpty).toList();
-  final List<String> users = toStrArray(clash['authentication'])
-      .where((String entry) => entry.contains(':'))
-      .toList();
+  final List<String> users = toStrArray(
+    clash['authentication'],
+  ).where((String entry) => entry.contains(':')).toList();
   if (users.isEmpty) {
     warnings.add(
       'allow-lan is enabled without authentication; LAN clients can use the '
@@ -233,8 +243,11 @@ List<Dict> buildLanAccessRules(
     });
   }
   if (allowed.isNotEmpty) {
-    final List<String> safeAllowed =
-        dedupe(<String>[...allowed, '127.0.0.0/8', '::1/128']);
+    final List<String> safeAllowed = dedupe(<String>[
+      ...allowed,
+      '127.0.0.0/8',
+      '::1/128',
+    ]);
     rules.add(<String, dynamic>{
       'type': 'logical',
       'mode': 'and',

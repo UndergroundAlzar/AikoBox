@@ -137,9 +137,7 @@ class ConnectionsFeedNotifier extends Notifier<ConnectionsFeedState> {
   }
 
   static List<ConnectionInfo> _trim(List<ConnectionInfo> items, int limit) =>
-      items.length > limit
-      ? items.sublist(items.length - limit)
-      : items;
+      items.length > limit ? items.sublist(items.length - limit) : items;
 
   /// Folds one `/connections` frame into the feed.
   ///
@@ -211,9 +209,7 @@ class ConnectionsFeedNotifier extends Notifier<ConnectionsFeedState> {
     if (state.paused == paused) return;
     state = state.copyWith(paused: paused);
     if (!paused) {
-      ref
-          .read(connectionsSnapshotProvider)
-          .whenOrNull<void>(data: ingest);
+      ref.read(connectionsSnapshotProvider).whenOrNull<void>(data: ingest);
     }
   }
 

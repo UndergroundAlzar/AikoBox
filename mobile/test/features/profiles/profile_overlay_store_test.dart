@@ -92,35 +92,36 @@ void main() {
       ]);
     });
 
-    test('a second save re-materialises from the base, not the result', () async {
-      await store.saveOverlay(
-        'p1',
-        const ProfileOverlay(
-          rules: RuleOverlay(prepend: <String>['DOMAIN,x.com,PROXY']),
-        ),
-      );
-      await store.saveOverlay(
-        'p1',
-        const ProfileOverlay(
-          rules: RuleOverlay(prepend: <String>['DOMAIN,y.com,PROXY']),
-        ),
-      );
+    test(
+      'a second save re-materialises from the base, not the result',
+      () async {
+        await store.saveOverlay(
+          'p1',
+          const ProfileOverlay(
+            rules: RuleOverlay(prepend: <String>['DOMAIN,x.com,PROXY']),
+          ),
+        );
+        await store.saveOverlay(
+          'p1',
+          const ProfileOverlay(
+            rules: RuleOverlay(prepend: <String>['DOMAIN,y.com,PROXY']),
+          ),
+        );
 
-      // Not x AND y: the first override is gone, replaced by the second.
-      expect(rulesOf(files.contents['p1']!), <String>[
-        'DOMAIN,y.com,PROXY',
-        'DOMAIN,a.com,DIRECT',
-        'GEOIP,CN,DIRECT',
-        'MATCH,PROXY',
-      ]);
-    });
+        // Not x AND y: the first override is gone, replaced by the second.
+        expect(rulesOf(files.contents['p1']!), <String>[
+          'DOMAIN,y.com,PROXY',
+          'DOMAIN,a.com,DIRECT',
+          'GEOIP,CN,DIRECT',
+          'MATCH,PROXY',
+        ]);
+      },
+    );
 
     test('a patch is deep-merged', () async {
       await store.saveOverlay(
         'p1',
-        const ProfileOverlay(
-          patch: <String, dynamic>{'mixed-port': 1080},
-        ),
+        const ProfileOverlay(patch: <String, dynamic>{'mixed-port': 1080}),
       );
       expect(parseYamlMap(files.contents['p1']!)['mixed-port'], 1080);
     });
@@ -128,32 +129,36 @@ void main() {
     test('a schedule-only overlay is stored but changes no config', () async {
       await store.saveOverlay(
         'p1',
-        const ProfileOverlay(
-          schedule: ProfileSchedule(cron: '0 * * * *'),
-        ),
+        const ProfileOverlay(schedule: ProfileSchedule(cron: '0 * * * *')),
       );
       expect(store.hasOverlay('p1'), isTrue);
       expect(store.isMaterialised('p1'), isFalse);
       expect(files.contents['p1'], _profileYaml);
-      expect((await store.readOverlay('p1')).overlay.schedule.cron, '0 * * * *');
+      expect(
+        (await store.readOverlay('p1')).overlay.schedule.cron,
+        '0 * * * *',
+      );
     });
 
-    test('dropping to a schedule-only overlay restores the pristine file', () async {
-      await store.saveOverlay(
-        'p1',
-        const ProfileOverlay(
-          rules: RuleOverlay(prepend: <String>['DOMAIN,x.com,PROXY']),
-        ),
-      );
-      expect(store.isMaterialised('p1'), isTrue);
+    test(
+      'dropping to a schedule-only overlay restores the pristine file',
+      () async {
+        await store.saveOverlay(
+          'p1',
+          const ProfileOverlay(
+            rules: RuleOverlay(prepend: <String>['DOMAIN,x.com,PROXY']),
+          ),
+        );
+        expect(store.isMaterialised('p1'), isTrue);
 
-      await store.saveOverlay(
-        'p1',
-        const ProfileOverlay(schedule: ProfileSchedule(fixedInterval: true)),
-      );
-      expect(store.isMaterialised('p1'), isFalse);
-      expect(files.contents['p1'], _profileYaml);
-    });
+        await store.saveOverlay(
+          'p1',
+          const ProfileOverlay(schedule: ProfileSchedule(fixedInterval: true)),
+        );
+        expect(store.isMaterialised('p1'), isFalse);
+        expect(files.contents['p1'], _profileYaml);
+      },
+    );
 
     test('an empty overlay clears everything', () async {
       await store.saveOverlay(

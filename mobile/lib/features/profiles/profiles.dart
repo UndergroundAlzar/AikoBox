@@ -21,7 +21,8 @@ library;
 
 export 'data/deep_merge.dart';
 export 'data/profile_batch_update.dart';
-export 'data/profile_error_text.dart' show ProfileErrorText, redactProfileMessage;
+export 'data/profile_error_text.dart'
+    show ProfileErrorText, redactProfileMessage;
 export 'data/profile_format.dart';
 export 'data/profile_overlay_store.dart';
 export 'data/profile_secret_store.dart';

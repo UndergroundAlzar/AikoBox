@@ -68,8 +68,7 @@ class ProfilesPage extends ConsumerWidget {
             _BatchProgress(done: busy.batchDone, total: busy.batchTotal),
           Expanded(
             child: profiles.when(
-              loading: () =>
-                  const Center(child: CircularProgressIndicator()),
+              loading: () => const Center(child: CircularProgressIndicator()),
               error: (error, _) => EmptyState(
                 icon: Icons.error_outline_rounded,
                 title: l10n.t('common.error.default'),
@@ -462,20 +461,17 @@ Future<void> _showAddSheet(BuildContext context, WidgetRef ref) async {
                 SectionListTile(
                   title: l10n.t('profiles.importFromUrl'),
                   icon: Icons.link_rounded,
-                  onTap: () =>
-                      Navigator.of(sheetContext).pop(_AddChoice.url),
+                  onTap: () => Navigator.of(sheetContext).pop(_AddChoice.url),
                 ),
                 SectionListTile(
                   title: l10n.t('profiles.importFromFile'),
                   icon: Icons.folder_open_rounded,
-                  onTap: () =>
-                      Navigator.of(sheetContext).pop(_AddChoice.file),
+                  onTap: () => Navigator.of(sheetContext).pop(_AddChoice.file),
                 ),
                 SectionListTile(
                   title: l10n.t('profiles.createEmpty'),
                   icon: Icons.note_add_outlined,
-                  onTap: () =>
-                      Navigator.of(sheetContext).pop(_AddChoice.empty),
+                  onTap: () => Navigator.of(sheetContext).pop(_AddChoice.empty),
                 ),
               ],
             ),
@@ -499,7 +495,8 @@ Future<void> _showAddSheet(BuildContext context, WidgetRef ref) async {
 enum _AddChoice { url, file, empty }
 
 /// The blank profile the desktop's "new" action creates, verbatim.
-const String kEmptyProfileContent = 'proxies: []\n'
+const String kEmptyProfileContent =
+    'proxies: []\n'
     'proxy-groups: []\n'
     'rules: []\n';
 
@@ -571,10 +568,7 @@ Future<void> _importFile(BuildContext context, WidgetRef ref) async {
           content: utf8.decode(bytes, allowMalformed: true),
         );
     if (!context.mounted) return;
-    showProfileMessage(
-      context,
-      l10n.t('profiles.notification.importSuccess'),
-    );
+    showProfileMessage(context, l10n.t('profiles.notification.importSuccess'));
   } catch (error) {
     if (!context.mounted) return;
     showProfileError(

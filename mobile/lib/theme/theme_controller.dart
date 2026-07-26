@@ -4,10 +4,9 @@ import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 // See the note in app_theme.dart: CorePalette is what dynamic_color actually
-// hands back on Android, deprecation notwithstanding.
-import 'package:material_color_utilities/material_color_utilities.dart'
-    // ignore: deprecated_member_use
-    show CorePalette;
+// hands back on Android, deprecation notwithstanding, and a `show` clause naming
+// it would itself be an unsuppressible deprecated-member reference.
+import 'package:material_color_utilities/material_color_utilities.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_theme.dart';
@@ -182,8 +181,9 @@ class ThemeController extends Notifier<AikoThemeSettings> {
 }
 
 final NotifierProvider<ThemeController, AikoThemeSettings>
-themeControllerProvider =
-    NotifierProvider<ThemeController, AikoThemeSettings>(ThemeController.new);
+themeControllerProvider = NotifierProvider<ThemeController, AikoThemeSettings>(
+  ThemeController.new,
+);
 
 /// Convenience selector for `MaterialApp.themeMode`.
 final Provider<ThemeMode> themeModeProvider = Provider<ThemeMode>(

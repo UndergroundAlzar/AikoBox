@@ -98,13 +98,17 @@ DnsServerBuild parseNameserver(String raw, String tag) {
   }
 
   final RegExpMatch? schemeMatch = _schemePrefix.firstMatch(value);
-  final String scheme =
-      schemeMatch == null ? 'udp' : schemeMatch.group(1)!.toLowerCase();
-  final String rest =
-      schemeMatch == null ? value : value.substring(schemeMatch.group(0)!.length);
+  final String scheme = schemeMatch == null
+      ? 'udp'
+      : schemeMatch.group(1)!.toLowerCase();
+  final String rest = schemeMatch == null
+      ? value
+      : value.substring(schemeMatch.group(0)!.length);
 
   final int slashIndex = rest.indexOf('/');
-  final String hostPort = slashIndex == -1 ? rest : rest.substring(0, slashIndex);
+  final String hostPort = slashIndex == -1
+      ? rest
+      : rest.substring(0, slashIndex);
   final String? path = slashIndex == -1 ? null : rest.substring(slashIndex);
   final HostPort parsed = parseHostPort(hostPort);
   if (parsed.host.isEmpty) {
@@ -179,8 +183,9 @@ DnsBuild buildDns(Dict clash, {required bool ipv6Enabled}) {
   final Dict dnsConfig = asDict(clash['dns']);
   final bool dnsEnabled = toBool(dnsConfig['enable']) ?? false;
   final bool dnsIpv6Enabled = ipv6Enabled && toBool(dnsConfig['ipv6']) != false;
-  final List<String> addressQueryTypes =
-      dnsIpv6Enabled ? <String>['A', 'AAAA'] : <String>['A'];
+  final List<String> addressQueryTypes = dnsIpv6Enabled
+      ? <String>['A', 'AAAA']
+      : <String>['A'];
 
   final List<Dict> servers = <Dict>[];
   final List<Dict> rules = <Dict>[];
@@ -192,7 +197,9 @@ DnsBuild buildDns(Dict clash, {required bool ipv6Enabled}) {
     // so a server addressed by domain has to carry its own `domain_resolver`
     // (bootstrapped off the system resolver) or the core cannot reach it.
     final String? host = toStr(server['server']);
-    if (host != null && !isIpLiteral(host) && server['domain_resolver'] == null) {
+    if (host != null &&
+        !isIpLiteral(host) &&
+        server['domain_resolver'] == null) {
       server['domain_resolver'] = bootstrapTag;
     }
     final Dict rest = Map<String, dynamic>.of(server)..remove('tag');
@@ -217,16 +224,22 @@ DnsBuild buildDns(Dict clash, {required bool ipv6Enabled}) {
     return tags;
   }
 
-  final List<String> bootstrapTags =
-      addNamedServers(dnsConfig['default-nameserver'], 'dns-bootstrap');
+  final List<String> bootstrapTags = addNamedServers(
+    dnsConfig['default-nameserver'],
+    'dns-bootstrap',
+  );
   if (bootstrapTags.isNotEmpty) bootstrapTag = bootstrapTags.first;
-  final List<String> proxyServerResolverTags =
-      addNamedServers(dnsConfig['proxy-server-nameserver'], 'dns-proxy-server');
+  final List<String> proxyServerResolverTags = addNamedServers(
+    dnsConfig['proxy-server-nameserver'],
+    'dns-proxy-server',
+  );
   // Only the first `direct-nameserver` entry is honoured, matching the desktop
   // converter. It leaves here as an outbound-scoped resolver rather than as a
   // DNS rule — see [DnsBuild.directDomainResolver].
-  final List<String> directResolverTags =
-      addNamedServers(dnsConfig['direct-nameserver'], 'dns-direct');
+  final List<String> directResolverTags = addNamedServers(
+    dnsConfig['direct-nameserver'],
+    'dns-direct',
+  );
 
   final Dict hosts = asDict(clash['hosts']);
   final Dict predefined = <String, dynamic>{};
@@ -277,13 +290,16 @@ DnsBuild buildDns(Dict clash, {required bool ipv6Enabled}) {
     for (final MapEntry<String, dynamic> entry in policy.entries) {
       final List<String> targets = toStrArray(entry.value);
       if (targets.isEmpty) continue;
-      final DnsServerBuild build =
-          parseNameserver(targets.first, 'dns-policy-${servers.length}');
+      final DnsServerBuild build = parseNameserver(
+        targets.first,
+        'dns-policy-${servers.length}',
+      );
       if (build.warning != null) warnings.add(build.warning!);
       if (build.server == null) continue;
       final String tag = addServer(build.server!);
-      final DomainPatterns classified =
-          classifyDomainPatterns(<String>[entry.key]);
+      final DomainPatterns classified = classifyDomainPatterns(<String>[
+        entry.key,
+      ]);
       if (classified.skipped.isNotEmpty) {
         warnings.add(
           'nameserver-policy pattern "${entry.key}" is not supported, skipped',
@@ -296,24 +312,31 @@ DnsBuild buildDns(Dict clash, {required bool ipv6Enabled}) {
     }
 
     // fake-ip
-    final String enhancedMode =
-        strOrElse(toStr(dnsConfig['enhanced-mode']), 'redir-host');
+    final String enhancedMode = strOrElse(
+      toStr(dnsConfig['enhanced-mode']),
+      'redir-host',
+    );
     if (enhancedMode == 'fake-ip') {
       final Dict fakeip = <String, dynamic>{
         'type': 'fakeip',
         'tag': 'dns-fakeip',
-        'inet4_range':
-            strOrElse(toStr(dnsConfig['fake-ip-range']), '198.18.0.1/16'),
+        'inet4_range': strOrElse(
+          toStr(dnsConfig['fake-ip-range']),
+          '198.18.0.1/16',
+        ),
       };
       if (dnsIpv6Enabled) fakeip['inet6_range'] = 'fc00::/18';
       servers.add(fakeip);
 
-      final List<String> filterPatterns =
-          toStrArray(dnsConfig['fake-ip-filter']);
+      final List<String> filterPatterns = toStrArray(
+        dnsConfig['fake-ip-filter'],
+      );
       final DomainPatterns classified = classifyDomainPatterns(filterPatterns);
       final Dict filterFields = domainPatternFields(classified);
-      final String filterMode =
-          strOrElse(toStr(dnsConfig['fake-ip-filter-mode']), 'blacklist');
+      final String filterMode = strOrElse(
+        toStr(dnsConfig['fake-ip-filter-mode']),
+        'blacklist',
+      );
 
       if (filterMode == 'whitelist') {
         if (filterFields.isNotEmpty) {
@@ -353,8 +376,9 @@ DnsBuild buildDns(Dict clash, {required bool ipv6Enabled}) {
     }
   }
 
-  final bool hasFakeip =
-      servers.any((Dict server) => server['type'] == 'fakeip');
+  final bool hasFakeip = servers.any(
+    (Dict server) => server['type'] == 'fakeip',
+  );
   final Dict dns = compact(<String, dynamic>{
     'servers': servers,
     'rules': rules,
@@ -369,7 +393,8 @@ DnsBuild buildDns(Dict clash, {required bool ipv6Enabled}) {
     defaultDomainResolver: proxyServerResolverTags.isNotEmpty
         ? proxyServerResolverTags.first
         : bootstrapTag,
-    directDomainResolver:
-        directResolverTags.isNotEmpty ? directResolverTags.first : null,
+    directDomainResolver: directResolverTags.isNotEmpty
+        ? directResolverTags.first
+        : null,
   );
 }

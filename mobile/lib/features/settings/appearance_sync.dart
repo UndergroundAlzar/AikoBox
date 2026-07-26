@@ -64,13 +64,15 @@ Future<void> applyAppearance(
   }
 
   try {
-    await ref.read(appConfigProvider.notifier).update(
-      (AppConfig current) => current.copyWith(
-        appTheme: themeMode == null ? null : appThemeModeOf(themeMode),
-        seedColor: seedColorId == null ? null : seedArgbForId(seedColorId),
-        useDynamicColor: useDynamicColor,
-      ),
-    );
+    await ref
+        .read(appConfigProvider.notifier)
+        .update(
+          (AppConfig current) => current.copyWith(
+            appTheme: themeMode == null ? null : appThemeModeOf(themeMode),
+            seedColor: seedColorId == null ? null : seedArgbForId(seedColorId),
+            useDynamicColor: useDynamicColor,
+          ),
+        );
   } catch (_) {
     // The mirror is a convenience for backup/restore. shared_preferences
     // already has the authoritative value, so a config.json write failure must

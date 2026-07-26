@@ -46,14 +46,12 @@ List<Dict> inboundsOf(Dict config) =>
         .toList();
 
 List<Dict> routeRules(Dict config) =>
-    ((config['route'] as Dict)['rules'] as List<Object?>? ??
-            const <Object?>[])
+    ((config['route'] as Dict)['rules'] as List<Object?>? ?? const <Object?>[])
         .cast<Dict>()
         .toList();
 
 List<Dict> dnsServers(Dict config) =>
-    ((config['dns'] as Dict)['servers'] as List<Object?>? ??
-            const <Object?>[])
+    ((config['dns'] as Dict)['servers'] as List<Object?>? ?? const <Object?>[])
         .cast<Dict>()
         .toList();
 
@@ -98,16 +96,15 @@ Dict? findWhere(List<Dict> list, bool Function(Dict) test) {
 
 /// `expect(actual).toMatchObject(expected)` — every key in [expected] must be
 /// present in [actual] and deep-equal.
-void expectSubset(
-  Object? actual,
-  Dict expected, {
-  String path = 'root',
-}) {
+void expectSubset(Object? actual, Dict expected, {String path = 'root'}) {
   expect(actual, isA<Map<String, dynamic>>(), reason: 'at $path');
   final Dict map = actual! as Dict;
   expected.forEach((String key, Object? value) {
-    expect(map.containsKey(key), isTrue,
-        reason: 'expected key "$key" at $path');
+    expect(
+      map.containsKey(key),
+      isTrue,
+      reason: 'expected key "$key" at $path',
+    );
     if (value is Map<String, dynamic>) {
       expectSubset(map[key], value, path: '$path.$key');
     } else {

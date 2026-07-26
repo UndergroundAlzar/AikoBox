@@ -67,7 +67,10 @@ void main() {
     });
 
     test('MATCH needs no payload', () {
-      expect(canAddRule(const ClashRule(type: 'MATCH', proxy: 'PROXY')), isTrue);
+      expect(
+        canAddRule(const ClashRule(type: 'MATCH', proxy: 'PROXY')),
+        isTrue,
+      );
     });
 
     test('refuses a payload the type rejects', () {

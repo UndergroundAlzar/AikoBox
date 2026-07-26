@@ -39,7 +39,7 @@ void main() {
       final List<Directory> cases = casesRoot == null
           ? const <Directory>[]
           : (casesRoot.listSync().whereType<Directory>().toList()
-            ..sort((Directory a, Directory b) => a.path.compareTo(b.path)));
+              ..sort((Directory a, Directory b) => a.path.compareTo(b.path)));
 
       test('the corpus has cases', () {
         expect(cases, isNotEmpty);
@@ -63,8 +63,10 @@ void main() {
         final String id = dir.path.split(Platform.pathSeparator).last;
         test(id, () {
           final Map<String, dynamic> clash = _readInput(dir);
-          final ConvertResult result =
-              convertClashToSingbox(clash, options: _readOptions(dir));
+          final ConvertResult result = convertClashToSingbox(
+            clash,
+            options: _readOptions(dir),
+          );
 
           final Object? expectedConfig = _readJson(dir, 'expected.json');
           if (expectedConfig != null) {
@@ -103,13 +105,11 @@ void main() {
 }
 
 Map<String, dynamic> _readInput(Directory dir) {
-  final File yamlFile =
-      File('${dir.path}${Platform.pathSeparator}input.yaml');
+  final File yamlFile = File('${dir.path}${Platform.pathSeparator}input.yaml');
   if (yamlFile.existsSync()) {
     return parseClashYamlLikeDesktop(yamlFile.readAsStringSync());
   }
-  final File jsonFile =
-      File('${dir.path}${Platform.pathSeparator}input.json');
+  final File jsonFile = File('${dir.path}${Platform.pathSeparator}input.json');
   if (jsonFile.existsSync()) {
     return (jsonDecode(jsonFile.readAsStringSync()) as Map)
         .cast<String, dynamic>();
@@ -138,8 +138,9 @@ Directory? _findDir(String relative) {
   final List<String> parts = relative.split('/');
   Directory? dir = Directory.current.absolute;
   for (int depth = 0; depth < 8 && dir != null; depth++) {
-    final Directory candidate =
-        Directory(<String>[dir.path, ...parts].join(Platform.pathSeparator));
+    final Directory candidate = Directory(
+      <String>[dir.path, ...parts].join(Platform.pathSeparator),
+    );
     if (candidate.existsSync()) return candidate;
     final Directory parent = dir.parent;
     dir = parent.path == dir.path ? null : parent;

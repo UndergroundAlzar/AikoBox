@@ -28,25 +28,26 @@ void main() {
   });
 
   group('StaggeredGrid layout', () {
-    testWidgets('a 1-span cell is one column wide, a 2-span cell fills the row', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        hostWidget(
-          StaggeredGrid(
-            crossAxisCount: 2,
-            spacing: 12,
-            items: <StaggeredGridItem>[_cell('a'), _cell('b', span: 2)],
+    testWidgets(
+      'a 1-span cell is one column wide, a 2-span cell fills the row',
+      (tester) async {
+        await tester.pumpWidget(
+          hostWidget(
+            StaggeredGrid(
+              crossAxisCount: 2,
+              spacing: 12,
+              items: <StaggeredGridItem>[_cell('a'), _cell('b', span: 2)],
+            ),
+            width: 600,
           ),
-          width: 600,
-        ),
-      );
+        );
 
-      // cell = (600 - 1 * 12) / 2 = 294
-      expect(tester.getSize(find.byKey(const ValueKey('a'))).width, 294);
-      // 2 spans re-absorb the gutter they straddle: 294 * 2 + 12 = 600
-      expect(tester.getSize(find.byKey(const ValueKey('b'))).width, 600);
-    });
+        // cell = (600 - 1 * 12) / 2 = 294
+        expect(tester.getSize(find.byKey(const ValueKey('a'))).width, 294);
+        // 2 spans re-absorb the gutter they straddle: 294 * 2 + 12 = 600
+        expect(tester.getSize(find.byKey(const ValueKey('b'))).width, 600);
+      },
+    );
 
     testWidgets('cells wrap when the running span exceeds the column count', (
       tester,

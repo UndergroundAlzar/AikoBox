@@ -113,10 +113,7 @@ void main() {
 
   group('editing', () {
     test('inserting a prepend puts it on top and records it', () {
-      final state = RuleEditorState.load(
-        _base(),
-        RuleOverlay.empty,
-      ).insert(
+      final state = RuleEditorState.load(_base(), RuleOverlay.empty).insert(
         const ClashRule(type: 'DOMAIN', payload: 'x.com', proxy: 'PROXY'),
         asPrepend: true,
       );
@@ -148,10 +145,7 @@ void main() {
     });
 
     test('inserting an append puts it at the bottom', () {
-      final state = RuleEditorState.load(
-        _base(),
-        RuleOverlay.empty,
-      ).insert(
+      final state = RuleEditorState.load(_base(), RuleOverlay.empty).insert(
         const ClashRule(type: 'MATCH', proxy: 'DIRECT'),
         asPrepend: false,
       );
@@ -187,10 +181,7 @@ void main() {
     });
 
     test('a staged row that is then deleted contributes nothing', () {
-      var state = RuleEditorState.load(
-        _base(),
-        RuleOverlay.empty,
-      ).insert(
+      var state = RuleEditorState.load(_base(), RuleOverlay.empty).insert(
         const ClashRule(type: 'DOMAIN', payload: 'x.com', proxy: 'PROXY'),
         asPrepend: true,
       );
@@ -218,10 +209,7 @@ void main() {
 
   group('moving', () {
     test('moving a plain row up swaps it', () {
-      final state = RuleEditorState.load(
-        _base(),
-        RuleOverlay.empty,
-      ).moveUp(1);
+      final state = RuleEditorState.load(_base(), RuleOverlay.empty).moveUp(1);
       expect(_displayed(state), <String>[
         'GEOIP,CN,DIRECT',
         'DOMAIN,a.com,DIRECT',
@@ -237,10 +225,7 @@ void main() {
     });
 
     test('moving a prepended row down gives it an offset that round-trips', () {
-      var state = RuleEditorState.load(
-        _base(),
-        RuleOverlay.empty,
-      ).insert(
+      var state = RuleEditorState.load(_base(), RuleOverlay.empty).insert(
         const ClashRule(type: 'DOMAIN', payload: 'x.com', proxy: 'PROXY'),
         asPrepend: true,
       );
@@ -262,10 +247,7 @@ void main() {
     });
 
     test('moving a prepended row back up clears the offset', () {
-      var state = RuleEditorState.load(
-        _base(),
-        RuleOverlay.empty,
-      ).insert(
+      var state = RuleEditorState.load(_base(), RuleOverlay.empty).insert(
         const ClashRule(type: 'DOMAIN', payload: 'x.com', proxy: 'PROXY'),
         asPrepend: true,
       );
@@ -277,10 +259,7 @@ void main() {
     });
 
     test('moving an appended row up gives it an offset that round-trips', () {
-      var state = RuleEditorState.load(
-        _base(),
-        RuleOverlay.empty,
-      ).insert(
+      var state = RuleEditorState.load(_base(), RuleOverlay.empty).insert(
         const ClashRule(type: 'DOMAIN', payload: 'x.com', proxy: 'PROXY'),
         asPrepend: false,
       );
@@ -310,13 +289,10 @@ void main() {
 
   group('search', () {
     test('matches type, payload, outbound and parameters', () {
-      final state = RuleEditorState.load(
-        <ClashRule>[
-          ClashRule.parse('DOMAIN,a.com,DIRECT'),
-          ClashRule.parse('GEOIP,CN,PROXY,no-resolve'),
-        ],
-        RuleOverlay.empty,
-      );
+      final state = RuleEditorState.load(<ClashRule>[
+        ClashRule.parse('DOMAIN,a.com,DIRECT'),
+        ClashRule.parse('GEOIP,CN,PROXY,no-resolve'),
+      ], RuleOverlay.empty);
       expect(state.search('geoip').length, 1);
       expect(state.search('a.com').length, 1);
       expect(state.search('PROXY').length, 1);

@@ -38,11 +38,11 @@ class SingboxController {
   }
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'listen': listen,
-        'host': host,
-        'port': port,
-        'secret': secret,
-      };
+    'listen': listen,
+    'host': host,
+    'port': port,
+    'secret': secret,
+  };
 
   @override
   bool operator ==(Object other) =>
@@ -131,6 +131,7 @@ class ConvertResult {
   bool get isUsable => errors.isEmpty;
 
   @override
-  String toString() => 'ConvertResult(warnings: ${warnings.length}, '
+  String toString() =>
+      'ConvertResult(warnings: ${warnings.length}, '
       'errors: ${errors.length})';
 }

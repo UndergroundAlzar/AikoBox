@@ -92,11 +92,8 @@ class DelayChip extends StatelessWidget {
     };
 
     final double glyphSize = dense ? 11 : 12;
-    final textStyle = (theme.textTheme.labelSmall ?? const TextStyle()).copyWith(
-      color: foreground,
-      height: 1.1,
-      fontSize: dense ? 11 : null,
-    );
+    final textStyle = (theme.textTheme.labelSmall ?? const TextStyle())
+        .copyWith(color: foreground, height: 1.1, fontSize: dense ? 11 : null);
 
     final Widget content;
     if (testing) {
@@ -127,7 +124,10 @@ class DelayChip extends StatelessWidget {
         horizontal: dense ? 6 : 8,
         vertical: dense ? 1 : 3,
       ),
-      decoration: ShapeDecoration(color: background, shape: const StadiumBorder()),
+      decoration: ShapeDecoration(
+        color: background,
+        shape: const StadiumBorder(),
+      ),
       child: content,
     );
 

@@ -60,27 +60,29 @@ class LanguageSettingsPage extends ConsumerWidget {
     return l10n.has(key) ? l10n.t(key) : info.nativeName;
   }
 
-  Future<void> _select(
-    BuildContext context,
-    WidgetRef ref,
-    String? tag,
-  ) async {
+  Future<void> _select(BuildContext context, WidgetRef ref, String? tag) async {
     try {
       await ref.read(localeSettingProvider.notifier).setLocaleTag(tag);
     } catch (error) {
       if (context.mounted) {
-        showAikoSnack(context, context.l10n.t('common.saveFailed'), error: true);
+        showAikoSnack(
+          context,
+          context.l10n.t('common.saveFailed'),
+          error: true,
+        );
       }
       return;
     }
     // Mirrored, not authoritative — a config.json failure must not roll back a
     // language the user can already see applied.
     try {
-      await ref.read(appConfigProvider.notifier).update(
-        (AppConfig current) => tag == null
-            ? current.copyWith(clearLanguage: true)
-            : current.copyWith(language: tag),
-      );
+      await ref
+          .read(appConfigProvider.notifier)
+          .update(
+            (AppConfig current) => tag == null
+                ? current.copyWith(clearLanguage: true)
+                : current.copyWith(language: tag),
+          );
     } catch (_) {
       // Intentionally ignored; see above.
     }

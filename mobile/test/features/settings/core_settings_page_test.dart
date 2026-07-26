@@ -138,7 +138,9 @@ void main() {
 
     await tester.tap(find.byKey(const Key('core-log-level')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey<String>('aiko-option-LogLevel.debug')));
+    await tester.tap(
+      find.byKey(const ValueKey<String>('aiko-option-LogLevel.debug')),
+    );
     await tester.pumpAndSettle();
 
     expect(configOf(tester).logLevel, LogLevel.debug);

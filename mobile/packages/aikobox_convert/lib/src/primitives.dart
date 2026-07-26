@@ -123,8 +123,10 @@ String? toStr(Object? value) {
 num? toNum(Object? value) {
   if (value is num && value.isFinite) return normalizeNumber(value);
   if (value is String && value.trim().isNotEmpty) {
-    final String truncated =
-        value.trim().replaceFirst(RegExp(r'[^\d.-].*$'), '');
+    final String truncated = value.trim().replaceFirst(
+      RegExp(r'[^\d.-].*$'),
+      '',
+    );
     final double? parsed = jsNumber(truncated);
     if (parsed != null && parsed.isFinite) return normalizeNumber(parsed);
   }
@@ -142,10 +144,7 @@ bool? toBool(Object? value) {
 /// `toStrArray` — a bare string becomes a one-element list, `''` becomes empty.
 List<String> toStrArray(Object? value) {
   if (value is String) return value.isEmpty ? <String>[] : <String>[value];
-  return asArray(value)
-      .map(toStr)
-      .whereType<String>()
-      .toList(growable: true);
+  return asArray(value).map(toStr).whereType<String>().toList(growable: true);
 }
 
 /// `compact` — drop `null` and empty lists, keep `''`, `0`, `false` and `{}`.
@@ -278,11 +277,11 @@ final RegExp _regexMeta = RegExp(r'[|\\{}()\[\]^$+?.]');
 
 /// `*`-wildcard to an anchored regular expression.
 String wildcardToRegex(String value) {
-  final Iterable<String> parts = value.split('*').map(
-        (String part) => part.replaceAllMapped(
-          _regexMeta,
-          (Match m) => '\\${m.group(0)}',
-        ),
+  final Iterable<String> parts = value
+      .split('*')
+      .map(
+        (String part) =>
+            part.replaceAllMapped(_regexMeta, (Match m) => '\\${m.group(0)}'),
       );
   return '^${parts.join('.*')}\$';
 }

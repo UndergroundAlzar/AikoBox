@@ -111,8 +111,7 @@ class ThemeSettingsPage extends ConsumerWidget {
                     ref,
                     themeMode: AikoThemeSettings.defaults.themeMode,
                     seedColorId: AikoThemeSettings.defaults.seedColorId,
-                    useDynamicColor:
-                        AikoThemeSettings.defaults.useDynamicColor,
+                    useDynamicColor: AikoThemeSettings.defaults.useDynamicColor,
                   );
                   if (context.mounted) {
                     showAikoSnack(context, context.l10n.t('common.saved'));
@@ -144,10 +143,32 @@ class ThemePreviewCard extends StatelessWidget {
   final String label;
 
   static const List<double> _upSeries = <double>[
-    2, 6, 3, 9, 14, 8, 12, 20, 16, 11, 18, 24,
+    2,
+    6,
+    3,
+    9,
+    14,
+    8,
+    12,
+    20,
+    16,
+    11,
+    18,
+    24,
   ];
   static const List<double> _downSeries = <double>[
-    8, 12, 20, 15, 26, 34, 28, 40, 33, 45, 38, 52,
+    8,
+    12,
+    20,
+    15,
+    26,
+    34,
+    28,
+    40,
+    33,
+    45,
+    38,
+    52,
   ];
 
   @override

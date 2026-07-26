@@ -37,7 +37,9 @@ class ProfileErrorText {
 /// [redactUrl]. Deliberately greedy about what counts as a URL — a false
 /// positive costs a redacted word, a false negative leaks a token.
 final RegExp _urlLike = RegExp(
-  r'[a-zA-Z][a-zA-Z0-9+.-]*://[^\s<>"' r"'" r']+',
+  r'[a-zA-Z][a-zA-Z0-9+.-]*://[^\s<>"'
+  r"'"
+  r']+',
 );
 
 /// Replaces every URL in [text] with its redacted form.
@@ -108,8 +110,8 @@ String describeBatchFailure(AikoL10n l10n, ProfileBatchFailure failure) {
     ProfileBatchFailureKind.notFound => l10n.t(
       'error.code.E_PROFILE_NOT_FOUND',
     ),
-    ProfileBatchFailureKind.network || ProfileBatchFailureKind.backoff => l10n
-        .t('error.code.E_SUBSCRIPTION_FETCH_FAILED'),
+    ProfileBatchFailureKind.network || ProfileBatchFailureKind.backoff =>
+      l10n.t('error.code.E_SUBSCRIPTION_FETCH_FAILED'),
     ProfileBatchFailureKind.invalidContent => l10n.t(
       'error.code.E_SUBSCRIPTION_INVALID',
     ),
@@ -133,8 +135,7 @@ String _subscriptionKey(SubscriptionErrorCode code) => switch (code) {
   SubscriptionErrorCode.htmlResponse ||
   SubscriptionErrorCode.emptyResponse ||
   SubscriptionErrorCode.unusableContent ||
-  SubscriptionErrorCode.outOfBounds =>
-    'error.code.E_SUBSCRIPTION_INVALID',
+  SubscriptionErrorCode.outOfBounds => 'error.code.E_SUBSCRIPTION_INVALID',
 };
 
 String _rawMessage(Object error) => switch (error) {

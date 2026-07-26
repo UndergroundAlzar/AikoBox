@@ -51,11 +51,13 @@ final profileOverlayStoreProvider = FutureProvider<ProfileOverlayStore>((
 // ---------------------------------------------------------------------------
 
 /// The override document for one profile.
-final profileOverlayProvider =
-    FutureProvider.family<StoredOverlay, String>((ref, id) async {
-      final store = await ref.watch(profileOverlayStoreProvider.future);
-      return store.readOverlay(id);
-    });
+final profileOverlayProvider = FutureProvider.family<StoredOverlay, String>((
+  ref,
+  id,
+) async {
+  final store = await ref.watch(profileOverlayStoreProvider.future);
+  return store.readOverlay(id);
+});
 
 /// The profile's own YAML — the pristine snapshot when an override is in
 /// force, the profile file itself otherwise.
@@ -141,8 +143,7 @@ class ProfilesBusy {
 
   /// True while any write is in flight. The page disables every action on it,
   /// because two writers on one profile file is how a config gets corrupted.
-  bool get isBusy =>
-      importing || updatingAll || refreshingIds.isNotEmpty;
+  bool get isBusy => importing || updatingAll || refreshingIds.isNotEmpty;
 
   bool isRefreshing(String id) => refreshingIds.contains(id);
 
@@ -165,8 +166,7 @@ class ProfilesBusyNotifier extends Notifier<ProfilesBusy> {
   @override
   ProfilesBusy build() => ProfilesBusy.idle;
 
-  void setImporting(bool value) =>
-      state = state.copyWith(importing: value);
+  void setImporting(bool value) => state = state.copyWith(importing: value);
 
   void beginRefresh(String id) => state = state.copyWith(
     refreshingIds: <String>{...state.refreshingIds, id},
@@ -185,11 +185,8 @@ class ProfilesBusyNotifier extends Notifier<ProfilesBusy> {
   void batchProgress(int done, int total) =>
       state = state.copyWith(batchDone: done, batchTotal: total);
 
-  void endBatch() => state = state.copyWith(
-    updatingAll: false,
-    batchDone: 0,
-    batchTotal: 0,
-  );
+  void endBatch() =>
+      state = state.copyWith(updatingAll: false, batchDone: 0, batchTotal: 0);
 }
 
 final profilesBusyProvider =
@@ -321,8 +318,7 @@ class ProfilesController {
         items,
         currentId,
         (item) => _refreshUnguarded(item.id),
-        onProgress: (item, index, count) =>
-            _busy.batchProgress(index, count),
+        onProgress: (item, index, count) => _busy.batchProgress(index, count),
       );
     } finally {
       _busy.endBatch();

@@ -160,8 +160,7 @@ final Provider<List<LogLine>> visibleLogsProvider = Provider<List<LogLine>>((
   final List<LogLine> out = <LogLine>[];
   for (int i = source.length - 1; i >= start; i--) {
     final LogLine line = source[i];
-    if (logPassesLevel(line, view.level) &&
-        logMatchesQuery(line, view.query)) {
+    if (logPassesLevel(line, view.level) && logMatchesQuery(line, view.query)) {
       out.add(line);
     }
   }

@@ -42,7 +42,8 @@ class SubscriptionUsageBar extends StatelessWidget {
 
     // Green until the allowance is mostly gone, amber past 80 %, red past 95 %.
     // Same thresholds the delay chip uses for "fine / worth noticing / bad".
-    final Color bar = trackColor ??
+    final Color bar =
+        trackColor ??
         (fraction == null
             ? scheme.primary
             : fraction >= 0.95
