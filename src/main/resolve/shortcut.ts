@@ -9,8 +9,19 @@ import {
 import { triggerSysProxy } from '../sys/sysproxy'
 import { quitWithoutCore, setTunEnabled } from '../core/manager'
 import i18next from '../../shared/i18n'
+import { createLogger } from '../utils/logger'
 import { floatingWindow, triggerFloatingWindow } from './floatingWindow'
 import { copyEnv, updateTrayIcon } from './tray'
+
+const shortcutLogger = createLogger('Shortcut')
+
+// globalShortcut callbacks are fire-and-forget: an escaping rejection would
+// otherwise surface as a process-level unhandled rejection.
+function guard(handler: () => Promise<void>): () => void {
+  return () => {
+    handler().catch((e) => void shortcutLogger.warn('Shortcut handler failed', e))
+  }
+}
 
 export async function registerShortcut(
   oldShortcut: string,
@@ -30,93 +41,114 @@ export async function registerShortcut(
       })
     }
     case 'showFloatingWindowShortcut': {
-      return globalShortcut.register(newShortcut, async () => {
-        await triggerFloatingWindow()
-      })
+      return globalShortcut.register(
+        newShortcut,
+        guard(async () => {
+          await triggerFloatingWindow()
+        })
+      )
     }
     case 'triggerSysProxyShortcut': {
-      return globalShortcut.register(newShortcut, async () => {
-        const {
-          sysProxy: { enable }
-        } = await getAppConfig()
-        try {
-          await triggerSysProxy(!enable)
-          await patchAppConfig({ sysProxy: { enable: !enable } })
-          new Notification({
-            title: i18next.t(
-              !enable
-                ? 'common.notification.systemProxyEnabled'
-                : 'common.notification.systemProxyDisabled'
-            )
-          }).show()
-          mainWindow?.webContents.send('appConfigUpdated')
-          floatingWindow?.webContents.send('appConfigUpdated')
-        } catch {
-          // ignore
-        } finally {
-          ipcMain.emit('updateTrayMenu')
-          await updateTrayIcon()
-        }
-      })
+      return globalShortcut.register(
+        newShortcut,
+        guard(async () => {
+          const {
+            sysProxy: { enable }
+          } = await getAppConfig()
+          try {
+            await triggerSysProxy(!enable)
+            await patchAppConfig({ sysProxy: { enable: !enable } })
+            new Notification({
+              title: i18next.t(
+                !enable
+                  ? 'common.notification.systemProxyEnabled'
+                  : 'common.notification.systemProxyDisabled'
+              )
+            }).show()
+            mainWindow?.webContents.send('appConfigUpdated')
+            floatingWindow?.webContents.send('appConfigUpdated')
+          } catch {
+            // ignore
+          } finally {
+            ipcMain.emit('updateTrayMenu')
+            await updateTrayIcon()
+          }
+        })
+      )
     }
     case 'triggerTunShortcut': {
-      return globalShortcut.register(newShortcut, async () => {
-        const { tun } = await getControledMihomoConfig()
-        const enable = tun?.enable ?? false
-        try {
-          await setTunEnabled(!enable)
-          new Notification({
-            title: i18next.t(
-              !enable ? 'common.notification.tunEnabled' : 'common.notification.tunDisabled'
-            )
-          }).show()
-          mainWindow?.webContents.send('controledMihomoConfigUpdated')
-          floatingWindow?.webContents.send('appConfigUpdated')
-        } catch {
-          // ignore
-        } finally {
-          ipcMain.emit('updateTrayMenu')
-          await updateTrayIcon()
-        }
-      })
+      return globalShortcut.register(
+        newShortcut,
+        guard(async () => {
+          const { tun } = await getControledMihomoConfig()
+          const enable = tun?.enable ?? false
+          try {
+            await setTunEnabled(!enable)
+            new Notification({
+              title: i18next.t(
+                !enable ? 'common.notification.tunEnabled' : 'common.notification.tunDisabled'
+              )
+            }).show()
+            mainWindow?.webContents.send('controledMihomoConfigUpdated')
+            floatingWindow?.webContents.send('appConfigUpdated')
+          } catch {
+            // ignore
+          } finally {
+            ipcMain.emit('updateTrayMenu')
+            await updateTrayIcon()
+          }
+        })
+      )
     }
     case 'ruleModeShortcut': {
-      return globalShortcut.register(newShortcut, async () => {
-        await patchControledMihomoConfig({ mode: 'rule' })
-        new Notification({
-          title: i18next.t('common.notification.ruleMode')
-        }).show()
-        mainWindow?.webContents.send('controledMihomoConfigUpdated')
-        ipcMain.emit('updateTrayMenu')
-        await updateTrayIcon()
-      })
+      return globalShortcut.register(
+        newShortcut,
+        guard(async () => {
+          await patchControledMihomoConfig({ mode: 'rule' })
+          new Notification({
+            title: i18next.t('common.notification.ruleMode')
+          }).show()
+          mainWindow?.webContents.send('controledMihomoConfigUpdated')
+          ipcMain.emit('updateTrayMenu')
+          await updateTrayIcon()
+        })
+      )
     }
     case 'globalModeShortcut': {
-      return globalShortcut.register(newShortcut, async () => {
-        await patchControledMihomoConfig({ mode: 'global' })
-        new Notification({
-          title: i18next.t('common.notification.globalMode')
-        }).show()
-        mainWindow?.webContents.send('controledMihomoConfigUpdated')
-        ipcMain.emit('updateTrayMenu')
-        await updateTrayIcon()
-      })
+      return globalShortcut.register(
+        newShortcut,
+        guard(async () => {
+          await patchControledMihomoConfig({ mode: 'global' })
+          new Notification({
+            title: i18next.t('common.notification.globalMode')
+          }).show()
+          mainWindow?.webContents.send('controledMihomoConfigUpdated')
+          ipcMain.emit('updateTrayMenu')
+          await updateTrayIcon()
+        })
+      )
     }
     case 'directModeShortcut': {
-      return globalShortcut.register(newShortcut, async () => {
-        await patchControledMihomoConfig({ mode: 'direct' })
-        new Notification({
-          title: i18next.t('common.notification.directMode')
-        }).show()
-        mainWindow?.webContents.send('controledMihomoConfigUpdated')
-        ipcMain.emit('updateTrayMenu')
-        await updateTrayIcon()
-      })
+      return globalShortcut.register(
+        newShortcut,
+        guard(async () => {
+          await patchControledMihomoConfig({ mode: 'direct' })
+          new Notification({
+            title: i18next.t('common.notification.directMode')
+          }).show()
+          mainWindow?.webContents.send('controledMihomoConfigUpdated')
+          ipcMain.emit('updateTrayMenu')
+          await updateTrayIcon()
+        })
+      )
     }
     case 'quitWithoutCoreShortcut': {
-      return globalShortcut.register(newShortcut, async () => {
-        await quitWithoutCore()
-      })
+      return globalShortcut.register(
+        newShortcut,
+        guard(async () => {
+          await quitWithoutCore()
+        })
+      )
     }
     case 'restartAppShortcut': {
       return globalShortcut.register(newShortcut, () => {
@@ -125,13 +157,16 @@ export async function registerShortcut(
       })
     }
     case 'copyEnvShortcut': {
-      return globalShortcut.register(newShortcut, async () => {
-        const shellType = process.platform === 'win32' ? 'powershell' : 'bash'
-        await copyEnv(shellType)
-        new Notification({
-          title: i18next.t('common.notification.copyEnvSuccess')
-        }).show()
-      })
+      return globalShortcut.register(
+        newShortcut,
+        guard(async () => {
+          const shellType = process.platform === 'win32' ? 'powershell' : 'bash'
+          await copyEnv(shellType)
+          new Notification({
+            title: i18next.t('common.notification.copyEnvSuccess')
+          }).show()
+        })
+      )
     }
   }
   throw new Error('Unknown action')

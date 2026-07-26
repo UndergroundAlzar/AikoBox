@@ -78,6 +78,14 @@ async function loadLifecycle(): Promise<typeof import('./lifecycle')> {
   return lifecycle
 }
 
+/**
+ * Deliberately the real module, not a mock: the guardian flag is only useful if
+ * lifecycle actually flips it, and manager.ts reads the same module state.
+ */
+async function loadGuardianShutdownState(): Promise<typeof import('./core/exactEndpointGuardian')> {
+  return import('./core/exactEndpointGuardian')
+}
+
 describe('Windows session-end lifecycle safety', () => {
   beforeEach(() => {
     vi.resetModules()
@@ -142,6 +150,38 @@ describe('Windows session-end lifecycle safety', () => {
     expect(mocks.stopCore).toHaveBeenCalledOnce()
     expect(mocks.quit).toHaveBeenCalledOnce()
     expect(mocks.disableSysProxySync).toHaveBeenCalledOnce()
+  })
+
+  it('arms the exact-endpoint guardian shutdown before the core is stopped', async () => {
+    const guardian = await loadGuardianShutdownState()
+    expect(guardian.isExactEndpointGuardianShutdown()).toBe(false)
+    const lifecycle = await loadLifecycle()
+
+    mocks.stopCore.mockImplementation(async () => {
+      // the flag has to already be set here, or a guardian retry racing the
+      // kill spawns a sing-box the app will never own again
+      expect(guardian.isExactEndpointGuardianShutdown()).toBe(true)
+      mocks.coreRunning = false
+    })
+
+    lifecycle.handleWindowsSessionEnd()
+    await vi.waitFor(() => expect(mocks.stopCore).toHaveBeenCalledOnce())
+    expect(guardian.isExactEndpointGuardianShutdown()).toBe(true)
+    guardian.cancelExactEndpointGuardianShutdown()
+  })
+
+  it('releases the guardian shutdown when the quit is abandoned', async () => {
+    mocks.disableSysProxySync.mockReturnValue(false)
+    mocks.triggerSysProxy.mockRejectedValue(new Error('WinINET restore failed'))
+    const guardian = await loadGuardianShutdownState()
+    const lifecycle = await loadLifecycle()
+    const preventDefault = vi.fn()
+
+    lifecycle.handleWindowsQuerySessionEnd({ preventDefault } as never)
+    await vi.waitFor(() => expect(mocks.cancelSystemProxyShutdown).toHaveBeenCalledOnce())
+
+    // the app stays open to protect WinINET, so recovery must be allowed again
+    expect(guardian.isExactEndpointGuardianShutdown()).toBe(false)
   })
 
   it('preserves before-quit blocking and error reporting on restore failure', async () => {

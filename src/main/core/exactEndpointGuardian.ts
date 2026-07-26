@@ -21,6 +21,29 @@ function endpointKey(endpoint: ExactEndpoint): string {
   return `${endpoint.host}:${endpoint.port}`
 }
 
+let guardianShutdown = false
+
+/**
+ * Quitting must win any in-flight recovery. An attempt started after shutdown
+ * begins spawns a core the app will never own again: it keeps the TUN adapter
+ * and the user's traffic long after the process is gone.
+ */
+export function beginExactEndpointGuardianShutdown(): void {
+  guardianShutdown = true
+}
+
+export function cancelExactEndpointGuardianShutdown(): void {
+  guardianShutdown = false
+}
+
+export function isExactEndpointGuardianShutdown(): boolean {
+  return guardianShutdown
+}
+
+function shutdownError(): Error {
+  return new Error('Exact endpoint recovery aborted because AikoBox is shutting down')
+}
+
 /**
  * Serializes endpoint recovery and lets every concurrent caller await the same
  * proof of health. A running process alone is never success; isHealthy must
@@ -30,6 +53,7 @@ export class ExactEndpointGuardian {
   private active: ActiveGuardian | null = null
 
   ensure(request: ExactEndpointGuardianRequest): Promise<void> {
+    if (guardianShutdown) return Promise.reject(shutdownError())
     const key = endpointKey(request.endpoint)
     if (this.active) {
       if (this.active.key !== key) {
@@ -62,6 +86,7 @@ export class ExactEndpointGuardian {
       for (const candidate of active.requests) {
         if (await candidate.isHealthy()) return
       }
+      if (guardianShutdown) throw shutdownError()
       attempt += 1
       const request = active.requests[cursor % active.requests.length]
       cursor += 1
@@ -74,6 +99,9 @@ export class ExactEndpointGuardian {
       for (const candidate of active.requests) {
         if (await candidate.isHealthy()) return
       }
+      // Shutdown may have begun during the backoff or the health sweep; a spawn
+      // from here would outlive the app.
+      if (guardianShutdown) throw shutdownError()
 
       try {
         await request.attempt()

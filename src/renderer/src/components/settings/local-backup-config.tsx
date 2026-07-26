@@ -45,7 +45,9 @@ const LocalBackupConfig: React.FC = () => {
           await restartCore()
         } catch (error) {
           console.error('Failed to restart core after import:', error)
-          toast.error(t('common.error.restartCoreFailed', { error: error }))
+          // 这个 key 没有 {{error}}（tun-switcher 拿它当对话框标题用），
+          // 直接插值会把原因静默吞掉，所以在这里手动拼上。
+          toast.error(`${t('common.error.restartCoreFailed')}: ${String(error)}`)
         }
 
         new window.Notification(t('localBackup.notification.importSuccess.title'), {

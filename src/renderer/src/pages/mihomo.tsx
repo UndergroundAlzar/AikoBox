@@ -14,7 +14,9 @@ import {
   Chip
 } from '@heroui/react'
 import BasePage from '@renderer/components/base/base-page'
+import BaseConfirmModal from '@renderer/components/base/base-confirm-modal'
 import { showError } from '@renderer/utils/error-display'
+import { isRetiredDefaultPanelUrl, resolveWebUIPanelUrl } from '@renderer/utils/webui-panel'
 import SettingCard from '@renderer/components/base/base-setting-card'
 import SettingItem from '@renderer/components/base/base-setting-item'
 import { isValidListenAddress, getError, isValid } from '@renderer/utils/validate'
@@ -50,26 +52,10 @@ interface WebUIPanel {
   isDefault?: boolean
 }
 
-const defaultWebUIPanels: WebUIPanel[] = [
-  {
-    id: 'metacubexd',
-    name: 'MetaCubeXD',
-    url: 'https://metacubex.github.io/metacubexd/#/setup?http=true&hostname=%host&port=%port&secret=%secret',
-    isDefault: true
-  },
-  {
-    id: 'yacd',
-    name: 'YACD',
-    url: 'https://yacd.metacubex.one/?hostname=%host&port=%port&secret=%secret',
-    isDefault: true
-  },
-  {
-    id: 'zashboard',
-    name: 'Zashboard',
-    url: 'https://board.zash.run.place/#/setup?http=true&hostname=%host&port=%port&secret=%secret',
-    isDefault: true
-  }
-]
+// 内置的三个远程面板已移除：它们把 clash_api secret 塞进交给第三方站点的 URL
+// （YACD 甚至放在 query string 里，会被远端记录），而同一个 token 在日志里是要脱敏的。
+// 面板仍可自行添加，指向本机自托管的 dashboard。
+const defaultWebUIPanels: WebUIPanel[] = []
 
 const Mihomo: React.FC = () => {
   const { t } = useTranslation()
@@ -139,6 +125,7 @@ const Mihomo: React.FC = () => {
   const [editingPanel, setEditingPanel] = useState<WebUIPanel | null>(null)
   const [newPanelName, setNewPanelName] = useState('')
   const [newPanelUrl, setNewPanelUrl] = useState('')
+  const [pendingExternalPanel, setPendingExternalPanel] = useState<WebUIPanel | null>(null)
 
   const urlInputRef = useRef<HTMLInputElement>(null)
 
@@ -159,11 +146,29 @@ const Mihomo: React.FC = () => {
   // 初始化面板列表
   useEffect(() => {
     const savedPanels = localStorage.getItem('webui-panels')
-    if (savedPanels) {
-      setAllPanels(JSON.parse(savedPanels))
-    } else {
+    if (!savedPanels) {
       setAllPanels(defaultWebUIPanels)
+      return
     }
+    // 迁移代码必须能扛住任何历史数据：坏 JSON、"null"、对象，都退回默认而不是抛异常
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(savedPanels)
+    } catch {
+      parsed = null
+    }
+    if (!Array.isArray(parsed)) {
+      setAllPanels(defaultWebUIPanels)
+      return
+    }
+    // 已下架的内置远程面板要连同用户本地那份一起清掉，否则升级后仍会继续泄露 secret。
+    // 按 URL 而不是 id 匹配：改指到自建 dashboard 的同 id 条目要留下。
+    const saved = parsed as WebUIPanel[]
+    const kept = saved.filter((panel) => !isRetiredDefaultPanelUrl(panel?.url))
+    if (kept.length !== saved.length) {
+      localStorage.setItem('webui-panels', JSON.stringify(kept))
+    }
+    setAllPanels(kept)
   }, [])
 
   // 保存面板列表到 localStorage
@@ -199,8 +204,24 @@ const Mihomo: React.FC = () => {
 
   // 打开 WebUI 面板
   const openWebUI = (panel: WebUIPanel) => {
-    const url = panel.url.replace('%host', host).replace('%port', port).replace('%secret', secret)
-    window.open(url, '_blank')
+    const resolved = resolveWebUIPanelUrl(panel.url, { host, port, secret })
+    if (resolved.secretInQuery) {
+      // query string 会被远端服务器完整记录下来，这一条没有“确认后继续”的余地
+      toast.error(t('settings.webui.secretInQueryBlocked'))
+      return
+    }
+    if (resolved.carriesSecret && resolved.isExternal) {
+      setPendingExternalPanel(panel)
+      return
+    }
+    window.open(resolved.url, '_blank')
+  }
+
+  const confirmOpenExternalWebUI = () => {
+    if (!pendingExternalPanel) return
+    const resolved = resolveWebUIPanelUrl(pendingExternalPanel.url, { host, port, secret })
+    setPendingExternalPanel(null)
+    window.open(resolved.url, '_blank')
   }
 
   // 添加新面板
@@ -250,10 +271,8 @@ const Mihomo: React.FC = () => {
     setNewPanelUrl('')
   }
 
-  // 恢复默认面板
-  const restoreDefaultPanels = () => {
-    setAllPanels(defaultWebUIPanels)
-  }
+  // “恢复默认”按钮连同内置面板一起下线了：默认列表现在是空的，那个按钮会变成
+  // 一个没有确认、没有撤销的“清空我全部面板”，与它的标签完全相反。
 
   // 用于高亮显示 URL 中的变量
   const HighlightedUrl: React.FC<{ url: string }> = ({ url }) => {
@@ -1255,14 +1274,6 @@ const Mihomo: React.FC = () => {
                       {t('settings.webui.addPanel')}
                     </Button>
                   )}
-                  <Button
-                    size="sm"
-                    color="warning"
-                    variant="bordered"
-                    onPress={restoreDefaultPanels}
-                  >
-                    {t('settings.webui.restoreDefaults')}
-                  </Button>
                 </div>
               </div>
 
@@ -1311,6 +1322,18 @@ const Mihomo: React.FC = () => {
           </ModalFooter>
         </ModalContent>
       </Modal>
+
+      {pendingExternalPanel && (
+        <BaseConfirmModal
+          isOpen
+          title={t('settings.webui.externalSecretTitle')}
+          content={t('settings.webui.externalSecretWarning', {
+            host: resolveWebUIPanelUrl(pendingExternalPanel.url, { host, port, secret }).hostname
+          })}
+          onCancel={() => setPendingExternalPanel(null)}
+          onConfirm={confirmOpenExternalWebUI}
+        />
+      )}
     </>
   )
 }

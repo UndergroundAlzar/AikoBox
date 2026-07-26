@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import { net, session } from 'electron'
 
 export interface RequestOptions {
@@ -15,8 +16,11 @@ export interface RequestOptions {
   responseType?: 'text' | 'json' | 'arraybuffer'
   followRedirect?: boolean
   maxRedirects?: number
+  maxBodyBytes?: number
   onProgress?: (loaded: number, total: number) => void
 }
+
+export const DEFAULT_MAX_BODY_BYTES = 32 * 1024 * 1024
 
 export interface Response<T = unknown> {
   data: T
@@ -26,23 +30,35 @@ export interface Response<T = unknown> {
   url: string
 }
 
-// 复用单个 session 用于代理请求
-let proxySession: Electron.Session | null = null
-let currentProxyUrl: string | null = null
-let proxySetupPromise: Promise<void> | null = null
+// 每个代理地址独占一个 session。共享一个分区时，两个并发请求会互相覆盖 proxyRules，
+// 先发起的那个会带着凭据走到后设置的端口上。
+// session.fromPartition 建出来的内存分区不能销毁，所以这里做成有界 LRU：混合端口
+// 每变一次就会多出一个永久分区，长期运行下去是无上限增长。
+const MAX_PROXY_SESSIONS = 8
+const proxySessions = new Map<string, Promise<Electron.Session>>()
 
-async function getProxySession(proxyUrl: string): Promise<Electron.Session> {
-  if (!proxySession) {
-    proxySession = session.fromPartition('proxy-requests', { cache: false })
+function getProxySession(proxyUrl: string): Promise<Electron.Session> {
+  const cached = proxySessions.get(proxyUrl)
+  if (cached) {
+    // 命中即刷新 LRU 次序
+    proxySessions.delete(proxyUrl)
+    proxySessions.set(proxyUrl, cached)
+    return cached
   }
-  if (currentProxyUrl !== proxyUrl) {
-    proxySetupPromise = proxySession.setProxy({ proxyRules: proxyUrl })
-    currentProxyUrl = proxyUrl
+  const pending = (async () => {
+    const id = createHash('sha256').update(proxyUrl).digest('hex').slice(0, 16)
+    const proxySession = session.fromPartition(`proxy-requests-${id}`, { cache: false })
+    await proxySession.setProxy({ proxyRules: proxyUrl })
+    return proxySession
+  })()
+  pending.catch(() => proxySessions.delete(proxyUrl))
+  proxySessions.set(proxyUrl, pending)
+  while (proxySessions.size > MAX_PROXY_SESSIONS) {
+    const oldest = proxySessions.keys().next()
+    if (oldest.done) break
+    proxySessions.delete(oldest.value)
   }
-  if (proxySetupPromise) {
-    await proxySetupPromise
-  }
-  return proxySession
+  return pending
 }
 
 /**
@@ -62,6 +78,7 @@ export async function request<T = unknown>(
     responseType = 'text',
     followRedirect = true,
     maxRedirects = 20,
+    maxBodyBytes = DEFAULT_MAX_BODY_BYTES,
     onProgress
   } = options
 
@@ -75,8 +92,6 @@ export async function request<T = unknown>(
         sessionToUse = await getProxySession(proxyUrl)
       }
     }
-
-    const cleanup = (): void => {}
 
     setupProxy()
       .then(() => {
@@ -95,11 +110,19 @@ export async function request<T = unknown>(
 
         // Timeout handling
         let timeoutId: NodeJS.Timeout | undefined
+        let settled = false
+        const fail = (error: Error): void => {
+          if (settled) return
+          settled = true
+          if (timeoutId) clearTimeout(timeoutId)
+          reject(error)
+        }
+
         if (timeout > 0) {
           timeoutId = setTimeout(() => {
+            // 先 fail 再 abort：abort 会同步触发 'abort' 事件，否则具体原因会被覆盖成 "Request aborted"
+            fail(new Error(`Request timeout after ${timeout}ms`))
             req.abort()
-            cleanup()
-            reject(new Error(`Request timeout after ${timeout}ms`))
           }, timeout)
         }
 
@@ -109,10 +132,8 @@ export async function request<T = unknown>(
         req.on('redirect', () => {
           redirectCount++
           if (redirectCount > maxRedirects) {
+            fail(new Error(`Too many redirects (>${maxRedirects})`))
             req.abort()
-            cleanup()
-            if (timeoutId) clearTimeout(timeoutId)
-            reject(new Error(`Too many redirects (>${maxRedirects})`))
           }
         })
 
@@ -129,7 +150,23 @@ export async function request<T = unknown>(
           const totalSize = parseInt(responseHeaders['content-length'] || '0', 10)
           let loadedSize = 0
 
+          if (totalSize > maxBodyBytes) {
+            fail(new Error(`Response body exceeds ${maxBodyBytes} bytes`))
+            req.abort()
+            return
+          }
+
+          // 逐块计数：等到 Buffer.concat 之后再检查大小时，主进程已经把整个响应吃进内存了
+          let receivedSize = 0
           res.on('data', (chunk: Buffer) => {
+            if (settled) return
+            receivedSize += chunk.length
+            if (receivedSize > maxBodyBytes) {
+              chunks.length = 0
+              fail(new Error(`Response body exceeds ${maxBodyBytes} bytes`))
+              req.abort()
+              return
+            }
             chunks.push(chunk)
             if (onProgress && totalSize > 0) {
               loadedSize += chunk.length
@@ -138,7 +175,8 @@ export async function request<T = unknown>(
           })
 
           res.on('end', () => {
-            cleanup()
+            if (settled) return
+            settled = true
             if (timeoutId) clearTimeout(timeoutId)
 
             const buffer = Buffer.concat(chunks)
@@ -170,22 +208,16 @@ export async function request<T = unknown>(
           })
 
           res.on('error', (error: unknown) => {
-            cleanup()
-            if (timeoutId) clearTimeout(timeoutId)
-            reject(error)
+            fail(error instanceof Error ? error : new Error(String(error)))
           })
         })
 
         req.on('error', (error: unknown) => {
-          cleanup()
-          if (timeoutId) clearTimeout(timeoutId)
-          reject(error)
+          fail(error instanceof Error ? error : new Error(String(error)))
         })
 
         req.on('abort', () => {
-          cleanup()
-          if (timeoutId) clearTimeout(timeoutId)
-          reject(new Error('Request aborted'))
+          fail(new Error('Request aborted'))
         })
 
         // Send request body
@@ -200,7 +232,6 @@ export async function request<T = unknown>(
         req.end()
       })
       .catch((error: unknown) => {
-        cleanup()
         reject(new Error(`Failed to setup proxy: ${String(error)}`))
       })
   })

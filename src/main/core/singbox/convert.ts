@@ -1070,6 +1070,9 @@ function resolveGroupMembers(
   }
 
   if (filtered.length === 0) {
+    // deliberate pair: the error is fatal for callers that check it, and the
+    // "direct" member only keeps the emitted config structurally valid — a caller
+    // that ignores `errors` must never ship this group silently
     errors.push(
       `group "${groupName}": no usable members remain; refusing unsafe fallback to "direct"`
     )
@@ -1079,6 +1082,17 @@ function resolveGroupMembers(
 }
 
 const SUPPORTED_GROUP_TYPES = ['select', 'url-test', 'fallback', 'load-balance', 'smart']
+
+/**
+ * sing-box requires unique outbound tags. A group that shadows a proxy node (or
+ * the built-in direct outbound) emits a second outbound with the same tag, which
+ * the core rejects with a message the user cannot act on.
+ */
+function outboundTagCollision(name: string, proxyTags: Set<string>): string | undefined {
+  if (proxyTags.has(name)) return `group "${name}": name collides with a proxy node`
+  if (name === 'direct') return `group "${name}": name collides with the built-in direct outbound`
+  return undefined
+}
 
 function convertGroups(
   groups: Dict[],
@@ -1095,7 +1109,13 @@ function convertGroups(
   for (const group of groups) {
     const name = toStr(group.name)
     const type = toStr(group.type)
-    if (name && type && SUPPORTED_GROUP_TYPES.includes(type) && !groupNames.has(name)) {
+    if (
+      name &&
+      type &&
+      SUPPORTED_GROUP_TYPES.includes(type) &&
+      !groupNames.has(name) &&
+      !outboundTagCollision(name, proxyTags)
+    ) {
       groupNames.add(name)
     }
   }
@@ -1118,6 +1138,11 @@ function convertGroups(
       } else {
         warnings.push(`group "${name}": type "${type || 'unknown'}" is not supported, skipped`)
       }
+      continue
+    }
+    const collision = outboundTagCollision(name, proxyTags)
+    if (collision) {
+      errors.push(collision)
       continue
     }
 
@@ -1361,6 +1386,55 @@ interface RulesBuild {
   errors: string[]
 }
 
+const RULE_OPTIONS = new Set(['no-resolve'])
+
+/** number of top-level fields a Clash rule body still carries */
+function fieldCount(body: string): number {
+  let count = 1
+  for (const ch of body) if (ch === ',') count++
+  return count
+}
+
+/**
+ * Peel Clash trailing rule options ("IP-CIDR,1.2.3.4/32,DIRECT,no-resolve") off
+ * the rule body.
+ *
+ * An option is only peeled while the remainder still looks like a complete rule
+ * (type, payload, target). Without that guard `IP-CIDR,1.2.3.4/32,no-resolve`
+ * — a rule whose target the user simply forgot — would silently lose its last
+ * field and be dropped with a warning, where it used to abort generation with
+ * `target "no-resolve" not found or unsupported`. Same for a group that is
+ * literally named `no-resolve`.
+ *
+ * sing-box 1.13 has no per-rule resolve flag and never resolves a destination
+ * domain while routing, so the option itself carries no information into the
+ * emitted config — peeling it only keeps the rule parseable.
+ */
+function splitRuleOptions(rule: string): string {
+  let body = rule
+  for (;;) {
+    const idx = body.lastIndexOf(',')
+    if (idx === -1) break
+    const option = body
+      .slice(idx + 1)
+      .trim()
+      .toLowerCase()
+    if (!RULE_OPTIONS.has(option)) break
+    const remainder = body.slice(0, idx)
+    if (fieldCount(remainder.trim()) < 3) break
+    body = remainder
+  }
+  return body.trim()
+}
+
+/** true when the condition can only match once the destination domain is resolved */
+function needsDestinationIp(fields: Dict): boolean {
+  if (fields.rule_set_ip_cidr_match_source === true) return false
+  if (fields.ip_cidr !== undefined || fields.ip_is_private !== undefined) return true
+  if (toStrArray(fields.rule_set).some((tag) => tag.startsWith('geoip-'))) return true
+  return asArray(fields.rules).some((sub) => needsDestinationIp(asDict(sub)))
+}
+
 function convertRules(rules: string[], knownOutbounds: Set<string>): RulesBuild {
   const warnings: string[] = []
   const errors: string[] = []
@@ -1385,16 +1459,17 @@ function convertRules(rules: string[], knownOutbounds: Set<string>): RulesBuild 
     const ruleStr = typeof raw === 'string' ? raw.trim() : String(raw)
     if (!ruleStr) continue
 
-    const firstComma = ruleStr.indexOf(',')
+    const body = splitRuleOptions(ruleStr)
+    const firstComma = body.indexOf(',')
     if (firstComma === -1) {
       warnings.push(`rule "${ruleStr}" could not be parsed, skipped`)
       continue
     }
-    const type = ruleStr.slice(0, firstComma).trim()
+    const type = body.slice(0, firstComma).trim()
     const upper = type.toUpperCase()
 
     if (upper === 'MATCH') {
-      const target = ruleStr.slice(firstComma + 1).trim()
+      const target = body.slice(firstComma + 1).trim()
       if (target === 'DIRECT') final = 'direct'
       else if (target === 'REJECT' || target === 'REJECT-DROP') {
         // an always-reject final: model as catch-all reject rule
@@ -1416,7 +1491,7 @@ function convertRules(rules: string[], knownOutbounds: Set<string>): RulesBuild 
     let payload: string
     let target: string
     if (upper === 'AND' || upper === 'OR' || upper === 'NOT') {
-      const rest = ruleStr.slice(firstComma + 1).trim()
+      const rest = body.slice(firstComma + 1).trim()
       const lastComma = rest.lastIndexOf(',')
       if (!rest.startsWith('(') || lastComma === -1) {
         warnings.push(`rule "${ruleStr}" could not be parsed, skipped`)
@@ -1425,7 +1500,7 @@ function convertRules(rules: string[], knownOutbounds: Set<string>): RulesBuild 
       payload = rest.slice(0, lastComma).trim()
       target = rest.slice(lastComma + 1).trim()
     } else {
-      const parts = ruleStr.split(',')
+      const parts = body.split(',')
       if (parts.length < 3) {
         warnings.push(`rule "${ruleStr}" is incomplete, skipped`)
         continue
@@ -1439,6 +1514,20 @@ function convertRules(rules: string[], knownOutbounds: Set<string>): RulesBuild 
       warnings.push(`rule "${ruleStr}": ${condition.warning || 'not convertible'}, skipped`)
       continue
     }
+    // An inverted destination-IP condition cannot be expressed in sing-box: the
+    // core has no destination address while routing a domain, the inner item
+    // fails, and `invertedFailure` turns that failure into a *match*
+    // (route/rule/rule_abstract.go:120-172). The rule would therefore catch every
+    // domain destination and send it to its target — a silent catch-all, and a
+    // silent degrade to direct whenever the target is DIRECT. Drop it instead.
+    if (condition.fields.invert === true && needsDestinationIp(condition.fields)) {
+      warnings.push(
+        `rule "${ruleStr}": an inverted destination-IP condition would match every ` +
+          `domain destination in sing-box, skipped`
+      )
+      continue
+    }
+
     const targetFields = mapTarget(target, ruleStr)
     if (!targetFields) continue
 

@@ -14,7 +14,16 @@ export async function handleDeepLink(url: string): Promise<void> {
     return
   }
 
-  const urlObj = new URL(url)
+  let urlObj: URL
+  try {
+    urlObj = new URL(url)
+  } catch {
+    // Never display the original deep link: subscription tokens commonly live
+    // in its query string and error dialogs may be captured in logs.
+    safeShowErrorBox('profiles.error.importFailed', 'Malformed deep link')
+    return
+  }
+
   switch (urlObj.host) {
     case 'install-config': {
       try {

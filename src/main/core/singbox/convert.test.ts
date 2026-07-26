@@ -802,6 +802,62 @@ describe('proxy groups', () => {
     expect(errors.join('\n')).toMatch(/Empty.*refusing unsafe fallback/)
   })
 
+  it('keeps the fatal error and the placeholder "direct" member as one pair', () => {
+    const { config, errors } = convertClashToSingbox(
+      base({ proxies, 'proxy-groups': [{ name: 'Empty', type: 'select', proxies: [] }] })
+    )
+    // both halves are load-bearing: the error stops the start, the member keeps
+    // the emitted config structurally valid. Dropping either one lets a caller
+    // that ignores `errors` ship a silently direct-only group.
+    expect(errors).toContain(
+      'group "Empty": no usable members remain; refusing unsafe fallback to "direct"'
+    )
+    expect(outbound(config, 'Empty').outbounds).toEqual(['direct'])
+  })
+
+  it('refuses a group whose name collides with a proxy node', () => {
+    const { config, errors } = convertClashToSingbox(
+      base({
+        proxies: [
+          ...proxies,
+          { name: 'Auto', type: 'ss', server: 'd', port: 4, cipher: 'aes-128-gcm', password: 'x' }
+        ],
+        'proxy-groups': [
+          { name: 'Auto', type: 'url-test', proxies: ['p1', 'p2'] },
+          { name: 'Pick', type: 'select', proxies: ['Auto', 'p1'] }
+        ]
+      })
+    )
+    const tags = (config.outbounds as Dict[]).map((o) => o.tag)
+    expect(tags.filter((tag) => tag === 'Auto')).toEqual(['Auto'])
+    expect(outbound(config, 'Auto').type).toBe('shadowsocks')
+    expect(errors).toContain('group "Auto": name collides with a proxy node')
+  })
+
+  it('refuses a group that shadows the built-in direct outbound', () => {
+    const { config, errors } = convertClashToSingbox(
+      base({ proxies, 'proxy-groups': [{ name: 'direct', type: 'select', proxies: ['p1'] }] })
+    )
+    const tags = (config.outbounds as Dict[]).map((o) => o.tag)
+    expect(tags.filter((tag) => tag === 'direct')).toEqual(['direct'])
+    expect(outbound(config, 'direct').type).toBe('direct')
+    expect(errors).toContain('group "direct": name collides with the built-in direct outbound')
+  })
+
+  it('still emits groups whose name only collides with a skipped group', () => {
+    const { config, errors } = convertClashToSingbox(
+      base({
+        proxies,
+        'proxy-groups': [
+          { name: 'Chain', type: 'relay', proxies: ['p1', 'p2'] },
+          { name: 'Chain', type: 'select', proxies: ['p1'] }
+        ]
+      })
+    )
+    expect(outbound(config, 'Chain').type).toBe('selector')
+    expect(errors).toEqual([])
+  })
+
   it('rejects provider-only profiles instead of producing a direct-only config', () => {
     const { errors } = convertClashToSingbox(
       base({
@@ -952,6 +1008,112 @@ describe('rules', () => {
     expect(errors.join('\n')).toMatch(/rule-providers/)
     expect(errors.join('\n')).toMatch(/GhostGroup/)
     expect((config.route as Dict).final).toBe('direct')
+  })
+
+  it('never emits a routing-time resolve action', () => {
+    // sing-box treats a failed `{action:"resolve"}` as fatal for the connection
+    // (route/route.go:537-541), unlike Clash, which just skips the IP rule. With
+    // the shipped DoH defaults an unreachable resolver would then drop every
+    // connection to a domain, so destination-IP rules stay unresolved instead.
+    const { config } = convertClashToSingbox(
+      base({
+        proxies,
+        rules: [
+          'IP-CIDR,1.2.3.4/32,DIRECT,no-resolve',
+          'GEOIP,CN,DIRECT',
+          'GEOIP,LAN,DIRECT',
+          'AND,((DOMAIN-SUFFIX,cn),(IP-CIDR,10.0.0.0/8)),DIRECT',
+          'MATCH,p1'
+        ]
+      })
+    )
+    expect(routeRules(config).some((r) => r.action === 'resolve')).toBe(false)
+  })
+
+  it('peels a trailing no-resolve option off a rule that still has a target', () => {
+    const { config, errors, warnings } = convertClashToSingbox(
+      base({
+        proxies,
+        rules: ['IP-CIDR,1.2.3.4/32,DIRECT,no-resolve', 'MATCH,p1']
+      })
+    )
+    expect(routeRules(config).find((r) => (r.ip_cidr as string[])?.includes('1.2.3.4/32'))).toEqual(
+      {
+        ip_cidr: ['1.2.3.4/32'],
+        outbound: 'direct'
+      }
+    )
+    expect(errors).toEqual([])
+    expect(warnings.join('\n')).not.toMatch(/1\.2\.3\.4/)
+  })
+
+  it('parses the target of a logical rule that carries no-resolve', () => {
+    const { config, errors } = convertClashToSingbox(
+      base({
+        proxies,
+        rules: ['AND,((IP-CIDR,10.0.0.0/8),(NETWORK,udp)),DIRECT,no-resolve', 'MATCH,p1']
+      })
+    )
+    const rules = routeRules(config)
+    expect(rules.find((r) => r.type === 'logical')).toMatchObject({ outbound: 'direct' })
+    expect(errors).toEqual([])
+  })
+
+  it('still aborts on a rule whose target is missing behind no-resolve', () => {
+    // "IP-CIDR,1.2.3.4/32,no-resolve" is a forgotten target, not an option-only
+    // rule. Peeling it would downgrade a fatal error to a dropped rule.
+    const { errors } = convertClashToSingbox(
+      base({ proxies, rules: ['IP-CIDR,1.2.3.4/32,no-resolve', 'MATCH,p1'] })
+    )
+    expect(errors).toContain(
+      'rule "IP-CIDR,1.2.3.4/32,no-resolve": target "no-resolve" not found or unsupported'
+    )
+  })
+
+  it('still routes to a group that is literally named no-resolve', () => {
+    const { config, errors } = convertClashToSingbox(
+      base({
+        proxies,
+        'proxy-groups': [{ name: 'no-resolve', type: 'select', proxies: ['p1'] }],
+        rules: ['DOMAIN,a.com,no-resolve', 'MATCH,p1']
+      })
+    )
+    expect(routeRules(config).find((r) => (r.domain as string[])?.includes('a.com'))).toMatchObject(
+      {
+        outbound: 'no-resolve'
+      }
+    )
+    expect(errors).toEqual([])
+  })
+
+  it('drops an inverted destination-ip rule instead of emitting a catch-all', () => {
+    // `invert` + an unresolvable destination makes rule_abstract.go report a
+    // match, so this rule would send every domain destination to DIRECT.
+    const { config, warnings, errors } = convertClashToSingbox(
+      base({
+        proxies,
+        rules: [
+          'NOT,((IP-CIDR,10.0.0.0/8)),DIRECT',
+          'NOT,((GEOIP,CN)),DIRECT,no-resolve',
+          'MATCH,p1'
+        ]
+      })
+    )
+    expect(routeRules(config).some((r) => r.invert === true)).toBe(false)
+    expect(warnings.filter((w) => /inverted destination-IP condition/.test(w))).toHaveLength(2)
+    expect(errors).toEqual([])
+    expect((config.route as Dict).final).toBe('p1')
+  })
+
+  it('keeps an inverted source-ip rule, which sing-box can evaluate', () => {
+    const { config, warnings } = convertClashToSingbox(
+      base({ proxies, rules: ['NOT,((SRC-IP-CIDR,192.168.1.0/24)),DIRECT', 'MATCH,p1'] })
+    )
+    expect(routeRules(config).find((r) => r.invert === true)).toMatchObject({
+      source_ip_cidr: ['192.168.1.0/24'],
+      outbound: 'direct'
+    })
+    expect(warnings.join('\n')).not.toMatch(/inverted destination-IP/)
   })
 })
 

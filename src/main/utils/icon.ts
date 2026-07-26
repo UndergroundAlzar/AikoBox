@@ -1,13 +1,9 @@
-import { exec } from 'child_process'
 import fs, { existsSync } from 'fs'
 import os from 'os'
 import path from 'path'
 import crypto from 'crypto'
-import axios from 'axios'
 import { getIcon } from 'file-icon-info'
 import { app } from 'electron'
-import { getControledMihomoConfig } from '../config'
-import { DEFAULT_MIHOMO_PORTS } from '../../shared/appConfig'
 import { windowsDefaultIcon, darwinDefaultIcon, otherDevicesIcon } from './defaultIcon'
 
 export function isIOSApp(appPath: string): boolean {
@@ -82,6 +78,12 @@ export function findBestAppPath(appPath: string): string | null {
   return appPaths[0]
 }
 
+// appPath is reported by the core, never authored by us: it must not be able to
+// contribute regex syntax.
+export function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 async function findDesktopFile(appPath: string): Promise<string | null> {
   try {
     const execName = path.isAbsolute(appPath) ? path.basename(appPath) : appPath
@@ -115,8 +117,9 @@ async function findDesktopFile(appPath: string): Promise<string | null> {
             }
           }
 
-          const nameRegex = new RegExp(`^Name\\s*=\\s*${appPath}\\s*$`, 'im')
-          const genericNameRegex = new RegExp(`^GenericName\\s*=\\s*${appPath}\\s*$`, 'im')
+          const escapedAppPath = escapeRegExp(appPath)
+          const nameRegex = new RegExp(`^Name\\s*=\\s*${escapedAppPath}\\s*$`, 'im')
+          const genericNameRegex = new RegExp(`^GenericName\\s*=\\s*${escapedAppPath}\\s*$`, 'im')
 
           if (nameRegex.test(content) || genericNameRegex.test(content)) {
             return fullPath
@@ -172,6 +175,39 @@ function resolveIconPath(iconName: string): string | null {
   return searchPaths.find((iconPath) => existsSync(iconPath)) || null
 }
 
+/**
+ * `getIconDataURL` is reachable from the renderer, so this is the one place an
+ * untrusted string reaches a filesystem-mutating call. Restrict it to an
+ * absolute path that is already a plain file: a directory or a reparse point
+ * must never become the target of a link the main process creates.
+ */
+function canAliasPath(appPath: string): boolean {
+  if (!path.isAbsolute(appPath)) return false
+  try {
+    return fs.lstatSync(appPath).isFile()
+  } catch {
+    return false
+  }
+}
+
+// FileIconInfo.exe reads the path from stdin in the OEM code page, so a CJK path
+// has to be aliased to an ASCII one. The alias is created through fs, never a
+// shell: appPath comes from the core and may contain cmd.exe metacharacters.
+function createAsciiPathAlias(appPath: string, linkPath: string): boolean {
+  try {
+    fs.symlinkSync(appPath, linkPath, 'file')
+    return true
+  } catch {
+    try {
+      // Symlinks need SeCreateSymbolicLink or developer mode; a hard link does not.
+      fs.linkSync(appPath, linkPath)
+      return true
+    } catch {
+      return false
+    }
+  }
+}
+
 export async function getIconDataURL(appPath: string): Promise<string> {
   if (!appPath) {
     return otherDevicesIcon
@@ -200,23 +236,14 @@ export async function getIconDataURL(appPath: string): Promise<string> {
         let targetPath = appPath
         let tempLinkPath: string | null = null
 
-        if (/[\u4e00-\u9fff]/.test(appPath)) {
+        if (/[\u4e00-\u9fff]/.test(appPath) && canAliasPath(appPath)) {
           const tempDir = os.tmpdir()
           const randomName = crypto.randomBytes(8).toString('hex')
           const fileExt = path.extname(appPath)
           tempLinkPath = path.join(tempDir, `${randomName}${fileExt}`)
 
-          try {
-            await new Promise<void>((resolve) => {
-              exec(`mklink "${tempLinkPath}" "${appPath}"`, (error) => {
-                if (!error && tempLinkPath && fs.existsSync(tempLinkPath)) {
-                  targetPath = tempLinkPath
-                }
-                resolve()
-              })
-            })
-          } catch {
-            // ignore mklink errors
+          if (createAsciiPathAlias(appPath, tempLinkPath) && fs.existsSync(tempLinkPath)) {
+            targetPath = tempLinkPath
           }
         }
 
@@ -269,21 +296,4 @@ export async function getIconDataURL(appPath: string): Promise<string> {
   }
 
   return ''
-}
-
-export async function getImageDataURL(url: string): Promise<string> {
-  const { 'mixed-port': port = DEFAULT_MIHOMO_PORTS.mixed } = await getControledMihomoConfig()
-  const res = await axios.get(url, {
-    responseType: 'arraybuffer',
-    ...(port !== 0 && {
-      proxy: {
-        protocol: 'http',
-        host: '127.0.0.1',
-        port
-      }
-    })
-  })
-  const mimeType = res.headers['content-type']
-  const dataURL = `data:${mimeType};base64,${Buffer.from(res.data).toString('base64')}`
-  return dataURL
 }

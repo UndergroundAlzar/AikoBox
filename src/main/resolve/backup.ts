@@ -1,6 +1,9 @@
 import https from 'https'
 import os from 'os'
+import path from 'path'
+import type { Readable } from 'stream'
 import { existsSync } from 'fs'
+import { stat } from 'fs/promises'
 import dayjs from 'dayjs'
 import AdmZip from 'adm-zip'
 import { Cron } from 'croner'
@@ -13,6 +16,7 @@ import {
   dataDir,
   overrideConfigPath,
   overrideDir,
+  pluginConfigPath,
   profileConfigPath,
   profilesDir,
   rulesDir,
@@ -22,6 +26,22 @@ import {
 import { getAppConfig } from '../config'
 
 let backupCronJob: Cron | null = null
+
+// createBackupZip 产出的完整清单。恢复时按这份清单逐条比对，别的一律拒绝。
+const BACKUP_FILE_ENTRIES = [
+  'config.yaml',
+  'mihomo.yaml',
+  'profile.yaml',
+  'override.yaml',
+  'plugin.yaml'
+]
+// plugin-vault 不在清单里：那些 .bin 是 safeStorage(DPAPI) 包着的设备私钥。
+// createBackupZip 会被 cron 无人值守地上传到用户自建的 WebDAV（还允许关证书校验），
+// 密钥材料不能就这么定时离开本机；何况 DPAPI 密文换台机器/换个账户也解不开，
+// 恢复回来照样走 needs-reauth，收益近似为零。同时也别让构造出来的归档覆盖它。
+const BACKUP_DIR_ENTRIES = ['themes', 'profiles', 'override', 'rules', 'substore']
+const MAX_BACKUP_ARCHIVE_BYTES = 64 * 1024 * 1024
+const MAX_BACKUP_EXPANDED_BYTES = 256 * 1024 * 1024
 
 interface WebDAVContext {
   client: ReturnType<Awaited<typeof import('webdav/dist/node/index.js')>['createClient']>
@@ -76,6 +96,64 @@ async function getWebDAVClient(): Promise<WebDAVContext> {
   return { client, webdavDir, webdavMaxBackups }
 }
 
+// 渲染进程给的文件名会被拼进远端 WebDAV 路径，先挡掉分隔符和遍历
+export function assertSafeBackupFilename(filename: unknown): string {
+  if (
+    typeof filename !== 'string' ||
+    filename === '' ||
+    filename.length > 255 ||
+    filename !== path.posix.basename(filename) ||
+    filename !== path.win32.basename(filename) ||
+    filename.startsWith('.') ||
+    // eslint-disable-next-line no-control-regex
+    /[\u0000-\u001f\\/:*?"<>|]/.test(filename) ||
+    !filename.toLowerCase().endsWith('.zip')
+  ) {
+    throw new Error('Invalid backup filename')
+  }
+  return filename
+}
+
+export function assertSafeBackupEntry(
+  entry: Pick<AdmZip.IZipEntry, 'entryName' | 'isDirectory'>
+): void {
+  const raw = entry.entryName
+  const name = entry.isDirectory && raw.endsWith('/') ? raw.slice(0, -1) : raw
+  const segments = name.split('/')
+  if (
+    name === '' ||
+    raw.includes('\\') ||
+    raw.startsWith('/') ||
+    /^[A-Za-z]:/.test(raw) ||
+    // eslint-disable-next-line no-control-regex
+    /[\u0000-\u001f]/.test(raw) ||
+    segments.some((segment) => segment === '' || segment === '.' || segment === '..')
+  ) {
+    throw new Error(`Unsafe backup archive entry: ${raw}`)
+  }
+
+  const allowed =
+    entry.isDirectory || segments.length > 1
+      ? BACKUP_DIR_ENTRIES.includes(segments[0])
+      : BACKUP_FILE_ENTRIES.includes(segments[0])
+  if (!allowed) {
+    throw new Error(`Unexpected backup archive entry: ${raw}`)
+  }
+}
+
+// 先整包校验再落盘：备份包可能来自被 MITM 的 WebDAV（webdavIgnoreCert 会关掉证书校验），
+// 一旦写下去就等于让对方替换掉用户的整套代理配置。
+function extractBackupZip(zip: AdmZip): void {
+  let total = 0
+  for (const entry of zip.getEntries()) {
+    assertSafeBackupEntry(entry)
+    if (entry.isDirectory) continue
+    total += entry.header.size
+    if (total > MAX_BACKUP_EXPANDED_BYTES) throw new Error('Expanded backup exceeds 256 MiB')
+  }
+  zip.extractAllTo(dataDir(), true)
+}
+
 function createBackupZip(): AdmZip {
   const zip = new AdmZip()
 
@@ -83,7 +161,8 @@ function createBackupZip(): AdmZip {
     appConfigPath(),
     controledMihomoConfigPath(),
     profileConfigPath(),
-    overrideConfigPath()
+    overrideConfigPath(),
+    pluginConfigPath()
   ]
 
   const folders = [
@@ -158,11 +237,34 @@ export async function webdavBackup(): Promise<boolean> {
   return result
 }
 
+/**
+ * getFileContents 会先把整个响应体读进主进程内存，等到能检查 length 时已经晚了：
+ * 一个恶意或被 MITM 的 WebDAV 服务器可以用几 GB 的响应把主进程（同时也是 WinINET
+ * 守护者）撑爆。所以这里改成流式读取，一超过上限就立刻掐断连接。
+ */
+export async function downloadBoundedBuffer(stream: Readable, limit: number): Promise<Buffer> {
+  const chunks: Buffer[] = []
+  let total = 0
+  for await (const chunk of stream) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string)
+    total += buffer.length
+    if (total > limit) {
+      stream.destroy(new Error('Backup archive exceeds 64 MiB'))
+      throw new Error('Backup archive exceeds 64 MiB')
+    }
+    chunks.push(buffer)
+  }
+  return Buffer.concat(chunks)
+}
+
 export async function webdavRestore(filename: string): Promise<void> {
+  const safeName = assertSafeBackupFilename(filename)
   const { client, webdavDir } = await getWebDAVClient()
-  const zipData = await client.getFileContents(`${webdavDir}/${filename}`)
-  const zip = new AdmZip(zipData as Buffer)
-  zip.extractAllTo(dataDir(), true)
+  const zipData = await downloadBoundedBuffer(
+    client.createReadStream(`${webdavDir}/${safeName}`),
+    MAX_BACKUP_ARCHIVE_BYTES
+  )
+  extractBackupZip(new AdmZip(zipData))
 }
 
 export async function listWebdavBackups(): Promise<string[]> {
@@ -172,8 +274,9 @@ export async function listWebdavBackups(): Promise<string[]> {
 }
 
 export async function webdavDelete(filename: string): Promise<void> {
+  const safeName = assertSafeBackupFilename(filename)
   const { client, webdavDir } = await getWebDAVClient()
-  await client.deleteFile(`${webdavDir}/${filename}`)
+  await client.deleteFile(`${webdavDir}/${safeName}`)
 }
 
 /**
@@ -272,8 +375,10 @@ export async function importLocalBackup(): Promise<boolean> {
 
   if (!result.canceled && result.filePaths.length > 0) {
     const filePath = result.filePaths[0]
-    const zip = new AdmZip(filePath)
-    zip.extractAllTo(dataDir(), true)
+    if ((await stat(filePath)).size > MAX_BACKUP_ARCHIVE_BYTES) {
+      throw new Error('Backup archive exceeds 64 MiB')
+    }
+    extractBackupZip(new AdmZip(filePath))
     await systemLogger.info(`Local backup imported from: ${filePath}`)
     return true
   }

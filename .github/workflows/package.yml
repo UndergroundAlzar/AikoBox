@@ -42,6 +42,8 @@ jobs:
         run: pnpm run test:verify-release
       - name: Require complete third-party redistribution evidence before packaging
         run: pnpm run audit:licenses
+      - name: Require every translation key to resolve before packaging
+        run: pnpm run audit:i18n
       - name: Rebuild native dependencies for Electron
         run: pnpm exec electron-builder install-app-deps
       - name: Run all tests including real sing-box config checks

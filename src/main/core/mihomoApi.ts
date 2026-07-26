@@ -493,13 +493,13 @@ const mihomoTraffic = async (): Promise<void> => {
   )
   trafficStream.ws = ws
 
-  ws.onmessage = async (e): Promise<void> => {
+  ws.onmessage = (e): void => {
     if (!isCurrentStream(trafficStream, generation)) return
 
     const data = e.data as string
-    const json = JSON.parse(data) as IMihomoTrafficInfo
     trafficStream.retry = MAX_RETRY
     try {
+      const json = JSON.parse(data) as IMihomoTrafficInfo
       mainWindow?.webContents.send('mihomoTraffic', json)
       if (process.platform !== 'linux') {
         tray?.setToolTip(

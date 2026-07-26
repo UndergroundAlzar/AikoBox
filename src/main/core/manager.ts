@@ -90,7 +90,7 @@ import {
 } from './singbox/coreUpdateService'
 import type { CoreUpdateResult } from './singbox/coreUpdater'
 import { runCoreUpdateTransaction } from './coreUpdateTransaction'
-import { ExactEndpointGuardian } from './exactEndpointGuardian'
+import { ExactEndpointGuardian, isExactEndpointGuardianShutdown } from './exactEndpointGuardian'
 import { getHealthyProxyEndpoint } from './healthyProxyEndpoint'
 import { recoverFromStoredCandidates } from './storedRecoveryPool'
 import {
@@ -143,6 +143,17 @@ export class CoreCandidateRejectedError extends Error {
 
 function hasCoreProcess(): boolean {
   return Boolean(child && !child.killed && child.exitCode === null && child.signalCode === null)
+}
+
+export class CoreShutdownInProgressError extends Error {
+  constructor() {
+    super('AikoBox is shutting down; refusing to start another sing-box process')
+    this.name = 'CoreShutdownInProgressError'
+  }
+}
+
+function assertCoreSpawnAllowedDuringShutdown(): void {
+  if (isExactEndpointGuardianShutdown()) throw new CoreShutdownInProgressError()
 }
 
 function cancelStableLkgCommit(proc: ChildProcess): void {
@@ -484,6 +495,12 @@ async function prepareCore(detached: boolean, skipStop = false): Promise<CoreCon
 
 // 启动核心进程
 function spawnCoreProcess(config: CoreConfig): ChildProcess {
+  // The single choke point every core spawn goes through. Guardian recovery,
+  // the stored-candidate pool and the normal start path all land here, so this
+  // is the only place that can guarantee a quit is never raced by a fresh
+  // sing-box.exe that would outlive the app holding the TUN adapter.
+  assertCoreSpawnAllowedDuringShutdown()
+
   const { corePath, workDir, configPath, cpuPriority, detached } = config
 
   const args = ['run', '-D', workDir, '-c', configPath, '--disable-color']
@@ -619,11 +636,20 @@ async function resumeRequiredSystemProxyDependency(
   if (!requiredEndpoint) return
   const endpoint = assertRequiredProxyEndpoint(requiredEndpoint)
 
-  while (true) {
-    const guardians = [config, ...alternateConfigs].map((candidate) =>
+  while (!isExactEndpointGuardianShutdown()) {
+    const [primary, ...alternates] = [config, ...alternateConfigs].map((candidate) =>
       restartProxyGuardian(candidate)
     )
-    await guardians[0]
+    // Only the primary guardian is awaited; the alternates exist to join an
+    // already-running recovery for the same endpoint. One for a different
+    // endpoint rejects immediately, and an unattached rejection here would
+    // surface as a process-wide unhandledRejection.
+    for (const alternate of alternates) {
+      alternate.catch((error) => {
+        managerLogger.warn('Alternate exact-endpoint guardian did not join recovery', error)
+      })
+    }
+    await primary
     const stale = getStaleSystemProxyCoreEndpoint()
     if (!stale) return
     if (stale.host !== endpoint.host || stale.port !== endpoint.port) {
@@ -654,7 +680,10 @@ async function waitForRequiredRecoveryConfig(
   )
 
   let attempt = 0
-  while (true) {
+  // Quitting wins. `recoverFromStoredCandidates` reaches `spawnCoreProcess`
+  // without going through the guardian, so this loop needs its own exit or the
+  // shutdown refusal below would just be retried after the backoff.
+  while (!isExactEndpointGuardianShutdown()) {
     attempt += 1
     try {
       const candidates = await prepareRequiredRecoveryCandidates(detached)
@@ -691,6 +720,9 @@ async function waitForRequiredRecoveryConfig(
       })
       return
     } catch (error) {
+      // recoverFromStoredCandidates wraps per-candidate failures in an
+      // AggregateError, so ask the flag rather than inspecting the cause.
+      if (isExactEndpointGuardianShutdown()) break
       managerLogger.error(
         `Exact-endpoint recovery configuration attempt ${attempt} failed; WinINET recovery remains active`,
         error
@@ -699,6 +731,7 @@ async function waitForRequiredRecoveryConfig(
       await new Promise((resolve) => setTimeout(resolve, delayMs))
     }
   }
+  managerLogger.info('Exact-endpoint recovery stopped because AikoBox is shutting down')
 }
 
 // 设置核心进程事件监听
@@ -803,7 +836,26 @@ function setupCoreListeners(
       managerLogger.error(
         'WinINET may still depend on the exited core; bypassing the crash circuit and keeping the endpoint guardian active'
       )
-      await restartProxyGuardian(config)
+      // An Electron event listener has nowhere to deliver a rejection, and the
+      // guardian now rejects on shutdown and on a competing endpoint. Absorb it
+      // here instead of relying on the process-wide unhandledRejection net, and
+      // tell the user when WinINET is left pointing at a core that is gone.
+      try {
+        await restartProxyGuardian(config)
+      } catch (error) {
+        if (error instanceof CoreShutdownInProgressError || isExactEndpointGuardianShutdown()) {
+          managerLogger.info('Endpoint guardian stood down because AikoBox is shutting down')
+          return
+        }
+        managerLogger.error(
+          'The endpoint guardian could not restore the required proxy endpoint; WinINET may still point at a stopped core',
+          error
+        )
+        safeShowErrorBox(
+          'mihomo.error.coreStartFailed',
+          `Windows is still pointed at the AikoBox proxy endpoint ${config.proxyHost}:${config.mixedPort}, but the core could not be restarted. Check the system proxy settings before closing AikoBox.\n\n${String(error)}`
+        )
+      }
       return
     }
 
