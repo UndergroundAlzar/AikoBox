@@ -476,6 +476,7 @@ jobs:
             "ndk;${ANDROID_APP_NDK_VERSION}"
           echo "ANDROID_SDK_ROOT=$sdk_root" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_HOME=$sdk_root/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "$(dirname "$sdkmanager_bin")" >> "$GITHUB_PATH"
           echo "$sdk_root/build-tools/${ANDROID_BUILD_TOOLS}" >> "$GITHUB_PATH"
 
       - name: Install Flutter 3.44.4
