@@ -239,7 +239,7 @@ jobs:
           flutter pub get --enforce-lockfile
           flutter analyze --fatal-infos --fatal-warnings
           flutter test
-          ./android/gradlew -p android lintDebug testDebugUnitTest
+          ./android/gradlew -p android :app:lintDebug :app:testDebugUnitTest
 
       - name: Build signed debug APK for the quality gate
         working-directory: apps/android
