@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
+import AdmZip from 'adm-zip'
 
 import {
   auditCoverage,
@@ -10,7 +11,8 @@ import {
   nativeInputsFromPackage,
   parseJsonStream,
   parseModuleInventory,
-  parseVendorModules
+  parseVendorModules,
+  readArm64LibboxFromAar
 } from './license-android-libbox-release.mjs'
 
 function inventory(count = 75) {
@@ -41,6 +43,23 @@ test('recognizes legal files without treating source files as notices', () => {
   assert.equal(isLegalFile('/module/LICENSE'), true)
   assert.equal(isLegalFile('/module/NOTICE.txt'), true)
   assert.equal(isLegalFile('/module/license_test.go'), false)
+})
+
+test('reads the ARM64 libbox payload from the ZIP-format AAR without invoking tar', () => {
+  const fixture = mkdtempSync(join(tmpdir(), 'aikobox-aar-test-'))
+  try {
+    const aarPath = join(fixture, 'libbox.aar')
+    const archive = new AdmZip()
+    archive.addFile('jni/arm64-v8a/libbox.so', Buffer.from('arm64-libbox'))
+    archive.writeZip(aarPath)
+    assert.deepEqual(readArm64LibboxFromAar(aarPath), Buffer.from('arm64-libbox'))
+
+    archive.addFile('jni/x86_64/libbox.so', Buffer.from('unexpected-abi'))
+    archive.writeZip(aarPath)
+    assert.throws(() => readArm64LibboxFromAar(aarPath), /AAR ABI gate failed/)
+  } finally {
+    rmSync(fixture, { recursive: true, force: true })
+  }
 })
 
 test('detects linked native inputs and blocks incomplete coverage', () => {

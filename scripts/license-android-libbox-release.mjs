@@ -15,6 +15,7 @@ import {
 import { tmpdir } from 'node:os'
 import { basename, dirname, extname, join, relative, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import AdmZip from 'adm-zip'
 
 import {
   EXPECTED_GO_VERSION,
@@ -241,14 +242,21 @@ export function extractSource(sourceDir, destination) {
   return join(destination, `sing-box-${LIBBOX_VERSION}`)
 }
 
-function extractLibbox(aarPath, temporaryRoot, goExe) {
-  const entries = run('tar', ['-tf', aarPath]).replaceAll('\r\n', '\n').split('\n').filter(Boolean)
+export function readArm64LibboxFromAar(aarPath) {
+  const archive = new AdmZip(aarPath)
+  const entries = archive.getEntries().map((entry) => entry.entryName)
   const native = entries.filter((entry) => /^jni\/[^/]+\/[^/]+\.so$/.test(entry))
   if (native.length !== 1 || native[0] !== 'jni/arm64-v8a/libbox.so') {
     throw new Error(`AAR ABI gate failed: ${native.join(', ')}`)
   }
+  const entry = archive.getEntry(native[0])
+  if (!entry || entry.isDirectory) throw new Error('AAR libbox payload is missing')
+  return entry.getData()
+}
+
+function extractLibbox(aarPath, temporaryRoot, goExe) {
   const libboxPath = join(temporaryRoot, 'libbox.so')
-  writeFileSync(libboxPath, run('tar', ['-xOf', aarPath, native[0]], { encoding: 'buffer' }))
+  writeFileSync(libboxPath, readArm64LibboxFromAar(aarPath))
   const raw = run(goExe, ['version', '-m', libboxPath])
   const buildInfo = parseGoBuildInfo(raw)
   if (buildInfo.goVersion !== EXPECTED_GO_VERSION) {

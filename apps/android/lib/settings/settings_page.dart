@@ -70,7 +70,7 @@ class SettingsPage extends StatelessWidget {
             child: AboutListTile(
               icon: Icon(Icons.info_outline),
               applicationName: 'AikoBox',
-              applicationVersion: '0.1.0-beta.2',
+              applicationVersion: '0.1.0-beta.3',
               applicationLegalese: 'GPL-3.0',
             ),
           ),

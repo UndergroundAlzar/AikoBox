@@ -1,6 +1,6 @@
 {
   "name": "aikobox",
-  "version": "0.1.0-beta.2",
+  "version": "0.1.0-beta.3",
   "description": "Windows proxy client powered by sing-box with Clash YAML compatibility",
   "private": true,
   "license": "GPL-3.0-only",
