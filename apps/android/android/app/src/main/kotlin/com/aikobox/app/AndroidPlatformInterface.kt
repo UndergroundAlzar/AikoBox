@@ -104,6 +104,7 @@ class AndroidPlatformInterface(
         return descriptor.fd
     }
 
+    @android.annotation.TargetApi(Build.VERSION_CODES.TIRAMISU)
     private fun addRoutesApi33(
         builder: android.net.VpnService.Builder,
         options: TunOptions,
@@ -184,6 +185,7 @@ class AndroidPlatformInterface(
 
     override fun useProcFS(): Boolean = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
 
+    @android.annotation.TargetApi(Build.VERSION_CODES.Q)
     override fun findConnectionOwner(
         ipProtocol: Int,
         sourceAddress: String,
@@ -217,6 +219,7 @@ class AndroidPlatformInterface(
         defaultNetworkMonitor.stop(listener)
     }
 
+    @Suppress("DEPRECATION")
     override fun getInterfaces(): NetworkInterfaceIterator {
         val javaInterfaces =
             JavaNetworkInterface.getNetworkInterfaces()?.toList().orEmpty().associateBy { it.name }
