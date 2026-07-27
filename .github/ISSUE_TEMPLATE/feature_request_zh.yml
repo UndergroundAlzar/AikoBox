@@ -1,5 +1,5 @@
 name: 功能请求
-description: 为 AikoBox Windows 客户端提出功能建议
+description: 为 AikoBox Windows 或 Android 客户端提出功能建议
 title: '[Feature] '
 labels:
   - enhancement
@@ -11,10 +11,21 @@ body:
       options:
         - label: 我已搜索现有 Issue 和路线讨论，未找到相同建议。
           required: true
-        - label: 该建议适用于 Windows x64 客户端，而不是请求 macOS、Linux 或移动端移植。
+        - label: 该建议适用于当前支持的 Windows x64 或 Android arm64-v8a 平台。
           required: true
         - label: 内容不包含订阅链接、账号、令牌或其他秘密信息。
           required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 目标平台
+      options:
+        - Windows x64
+        - Android arm64-v8a
+        - Windows 与 Android
+    validations:
+      required: true
 
   - type: textarea
     id: problem

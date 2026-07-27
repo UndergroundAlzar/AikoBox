@@ -1,1 +1,8 @@
 blank_issues_enabled: false
+contact_links:
+  - name: 私密安全漏洞报告
+    url: https://github.com/UndergroundAlzar/AikoBox/security/advisories/new
+    about: 请勿在公开 Issue 中提交漏洞细节、订阅、令牌或未脱敏日志。
+  - name: 下载与发布说明
+    url: https://github.com/UndergroundAlzar/AikoBox/releases
+    about: 获取官方 Windows 和 Android 安装文件、校验和及发布说明。

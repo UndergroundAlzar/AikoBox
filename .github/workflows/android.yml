@@ -1,22 +1,11 @@
-name: Android quality gate
+name: Experimental Android validation
 
 # Analyse, test and compile the Android client. The sing-box core binding is rebuilt from
 # source and cached rather than downloaded, so no step in this pipeline ever consumes a
-# binary whose provenance the repository cannot state.
+# binary whose provenance the repository cannot state. This workflow is manual while the
+# experimental mobile/ tree is not part of the public Release.
 
 on:
-  push:
-    paths:
-      - 'mobile/**'
-      - 'spec/**'
-      - 'scripts/resources-lock.android.json'
-      - '.github/workflows/android.yml'
-  pull_request:
-    paths:
-      - 'mobile/**'
-      - 'spec/**'
-      - 'scripts/resources-lock.android.json'
-      - '.github/workflows/android.yml'
   workflow_dispatch:
 
 permissions:
