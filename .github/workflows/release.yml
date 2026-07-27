@@ -461,14 +461,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager \
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          sdkmanager_bin="$(find "$sdk_root/cmdline-tools" -type f -path '*/bin/sdkmanager' -print -quit)"
+          test -n "$sdkmanager_bin"
+          set +o pipefail
+          yes | "$sdkmanager_bin" --licenses >/dev/null
+          license_status="${PIPESTATUS[1]}"
+          set -o pipefail
+          test "$license_status" -eq 0
+          "$sdkmanager_bin" \
             "platforms;android-${ANDROID_COMPILE_SDK}" \
             "build-tools;${ANDROID_BUILD_TOOLS}" \
             "ndk;${ANDROID_NDK_VERSION}" \
             "ndk;${ANDROID_APP_NDK_VERSION}"
-          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
-          echo "${ANDROID_SDK_ROOT}/build-tools/${ANDROID_BUILD_TOOLS}" >> "$GITHUB_PATH"
+          echo "ANDROID_SDK_ROOT=$sdk_root" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$sdk_root/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "$sdk_root/build-tools/${ANDROID_BUILD_TOOLS}" >> "$GITHUB_PATH"
 
       - name: Install Flutter 3.44.4
         shell: bash
