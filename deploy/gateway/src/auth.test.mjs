@@ -27,7 +27,8 @@ function deps() {
   return {
     db,
     codes: createCodeStore(),
-    rateLimiter: createRateLimiter({ max: 5, windowMs: 1000 })
+    loginIpLimiter: createRateLimiter({ max: 5, windowMs: 1000 }),
+    loginAccountLimiter: createRateLimiter({ max: 5, windowMs: 1000 })
   }
 }
 
@@ -78,6 +79,18 @@ test('authorizePost with valid creds issues a bound code and redirects with stat
   })
 })
 
+test('authorizePost safely fails when the authorization-code pool is full', () => {
+  const d = { ...deps(), codes: createCodeStore({ maxSize: 1 }) }
+  assert.ok(d.codes.issue({ occupied: true }))
+  const res = mockRes()
+
+  authorizePost({ ...PARAMS, username: 'alice', password: 'pw' }, '1.2.3.4', res, d)
+
+  assert.equal(res.status, 503)
+  assert.match(res.body, /temporarily unavailable/)
+  assert.equal(d.codes.size(), 1)
+})
+
 test('authorizePost with a wrong password re-renders the form (200) and issues no code', () => {
   const d = deps()
   const res = mockRes()
@@ -96,11 +109,35 @@ test('authorizePost with an unknown user issues no code', () => {
 })
 
 test('authorizePost rate-limits repeated attempts from one IP', () => {
-  const d = { ...deps(), rateLimiter: createRateLimiter({ max: 1, windowMs: 1000 }) }
+  const d = { ...deps(), loginIpLimiter: createRateLimiter({ max: 1, windowMs: 1000 }) }
   authorizePost({ ...PARAMS, username: 'alice', password: 'x' }, '9.9.9.9', mockRes(), d)
   const res = mockRes()
   authorizePost({ ...PARAMS, username: 'alice', password: 'x' }, '9.9.9.9', res, d)
   assert.equal(res.status, 429)
+})
+
+test('authorizePost rate-limits one normalized account across different IPs', () => {
+  const d = {
+    ...deps(),
+    loginAccountLimiter: createRateLimiter({ max: 1, windowMs: 1000 })
+  }
+  authorizePost({ ...PARAMS, username: 'Ａlice', password: 'x' }, '1.1.1.1', mockRes(), d)
+  const res = mockRes()
+  authorizePost({ ...PARAMS, username: 'alice', password: 'x' }, '2.2.2.2', res, d)
+  assert.equal(res.status, 429)
+})
+
+test('an IP-limited request does not consume another account limit entry', () => {
+  const d = {
+    ...deps(),
+    loginIpLimiter: createRateLimiter({ max: 0, windowMs: 1000 }),
+    loginAccountLimiter: createRateLimiter({ max: 1, windowMs: 1000 })
+  }
+  authorizePost({ ...PARAMS, username: 'alice', password: 'x' }, '1.1.1.1', mockRes(), d)
+  d.loginIpLimiter = createRateLimiter({ max: 5, windowMs: 1000 })
+  const res = mockRes()
+  authorizePost({ ...PARAMS, username: 'alice', password: 'pw' }, '2.2.2.2', res, d)
+  assert.equal(res.status, 302)
 })
 
 test('authorizePost escapes a malicious state when re-rendering (no reflected script)', () => {

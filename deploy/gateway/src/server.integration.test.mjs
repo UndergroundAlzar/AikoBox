@@ -33,14 +33,16 @@ before(async () => {
     db,
     codes: createCodeStore(),
     nonces: createNonceStore(),
-    rateLimiter: createRateLimiter({ max: 100, windowMs: 1000 }),
+    loginIpLimiter: createRateLimiter({ max: 100, windowMs: 1000 }),
+    loginAccountLimiter: createRateLimiter({ max: 100, windowMs: 1000 }),
     fetchSubscription: async () => CLASH,
     config: {
       publicOrigin: 'https://gw.test',
       clockSkewMs: 300000,
       retired: false,
       subTimeoutMs: 5000,
-      subMaxBytes: 4096
+      subMaxBytes: 4096,
+      trustedProxyCidrs: []
     }
   }
   server = createServer(deps)

@@ -171,6 +171,26 @@ type RestoreOwnedProxyResult = 'restored' | 'external-independent' | 'still-depe
 function restoreOwnedWindowsProxy(record: OwnedSystemProxyRecord): RestoreOwnedProxyResult {
   const current = readWindowsProxyState()
   const currentRegistry = record.previousRegistry ? captureWindowsProxyRegistry() : undefined
+
+  // A persisted restoring phase means AikoBox already passed the ownership
+  // check and began writing the previous WinINET state. A crash can leave any
+  // subset of those registry values restored, so that partial image must never
+  // be reclassified as an external change.
+  if (record.phase === 'restoring') {
+    if (record.previousRegistry) {
+      restoreWindowsProxyRegistry(record.previousRegistry)
+      const restoredRegistry = captureWindowsProxyRegistry()
+      if (!sameWindowsProxyRegistrySnapshot(restoredRegistry, record.previousRegistry)) {
+        throw new Error('Windows did not restore the complete WinINET registry state')
+      }
+    } else {
+      applyWindowsProxyState(record.previous)
+    }
+    clearOwnershipRecord()
+    sysProxyAppliedByApp = false
+    return 'restored'
+  }
+
   const exactPrevious =
     record.previousRegistry &&
     currentRegistry &&
@@ -267,11 +287,16 @@ export async function recoverStaleSystemProxy(): Promise<void> {
     }
   } catch (error) {
     await proxyLogger.error('Failed to recover the previous system proxy state', error)
-    // A corrupt or incompatible journal must not brick startup. Drop ownership
-    // records so the next launch does not re-enter this path; leave WinINET
-    // alone (Bettbox/other clients may currently own it).
+    // Once restoration has started, every partial registry image is owned by
+    // this transaction. Preserve the journal so the next launch can retry.
+    // A corrupt or incompatible journal that never entered restoration may be
+    // dropped so it does not brick startup.
     const message = error instanceof Error ? error.message : String(error)
-    if (!/still depends on the previous AikoBox core endpoint/i.test(message)) {
+    const mustRetryRestore = record.phase === 'restoring'
+    if (
+      !mustRetryRestore &&
+      !/still depends on the previous AikoBox core endpoint/i.test(message)
+    ) {
       clearOwnershipRecord()
       await proxyLogger.warn(
         'Cleared unrecoverable system-proxy ownership journal; continuing without auto system proxy'
@@ -315,7 +340,28 @@ export async function resumeStaleSystemProxyDependency(): Promise<void> {
       `Healthy core endpoint ${healthy.host}:${healthy.port} does not match stale WinINET endpoint ${expected.host}:${expected.port}`
     )
   }
-  if (record.applied.auto.enable) await startPacServer(healthy.port)
+  if (record.applied.auto.enable) {
+    let requiredPacPort: number
+    try {
+      const pacUrl = new URL(record.applied.auto.url)
+      const hostname = pacUrl.hostname.replace(/^\[|\]$/g, '')
+      requiredPacPort = Number(pacUrl.port || (pacUrl.protocol === 'http:' ? 80 : 0))
+      if (
+        pacUrl.protocol !== 'http:' ||
+        (hostname !== '127.0.0.1' && hostname !== '::1') ||
+        !Number.isInteger(requiredPacPort) ||
+        requiredPacPort <= 0 ||
+        requiredPacPort > 65535
+      ) {
+        throw new Error('invalid PAC URL')
+      }
+    } catch {
+      throw new Error(`Cannot resume invalid journaled PAC URL: ${record.applied.auto.url}`)
+    }
+    // WinINET still references this exact URL. Binding any fallback port would
+    // leave Windows pointing at a dead PAC endpoint, so recovery must fail.
+    await startPacServer(healthy.port, requiredPacPort)
+  }
   ownedSystemProxy = record
   sysProxyAppliedByApp = true
   await proxyLogger.warn(

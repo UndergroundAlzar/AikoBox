@@ -39,7 +39,7 @@ export function createHandler(deps) {
         if (method === 'GET') return authorizeGet(Object.fromEntries(url.searchParams), res)
         if (method === 'POST') {
           const form = parseForm(await readBody(req, BODY_MAX))
-          return authorizePost(form, clientIp(req), res, deps)
+          return authorizePost(form, clientIp(req, deps.config.trustedProxyCidrs), res, deps)
         }
       }
 
@@ -64,9 +64,13 @@ export function buildDeps(config) {
   const originCa = config.originCaFile ? readFileSync(config.originCaFile) : undefined
   return {
     db: openDb(config.dbPath),
-    codes: createCodeStore({ ttlMs: config.codeTtlMs }),
+    codes: createCodeStore({ ttlMs: config.codeTtlMs, maxSize: config.codePoolMax }),
     nonces: createNonceStore({ ttlMs: config.nonceTtlMs, poolMax: config.noncePoolMax }),
-    rateLimiter: createRateLimiter({ max: config.loginMax, windowMs: config.loginWindowMs }),
+    loginIpLimiter: createRateLimiter({ max: config.loginMax, windowMs: config.loginWindowMs }),
+    loginAccountLimiter: createRateLimiter({
+      max: config.loginAccountMax,
+      windowMs: config.loginAccountWindowMs
+    }),
     fetchSubscription,
     config: { ...config, originCa }
   }

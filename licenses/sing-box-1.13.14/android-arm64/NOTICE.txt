@@ -1,0 +1,40 @@
+AikoBox Android libbox third-party notice
+
+Component: sing-box/libbox 1.13.14
+Upstream: https://github.com/SagerNet/sing-box
+Source tag: v1.13.14
+Source commit: 25a600db24f7680ad9806ce5427bd0ab8afe1114
+Fixed source: https://github.com/SagerNet/sing-box/tree/25a600db24f7680ad9806ce5427bd0ab8afe1114
+Copyright: Copyright (C) 2022 by nekohasekai <contact-sagernet@sekai.icu>
+License: GNU GPL version 3 or later, plus the upstream LICENSE's name/association restriction.
+
+Android payload:
+- ABI: arm64-v8a only
+- AAR SHA-256: cde14b0b16689901c46d786ee02ade397c65d1ee7df59931c9a2703ef3725a77
+- libbox.so SHA-256: 42c31593cd6e330f33e9711edd2fb0529d6b667359c29ac3296218752233dc5c
+- libbox.so size: 63239528 bytes
+- Go toolchain recorded by the binary: go1.24.7
+- Main module recorded by the binary: github.com/sagernet/sing-box	(devel)
+- Static Go module entries recorded by the binary: 75
+
+Build recipe used for this payload:
+- Go 1.24.7
+- Android NDK 28.0.13004108
+- github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
+- github.com/sagernet/gomobile/cmd/gobind@v0.1.12
+- From the exact source checkout:
+  go run ./cmd/internal/build_libbox -target android -platform android/arm64
+
+Included legal/source material:
+- LICENSE.upstream.txt: exact upstream LICENSE at the fixed commit.
+- GPL-3.0.txt: complete GNU GPL version 3 text distributed by AikoBox.
+- sing-box-v1.13.14-source-snapshot.tar.gz: deterministic git archive of the fixed
+  sing-box tree; SHA-256 95e274cf6fa33d1d5ab98352913d81571451eafe17026d04a3136d797c0cbc03; 947322 bytes.
+
+Important unresolved redistribution evidence:
+The source snapshot contains the fixed sing-box repository tree, but it is NOT represented
+as complete corresponding source for the shipped libbox.so. The binary statically links Go
+modules listed in android-arm64-static-modules.tsv, and the repository does not yet contain
+the complete source, license, copyright, and NOTICE material for that entire linked graph.
+The source snapshot and this notice therefore improve traceability but do not clear the
+Android binary for release under AikoBox's current release policy.

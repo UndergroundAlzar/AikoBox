@@ -289,19 +289,54 @@ function domainPatternFields(p: DomainPatterns): Dict {
 interface DnsServerBuild {
   server: Dict | null
   warning?: string
+  error?: string
 }
 
 /** map a Clash nameserver URL to a sing-box (1.12+) typed DNS server */
-function parseNameserver(raw: string, tag: string): DnsServerBuild {
+function parseNameserver(raw: string, tag: string, knownDetours: Set<string>): DnsServerBuild {
   let value = raw.trim()
   if (!value) return { server: null }
 
-  // mihomo allows `#detour` / `#h3=true` fragments — strip them
+  let detour: string | undefined
+  let forceH3 = false
   const hashIdx = value.indexOf('#')
-  if (hashIdx !== -1) value = value.slice(0, hashIdx)
+  if (hashIdx !== -1) {
+    const fragment = value.slice(hashIdx + 1)
+    value = value.slice(0, hashIdx)
+    for (const rawPart of fragment.split('&')) {
+      let part = rawPart.trim()
+      if (!part) continue
+      try {
+        part = decodeURIComponent(part)
+      } catch {
+        return {
+          server: null,
+          error: `DNS nameserver "${raw}" has an invalid fragment encoding`
+        }
+      }
+      const separator = part.indexOf('=')
+      if (separator !== -1) {
+        const key = part.slice(0, separator).trim().toLowerCase()
+        const optionValue = part
+          .slice(separator + 1)
+          .trim()
+          .toLowerCase()
+        if (key === 'h3') forceH3 = optionValue === 'true'
+        continue
+      }
+      if (!detour) detour = part === 'DIRECT' ? 'direct' : part
+    }
+  }
+
+  if (detour && !knownDetours.has(detour)) {
+    return {
+      server: null,
+      error: `DNS nameserver "${raw}" references unknown detour "${detour}"`
+    }
+  }
 
   if (value === 'system' || value === 'system://') {
-    return { server: { type: 'local', tag } }
+    return { server: compact({ type: 'local', tag, detour }) }
   }
   if (value.startsWith('rcode://')) {
     return { server: null, warning: `DNS nameserver "${raw}" (rcode) is not supported, skipped` }
@@ -327,21 +362,22 @@ function parseNameserver(raw: string, tag: string): DnsServerBuild {
 
   switch (scheme) {
     case 'udp':
-      return { server: compact({ type: 'udp', tag, server: host, server_port: port }) }
+      return { server: compact({ type: 'udp', tag, server: host, server_port: port, detour }) }
     case 'tcp':
-      return { server: compact({ type: 'tcp', tag, server: host, server_port: port }) }
+      return { server: compact({ type: 'tcp', tag, server: host, server_port: port, detour }) }
     case 'tls':
-      return { server: compact({ type: 'tls', tag, server: host, server_port: port }) }
+      return { server: compact({ type: 'tls', tag, server: host, server_port: port, detour }) }
     case 'quic':
-      return { server: compact({ type: 'quic', tag, server: host, server_port: port }) }
+      return { server: compact({ type: 'quic', tag, server: host, server_port: port, detour }) }
     case 'https':
       return {
         server: compact({
-          type: 'https',
+          type: forceH3 ? 'h3' : 'https',
           tag,
           server: host,
           server_port: port,
-          path: path && path !== '/dns-query' ? path : undefined
+          path: path && path !== '/dns-query' ? path : undefined,
+          detour
         })
       }
     case 'h3':
@@ -351,7 +387,8 @@ function parseNameserver(raw: string, tag: string): DnsServerBuild {
           tag,
           server: host,
           server_port: port,
-          path: path && path !== '/dns-query' ? path : undefined
+          path: path && path !== '/dns-query' ? path : undefined,
+          detour
         })
       }
     default:
@@ -362,11 +399,13 @@ function parseNameserver(raw: string, tag: string): DnsServerBuild {
 interface DnsBuild {
   dns: Dict
   warnings: string[]
+  errors: string[]
   defaultDomainResolver: string
 }
 
-function buildDns(clash: Dict, ipv6Enabled: boolean): DnsBuild {
+function buildDns(clash: Dict, ipv6Enabled: boolean, knownDetours: Set<string>): DnsBuild {
   const warnings: string[] = []
+  const errors: string[] = []
   const dnsConfig = asDict(clash.dns)
   const dnsEnabled = toBool(dnsConfig.enable) ?? false
   const dnsIpv6Enabled = ipv6Enabled && toBool(dnsConfig.ipv6) !== false
@@ -399,8 +438,13 @@ function buildDns(clash: Dict, ipv6Enabled: boolean): DnsBuild {
     const tags: string[] = []
     let index = 0
     for (const value of toStrArray(values)) {
-      const { server, warning } = parseNameserver(value, `${prefix}-${index++}`)
+      const { server, warning, error } = parseNameserver(
+        value,
+        `${prefix}-${index++}`,
+        knownDetours
+      )
       if (warning) warnings.push(warning)
+      if (error) errors.push(error)
       if (server) tags.push(addServer(server))
     }
     return tags
@@ -440,8 +484,9 @@ function buildDns(clash: Dict, ipv6Enabled: boolean): DnsBuild {
     const nameservers = toStrArray(dnsConfig.nameserver)
     let index = 0
     for (const ns of nameservers) {
-      const { server, warning } = parseNameserver(ns, `dns-${index}`)
+      const { server, warning, error } = parseNameserver(ns, `dns-${index}`, knownDetours)
       if (warning) warnings.push(warning)
+      if (error) errors.push(error)
       if (server) {
         const tag = addServer(server)
         if (defaultTag === 'dns-local' && tag !== 'dns-local') defaultTag = tag
@@ -452,13 +497,20 @@ function buildDns(clash: Dict, ipv6Enabled: boolean): DnsBuild {
       warnings.push('No usable DNS nameserver could be converted, falling back to system DNS')
     }
 
-    // nameserver-policy -> dns rules
+    // nameserver-policy is appended after fake-ip address rules so policy
+    // selection cannot bypass fake-ip responses for A/AAAA queries.
+    const policyRules: Dict[] = []
     const policy = asDict(dnsConfig['nameserver-policy'])
     for (const [pattern, target] of Object.entries(policy)) {
       const targets = toStrArray(target)
       if (targets.length === 0) continue
-      const { server, warning } = parseNameserver(targets[0], `dns-policy-${servers.length}`)
+      const { server, warning, error } = parseNameserver(
+        targets[0],
+        `dns-policy-${servers.length}`,
+        knownDetours
+      )
       if (warning) warnings.push(warning)
+      if (error) errors.push(error)
       if (!server) continue
       const tag = addServer(server)
       const classified = classifyDomainPatterns([pattern])
@@ -468,7 +520,7 @@ function buildDns(clash: Dict, ipv6Enabled: boolean): DnsBuild {
       }
       const fields = domainPatternFields(classified)
       if (Object.keys(fields).length === 0) continue
-      rules.push({ ...fields, server: tag })
+      policyRules.push({ ...fields, server: tag })
     }
 
     // fake-ip
@@ -505,6 +557,7 @@ function buildDns(clash: Dict, ipv6Enabled: boolean): DnsBuild {
         )
       }
     }
+    rules.push(...policyRules)
 
     if (dnsConfig.fallback !== undefined && toStrArray(dnsConfig.fallback).length > 0) {
       warnings.push('dns.fallback / fallback-filter have no sing-box equivalent, skipped')
@@ -522,6 +575,7 @@ function buildDns(clash: Dict, ipv6Enabled: boolean): DnsBuild {
   return {
     dns,
     warnings,
+    errors,
     defaultDomainResolver: proxyServerResolverTags[0] || bootstrapTag
   }
 }
@@ -532,6 +586,7 @@ interface OutboundBuild {
   outbound?: Dict
   endpoint?: Dict
   warning?: string
+  error?: string
 }
 
 function buildTls(p: Dict): Dict | undefined {
@@ -841,6 +896,39 @@ function convertTuic(p: Dict, tag: string): OutboundBuild {
   return { outbound }
 }
 
+function decodeBase64Bytes(value: string): number[] | undefined {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+  const normalized = value.trim().replace(/-/g, '+').replace(/_/g, '/').replace(/=+$/, '')
+  if (!normalized || /[^A-Za-z0-9+/]/.test(normalized)) return undefined
+  const bytes: number[] = []
+  let accumulator = 0
+  let bitCount = 0
+  for (const character of normalized) {
+    const index = alphabet.indexOf(character)
+    if (index < 0) return undefined
+    accumulator = (accumulator << 6) | index
+    bitCount += 6
+    if (bitCount >= 8) {
+      bitCount -= 8
+      bytes.push((accumulator >> bitCount) & 0xff)
+    }
+  }
+  return bytes
+}
+
+function wireguardReserved(value: unknown): number[] | undefined {
+  if (Array.isArray(value)) {
+    const nums = asArray(value)
+      .map((item) => toNum(item))
+      .filter((item): item is number => item !== undefined && item >= 0 && item <= 255)
+    if (nums.length === 3) return nums
+  } else if (typeof value === 'string' && value) {
+    const bytes = decodeBase64Bytes(value)
+    if (bytes?.length === 3) return bytes
+  }
+  return undefined
+}
+
 function convertWireguard(p: Dict, tag: string): OutboundBuild {
   const localAddresses: string[] = []
   const ip4 = toStr(p.ip)
@@ -850,15 +938,44 @@ function convertWireguard(p: Dict, tag: string): OutboundBuild {
   if (localAddresses.length === 0) {
     return { warning: `proxy "${tag}": wireguard is missing local ip, proxy skipped` }
   }
+  if (!toStr(p['private-key'])) {
+    return { error: `proxy "${tag}": wireguard is missing private-key` }
+  }
 
-  let reserved: number[] | string | undefined
-  if (Array.isArray(p.reserved)) {
-    const nums = asArray(p.reserved)
-      .map((n) => toNum(n))
-      .filter((n): n is number => n !== undefined)
-    if (nums.length === 3) reserved = nums
-  } else if (typeof p.reserved === 'string') {
-    reserved = p.reserved
+  const hasPeerArray = Array.isArray(p.peers)
+  const rawPeers = hasPeerArray ? asArray(p.peers) : [p]
+  if (rawPeers.length === 0) {
+    return { error: `proxy "${tag}": wireguard peers must not be empty` }
+  }
+
+  const peers: Dict[] = []
+  for (const [index, rawPeer] of rawPeers.entries()) {
+    const peer = asDict(rawPeer)
+    const address = toStr(peer.server)
+    const port = toNum(peer.port)
+    const publicKey = toStr(peer['public-key'])
+    if (!address || !port || port < 1 || port > 65535 || !publicKey) {
+      return {
+        error: `proxy "${tag}": wireguard peer ${index + 1} requires server, valid port, and public-key`
+      }
+    }
+    const allowedIps = toStrArray(peer['allowed-ips'])
+    if (hasPeerArray && rawPeers.length > 1 && allowedIps.length === 0) {
+      return {
+        error: `proxy "${tag}": wireguard peer ${index + 1} requires distinct allowed-ips in a multi-peer configuration`
+      }
+    }
+    peers.push(
+      compact({
+        address,
+        port,
+        public_key: publicKey,
+        pre_shared_key: toStr(peer['pre-shared-key']) || toStr(peer['preshared-key']),
+        allowed_ips: allowedIps.length > 0 ? allowedIps : ['0.0.0.0/0', '::/0'],
+        persistent_keepalive_interval: toNum(peer['persistent-keepalive']),
+        reserved: wireguardReserved(peer.reserved)
+      })
+    )
   }
 
   const endpoint = compact({
@@ -867,16 +984,7 @@ function convertWireguard(p: Dict, tag: string): OutboundBuild {
     address: localAddresses,
     private_key: toStr(p['private-key']),
     mtu: toNum(p.mtu),
-    peers: [
-      compact({
-        address: toStr(p.server),
-        port: toNum(p.port),
-        public_key: toStr(p['public-key']),
-        pre_shared_key: toStr(p['pre-shared-key']) || toStr(p['preshared-key']),
-        allowed_ips: ['0.0.0.0/0', '::/0'],
-        reserved
-      })
-    ]
+    peers
   })
   return { endpoint }
 }
@@ -1242,9 +1350,51 @@ function splitLogicalPayload(payload: string): string[] | null {
     .map((part) => (part.startsWith('(') && part.endsWith(')') ? part.slice(1, -1).trim() : part))
 }
 
+function processNameRegexToPathRegex(pattern: string): string {
+  const flagMatch = pattern.match(/^(\(\?[imsU-]+\))/)
+  const flags = flagMatch?.[1] || ''
+  let body = flags ? pattern.slice(flags.length) : pattern
+  const anchoredStart = body.startsWith('^')
+  if (anchoredStart) body = body.slice(1)
+
+  let trailingBackslashes = 0
+  for (let index = body.length - 2; index >= 0 && body[index] === '\\'; index--) {
+    trailingBackslashes++
+  }
+  const anchoredEnd = body.endsWith('$') && trailingBackslashes % 2 === 0
+  if (anchoredEnd) body = body.slice(0, -1)
+
+  let basenameBody = ''
+  let escaped = false
+  let inClass = false
+  for (const character of body) {
+    if (escaped) {
+      basenameBody += character
+      escaped = false
+      continue
+    }
+    if (character === '\\') {
+      basenameBody += character
+      escaped = true
+      continue
+    }
+    if (character === '[') inClass = true
+    if (character === ']') inClass = false
+    basenameBody += character === '.' && !inClass ? '[^\\\\/]' : character
+  }
+
+  const prefix = anchoredStart ? '' : '[^\\\\/]*'
+  const suffix = anchoredEnd ? '' : '[^\\\\/]*'
+  // Mihomo compiles process-name regexes with IgnoreCase and applies them to
+  // metadata.Process (the basename), while sing-box exposes a full-path regex.
+  // Keep user flags after (?i), so an explicit (?-i) can still opt out.
+  return `(?i)${flags}(?:^|[\\\\/])${prefix}(?:${basenameBody})${suffix}$`
+}
+
 interface ConditionBuild {
   fields?: Dict
   warning?: string
+  requiresDestinationResolve?: boolean
 }
 
 function buildRuleCondition(
@@ -1266,7 +1416,7 @@ function buildRuleCondition(
       return { fields: { domain_regex: [wildcardToRegex(payload)] } }
     case 'IP-CIDR':
     case 'IP-CIDR6':
-      return { fields: { ip_cidr: [payload] } }
+      return { fields: { ip_cidr: [payload] }, requiresDestinationResolve: true }
     case 'SRC-IP-CIDR':
       return { fields: { source_ip_cidr: [payload] } }
     case 'DST-PORT': {
@@ -1294,7 +1444,7 @@ function buildRuleCondition(
     case 'PROCESS-PATH-WILDCARD':
       return { fields: { process_path_regex: [wildcardToRegex(payload)] } }
     case 'PROCESS-NAME-REGEX':
-      return { fields: { process_path_regex: [`(?:^|[\\\\/])(?:${payload})$`] } }
+      return { fields: { process_path_regex: [processNameRegexToPathRegex(payload)] } }
     case 'PROCESS-NAME-WILDCARD':
       return {
         fields: {
@@ -1308,9 +1458,12 @@ function buildRuleCondition(
     case 'GEOIP': {
       const code = payload.toLowerCase()
       if (code === 'lan' || code === 'private') {
-        return { fields: { ip_is_private: true } }
+        return { fields: { ip_is_private: true }, requiresDestinationResolve: true }
       }
-      return { fields: { rule_set: [ruleSets.get('geoip', payload)] } }
+      return {
+        fields: { rule_set: [ruleSets.get('geoip', payload)] },
+        requiresDestinationResolve: true
+      }
     }
     case 'SRC-GEOIP': {
       const code = payload.toLowerCase()
@@ -1329,7 +1482,10 @@ function buildRuleCondition(
     case 'NOT': {
       const sub = buildLogicalRule(upper, payload, ruleSets)
       if (sub.warning) return { warning: sub.warning }
-      return { fields: sub.fields }
+      return {
+        fields: sub.fields,
+        requiresDestinationResolve: sub.requiresDestinationResolve
+      }
     }
     default:
       return { warning: `rule type "${type}" is not supported` }
@@ -1346,18 +1502,20 @@ function buildLogicalRule(
     return { warning: `invalid logical rule payload "${payload}"` }
   }
   const subRules: Dict[] = []
+  let requiresDestinationResolve = false
   for (const part of parts) {
     const idx = part.indexOf(',')
     if (idx === -1) return { warning: `invalid logical sub-rule "${part}"` }
     const subType = part.slice(0, idx).trim()
     const subPayloadFull = part.slice(idx + 1).trim()
-    // strip trailing options like no-resolve on sub-rules
-    const subPayload = ['AND', 'OR', 'NOT'].includes(subType.toUpperCase())
-      ? subPayloadFull
-      : subPayloadFull.split(',')[0].trim()
+    const parsedSubPayload = stripTrailingNoResolve(subPayloadFull)
+    const subPayload = parsedSubPayload.value
     const condition = buildRuleCondition(subType, subPayload, ruleSets)
     if (condition.warning || !condition.fields) {
       return { warning: condition.warning || `invalid logical sub-rule "${part}"` }
+    }
+    if (condition.requiresDestinationResolve && !parsedSubPayload.noResolve) {
+      requiresDestinationResolve = true
     }
     subRules.push(condition.fields)
   }
@@ -1366,7 +1524,10 @@ function buildLogicalRule(
     if (subRules.length !== 1) {
       return { warning: `NOT rule must contain exactly one sub-rule: "${payload}"` }
     }
-    return { fields: { ...subRules[0], invert: true } }
+    return {
+      fields: { ...subRules[0], invert: true },
+      requiresDestinationResolve
+    }
   }
 
   return {
@@ -1374,8 +1535,23 @@ function buildLogicalRule(
       type: 'logical',
       mode: mode.toLowerCase(),
       rules: subRules
-    }
+    },
+    requiresDestinationResolve
   }
+}
+
+function stripTrailingNoResolve(value: string): { value: string; noResolve: boolean } {
+  const lastComma = value.lastIndexOf(',')
+  if (
+    lastComma === -1 ||
+    value
+      .slice(lastComma + 1)
+      .trim()
+      .toLowerCase() !== 'no-resolve'
+  ) {
+    return { value: value.trim(), noResolve: false }
+  }
+  return { value: value.slice(0, lastComma).trim(), noResolve: true }
 }
 
 interface RulesBuild {
@@ -1441,6 +1617,7 @@ function convertRules(rules: string[], knownOutbounds: Set<string>): RulesBuild 
   const routeRules: Dict[] = []
   const ruleSets = createRuleSetRegistry()
   let final = 'direct'
+  let destinationResolveInserted = false
 
   const mapTarget = (target: string, ruleStr: string): Dict | null => {
     if (target === 'DIRECT') return { outbound: 'direct' }
@@ -1490,23 +1667,34 @@ function convertRules(rules: string[], knownOutbounds: Set<string>): RulesBuild 
 
     let payload: string
     let target: string
+    const originalRuleBody = ruleStr.slice(firstComma + 1).trim()
+    let parsedRuleBody = stripTrailingNoResolve(originalRuleBody)
+    if (
+      parsedRuleBody.noResolve &&
+      (knownOutbounds.has('no-resolve') || !parsedRuleBody.value.includes(','))
+    ) {
+      // `no-resolve` is also a legal outbound name. If stripping it would
+      // remove the target entirely—or such an outbound really exists—treat it
+      // as the target so missing targets fail closed and real groups still work.
+      parsedRuleBody = { value: originalRuleBody, noResolve: false }
+    }
+    const ruleBody = parsedRuleBody.value
     if (upper === 'AND' || upper === 'OR' || upper === 'NOT') {
-      const rest = body.slice(firstComma + 1).trim()
-      const lastComma = rest.lastIndexOf(',')
-      if (!rest.startsWith('(') || lastComma === -1) {
+      const lastComma = ruleBody.lastIndexOf(',')
+      if (!ruleBody.startsWith('(') || lastComma === -1) {
         warnings.push(`rule "${ruleStr}" could not be parsed, skipped`)
         continue
       }
-      payload = rest.slice(0, lastComma).trim()
-      target = rest.slice(lastComma + 1).trim()
+      payload = ruleBody.slice(0, lastComma).trim()
+      target = ruleBody.slice(lastComma + 1).trim()
     } else {
-      const parts = body.split(',')
-      if (parts.length < 3) {
+      const targetComma = ruleBody.lastIndexOf(',')
+      if (targetComma === -1) {
         warnings.push(`rule "${ruleStr}" is incomplete, skipped`)
         continue
       }
-      payload = parts[1].trim()
-      target = parts[2].trim()
+      payload = ruleBody.slice(0, targetComma).trim()
+      target = ruleBody.slice(targetComma + 1).trim()
     }
 
     const condition = buildRuleCondition(type, payload, ruleSets)
@@ -1531,6 +1719,14 @@ function convertRules(rules: string[], knownOutbounds: Set<string>): RulesBuild 
     const targetFields = mapTarget(target, ruleStr)
     if (!targetFields) continue
 
+    if (
+      condition.requiresDestinationResolve &&
+      !parsedRuleBody.noResolve &&
+      !destinationResolveInserted
+    ) {
+      routeRules.push({ action: 'resolve' })
+      destinationResolveInserted = true
+    }
     routeRules.push({ ...condition.fields, ...targetFields })
   }
 
@@ -1726,8 +1922,9 @@ export function convertClashToSingbox(
       warnings.push(`proxy "${name}": duplicate or reserved name, skipped`)
       continue
     }
-    const { outbound, endpoint, warning } = convertProxy(proxy)
+    const { outbound, endpoint, warning, error } = convertProxy(proxy)
     if (warning) warnings.push(warning)
+    if (error) errors.push(error)
     if (outbound) {
       applyCommonDialFields(outbound, proxy)
       outbounds.push(outbound)
@@ -1761,7 +1958,33 @@ export function convertClashToSingbox(
 
   /* ---- groups ---- */
   const groups = asArray(input['proxy-groups']).map((g) => asDict(g))
-  const groupBuild = convertGroups(groups, proxyTags, availableTags)
+  const occupiedGroupTags = new Map<string, string>()
+  for (const tag of ['direct', 'GLOBAL', ...proxyTags]) {
+    occupiedGroupTags.set(tag.toLowerCase(), tag)
+  }
+  const validGroups: Dict[] = []
+  for (const group of groups) {
+    const name = toStr(group.name)
+    if (!name) {
+      validGroups.push(group)
+      continue
+    }
+    const type = toStr(group.type)
+    if (!type || !SUPPORTED_GROUP_TYPES.includes(type)) {
+      // Unsupported groups do not emit an outbound, so they must not reserve
+      // the tag from a later supported group with the same name.
+      validGroups.push(group)
+      continue
+    }
+    const conflict = occupiedGroupTags.get(name.toLowerCase())
+    if (conflict) {
+      errors.push(`group "${name}": tag conflicts with existing outbound "${conflict}"`)
+      continue
+    }
+    occupiedGroupTags.set(name.toLowerCase(), name)
+    validGroups.push(group)
+  }
+  const groupBuild = convertGroups(validGroups, proxyTags, availableTags)
   warnings.push(...groupBuild.warnings)
   errors.push(...groupBuild.errors)
 
@@ -1793,8 +2016,9 @@ export function convertClashToSingbox(
   errors.push(...rulesBuild.errors)
 
   /* ---- dns ---- */
-  const dnsBuild = buildDns(input, ipv6Enabled)
+  const dnsBuild = buildDns(input, ipv6Enabled, knownOutbounds)
   warnings.push(...dnsBuild.warnings)
+  errors.push(...dnsBuild.errors)
   const dnsEnabled = toBool(asDict(input.dns).enable) === true
 
   /* ---- inbounds ---- */
@@ -1803,11 +2027,16 @@ export function convertClashToSingbox(
 
   /* ---- route rules (actions + clash modes + converted rules) ---- */
   const routeRules: Dict[] = buildLanAccessRules(input, inboundsBuild.inbounds, warnings)
-  if (toBool(asDict(input.sniffer).enable) === true) {
+  const snifferEnabled = toBool(asDict(input.sniffer).enable) === true
+  if (snifferEnabled) {
     routeRules.push({ action: 'sniff' })
   }
   if (dnsEnabled) {
-    routeRules.push({ protocol: 'dns', action: 'hijack-dns' })
+    routeRules.push(
+      snifferEnabled
+        ? { protocol: 'dns', action: 'hijack-dns' }
+        : { network: ['tcp', 'udp'], port: [53], action: 'hijack-dns' }
+    )
   }
   routeRules.push({ clash_mode: 'Direct', outbound: 'direct' })
   routeRules.push({ clash_mode: 'Global', outbound: 'GLOBAL' })

@@ -64,6 +64,19 @@ const MAX_PROVIDER_PROXIES = 4096
 const MAX_PROVIDER_COUNT = 64
 const MAX_TOTAL_PROXIES = 10_000
 const MAX_PROXY_NAME_LENGTH = 512
+const PROVIDER_PROXY_OVERRIDE_FIELDS = [
+  'tfo',
+  'mptcp',
+  'udp',
+  'udp-over-tcp',
+  'down',
+  'up',
+  'skip-cert-verify',
+  'dialer-proxy',
+  'interface-name',
+  'routing-mark',
+  'ip-version'
+] as const
 
 function providerTimeout(value: unknown): number {
   const timeout = Number(value)
@@ -420,6 +433,11 @@ function applyProviderOptions(
   const override = asDict(provider.override)
   const prefix = String(override['additional-prefix'] || provider['additional-prefix'] || '')
   const suffix = String(override['additional-suffix'] || provider['additional-suffix'] || '')
+  const inheritedOverrides = Object.fromEntries(
+    PROVIDER_PROXY_OVERRIDE_FIELDS.filter((field) =>
+      Object.prototype.hasOwnProperty.call(override, field)
+    ).map((field) => [field, override[field]])
+  )
   const filter = typeof provider.filter === 'string' ? provider.filter : ''
   const excludeFilter =
     typeof provider['exclude-filter'] === 'string' ? provider['exclude-filter'] : ''
@@ -456,7 +474,11 @@ function applyProviderOptions(
       if (excludeRegex && excludeRegex.test(proxyName)) return false
       return true
     })
-    .map((proxy) => ({ ...proxy, name: `${prefix}${String(proxy.name)}${suffix}` }))
+    .map((proxy) => ({
+      ...proxy,
+      ...inheritedOverrides,
+      name: `${prefix}${String(proxy.name)}${suffix}`
+    }))
 }
 
 function uniqueProviderProxies(
@@ -504,7 +526,7 @@ export async function resolveProxyProviders(
   const referenced = new Set<string>()
   for (const group of groups) {
     stringArray(group.use).forEach((name) => referenced.add(name))
-    if (group['include-all-providers'] === true) {
+    if (group['include-all'] === true || group['include-all-providers'] === true) {
       Object.keys(providerDefinitions).forEach((name) => referenced.add(name))
     }
   }

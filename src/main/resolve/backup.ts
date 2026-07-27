@@ -1,9 +1,9 @@
 import https from 'https'
 import os from 'os'
-import path from 'path'
+import { existsSync, readFileSync } from 'fs'
+import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from 'fs/promises'
+import { dirname, join } from 'path'
 import type { Readable } from 'stream'
-import { existsSync } from 'fs'
-import { stat } from 'fs/promises'
 import dayjs from 'dayjs'
 import AdmZip from 'adm-zip'
 import { Cron } from 'croner'
@@ -16,32 +16,51 @@ import {
   dataDir,
   overrideConfigPath,
   overrideDir,
-  pluginConfigPath,
   profileConfigPath,
   profilesDir,
   rulesDir,
   subStoreDir,
   themesDir
 } from '../utils/dirs'
-import { getAppConfig } from '../config'
+import {
+  getAppConfig,
+  getControledMihomoConfig,
+  getOverrideConfig,
+  getProfileConfig
+} from '../config'
+import { runProfileStorageTransaction } from '../config/profileStorageTransaction'
+import { parse, stringify } from '../utils/yaml'
 
 let backupCronJob: Cron | null = null
 
-// createBackupZip 产出的完整清单。恢复时按这份清单逐条比对，别的一律拒绝。
-const BACKUP_FILE_ENTRIES = [
+const RESTORABLE_ENTRIES = new Set([
   'config.yaml',
   'mihomo.yaml',
-  'profile.yaml',
+  'profiles.yaml',
   'override.yaml',
-  'plugin.yaml'
-]
-// plugin-vault 不在清单里：那些 .bin 是 safeStorage(DPAPI) 包着的设备私钥。
-// createBackupZip 会被 cron 无人值守地上传到用户自建的 WebDAV（还允许关证书校验），
-// 密钥材料不能就这么定时离开本机；何况 DPAPI 密文换台机器/换个账户也解不开，
-// 恢复回来照样走 needs-reauth，收益近似为零。同时也别让构造出来的归档覆盖它。
-const BACKUP_DIR_ENTRIES = ['themes', 'profiles', 'override', 'rules', 'substore']
+  'themes',
+  'profiles',
+  'override',
+  'rules',
+  'substore'
+])
+const RESTORABLE_DIRECTORIES = new Set(['themes', 'profiles', 'override', 'rules', 'substore'])
 const MAX_BACKUP_ARCHIVE_BYTES = 64 * 1024 * 1024
 const MAX_BACKUP_EXPANDED_BYTES = 256 * 1024 * 1024
+const BACKUP_METADATA_ENTRY = 'backup-metadata.json'
+const REMOTE_OMITTED_APP_CONFIG_KEYS = [
+  'githubToken',
+  'gistAgeSecretKey',
+  'webdavPassword',
+  'encryptedPassword'
+] as const
+const REMOTE_OMITTED_BACKUP_ENTRIES = ['profiles.yaml', 'profiles', 'substore'] as const
+
+interface BackupMetadata {
+  version: 1
+  omittedAppConfigKeys?: string[]
+  omittedBackupEntries?: string[]
+}
 
 interface WebDAVContext {
   client: ReturnType<Awaited<typeof import('webdav/dist/node/index.js')>['createClient']>
@@ -96,73 +115,14 @@ async function getWebDAVClient(): Promise<WebDAVContext> {
   return { client, webdavDir, webdavMaxBackups }
 }
 
-// 渲染进程给的文件名会被拼进远端 WebDAV 路径，先挡掉分隔符和遍历
-export function assertSafeBackupFilename(filename: unknown): string {
-  if (
-    typeof filename !== 'string' ||
-    filename === '' ||
-    filename.length > 255 ||
-    filename !== path.posix.basename(filename) ||
-    filename !== path.win32.basename(filename) ||
-    filename.startsWith('.') ||
-    // eslint-disable-next-line no-control-regex
-    /[\u0000-\u001f\\/:*?"<>|]/.test(filename) ||
-    !filename.toLowerCase().endsWith('.zip')
-  ) {
-    throw new Error('Invalid backup filename')
-  }
-  return filename
-}
-
-export function assertSafeBackupEntry(
-  entry: Pick<AdmZip.IZipEntry, 'entryName' | 'isDirectory'>
-): void {
-  const raw = entry.entryName
-  const name = entry.isDirectory && raw.endsWith('/') ? raw.slice(0, -1) : raw
-  const segments = name.split('/')
-  if (
-    name === '' ||
-    raw.includes('\\') ||
-    raw.startsWith('/') ||
-    /^[A-Za-z]:/.test(raw) ||
-    // eslint-disable-next-line no-control-regex
-    /[\u0000-\u001f]/.test(raw) ||
-    segments.some((segment) => segment === '' || segment === '.' || segment === '..')
-  ) {
-    throw new Error(`Unsafe backup archive entry: ${raw}`)
-  }
-
-  const allowed =
-    entry.isDirectory || segments.length > 1
-      ? BACKUP_DIR_ENTRIES.includes(segments[0])
-      : BACKUP_FILE_ENTRIES.includes(segments[0])
-  if (!allowed) {
-    throw new Error(`Unexpected backup archive entry: ${raw}`)
-  }
-}
-
-// 先整包校验再落盘：备份包可能来自被 MITM 的 WebDAV（webdavIgnoreCert 会关掉证书校验），
-// 一旦写下去就等于让对方替换掉用户的整套代理配置。
-function extractBackupZip(zip: AdmZip): void {
-  let total = 0
-  for (const entry of zip.getEntries()) {
-    assertSafeBackupEntry(entry)
-    if (entry.isDirectory) continue
-    total += entry.header.size
-    if (total > MAX_BACKUP_EXPANDED_BYTES) throw new Error('Expanded backup exceeds 256 MiB')
-  }
-  zip.extractAllTo(dataDir(), true)
-}
-
-function createBackupZip(): AdmZip {
+export function createBackupZip(options: { omitAppConfigSecrets?: boolean } = {}): AdmZip {
   const zip = new AdmZip()
 
   const files = [
     appConfigPath(),
     controledMihomoConfigPath(),
     profileConfigPath(),
-    overrideConfigPath(),
-    pluginConfigPath()
+    overrideConfigPath()
   ]
 
   const folders = [
@@ -175,22 +135,234 @@ function createBackupZip(): AdmZip {
 
   for (const file of files) {
     if (existsSync(file)) {
-      zip.addLocalFile(file)
+      if (options.omitAppConfigSecrets && file === profileConfigPath()) {
+        continue
+      }
+      if (file === appConfigPath() && options.omitAppConfigSecrets) {
+        const config = (parse(readFileSync(file, 'utf8')) || {}) as Record<string, unknown>
+        for (const key of REMOTE_OMITTED_APP_CONFIG_KEYS) delete config[key]
+        zip.addFile('config.yaml', Buffer.from(stringify(config), 'utf8'))
+      } else {
+        zip.addLocalFile(file)
+      }
     }
   }
 
   for (const { path, name } of folders) {
+    if (
+      options.omitAppConfigSecrets &&
+      REMOTE_OMITTED_BACKUP_ENTRIES.includes(name as (typeof REMOTE_OMITTED_BACKUP_ENTRIES)[number])
+    ) {
+      continue
+    }
     if (existsSync(path)) {
       zip.addLocalFolder(path, name)
     }
   }
 
+  if (options.omitAppConfigSecrets) {
+    const metadata: BackupMetadata = {
+      version: 1,
+      omittedAppConfigKeys: [...REMOTE_OMITTED_APP_CONFIG_KEYS],
+      omittedBackupEntries: [...REMOTE_OMITTED_BACKUP_ENTRIES]
+    }
+    zip.addFile(BACKUP_METADATA_ENTRY, Buffer.from(`${JSON.stringify(metadata)}\n`, 'utf8'))
+  }
+
   return zip
+}
+
+function restorableTopLevelEntries(zip: AdmZip, metadata: BackupMetadata | null): string[] {
+  const entries = new Set<string>()
+  const omittedEntries = new Set(metadata?.omittedBackupEntries || [])
+  let expandedBytes = 0
+
+  for (const entry of zip.getEntries()) {
+    const normalized = entry.entryName.replace(/\\/g, '/')
+    const parts = normalized.split('/').filter(Boolean)
+    if (
+      normalized.startsWith('/') ||
+      /^[A-Za-z]:/.test(normalized) ||
+      parts.length === 0 ||
+      parts.includes('..')
+    ) {
+      throw new Error(`Unsafe backup entry: ${entry.entryName}`)
+    }
+
+    const topLevel = parts[0]
+    if (topLevel === BACKUP_METADATA_ENTRY && parts.length === 1) continue
+    if (!RESTORABLE_ENTRIES.has(topLevel)) {
+      throw new Error(`Unsupported backup entry: ${entry.entryName}`)
+    }
+    if (parts.length > 1 && !RESTORABLE_DIRECTORIES.has(topLevel)) {
+      throw new Error(`Unsafe backup entry: ${entry.entryName}`)
+    }
+    expandedBytes += entry.header.size
+    if (expandedBytes > MAX_BACKUP_EXPANDED_BYTES) {
+      throw new Error('Expanded backup exceeds 256 MiB')
+    }
+    if (omittedEntries.has(topLevel)) continue
+    entries.add(topLevel)
+  }
+
+  if (entries.size === 0) throw new Error('Backup contains no restorable data')
+  return [...entries]
+}
+
+function backupMetadata(zip: AdmZip): BackupMetadata | null {
+  const entry = zip.getEntry(BACKUP_METADATA_ENTRY)
+  if (!entry) return null
+  const parsed = JSON.parse(entry.getData().toString('utf8')) as Partial<BackupMetadata>
+  if (parsed.version !== 1 || !Array.isArray(parsed.omittedAppConfigKeys)) {
+    throw new Error('Backup metadata is invalid or unsupported')
+  }
+  return {
+    version: 1,
+    omittedAppConfigKeys: parsed.omittedAppConfigKeys.filter((key) => typeof key === 'string'),
+    omittedBackupEntries: Array.isArray(parsed.omittedBackupEntries)
+      ? parsed.omittedBackupEntries.filter(
+          (entry) => typeof entry === 'string' && RESTORABLE_ENTRIES.has(entry)
+        )
+      : []
+  }
+}
+
+async function preserveOmittedAppConfigSecrets(
+  stagingDir: string,
+  metadata: BackupMetadata | null
+): Promise<void> {
+  if (!metadata?.omittedAppConfigKeys?.length) return
+  const stagedPath = join(stagingDir, 'config.yaml')
+  if (!existsSync(stagedPath) || !existsSync(appConfigPath())) return
+
+  const [stagedText, currentText] = await Promise.all([
+    readFile(stagedPath, 'utf8'),
+    readFile(appConfigPath(), 'utf8')
+  ])
+  const staged = (parse(stagedText) || {}) as Record<string, unknown>
+  const current = (parse(currentText) || {}) as Record<string, unknown>
+  for (const key of metadata.omittedAppConfigKeys) {
+    if (Object.prototype.hasOwnProperty.call(current, key)) staged[key] = current[key]
+  }
+  await writeFile(stagedPath, stringify(staged), 'utf8')
+}
+
+async function assertNoLinks(target: string): Promise<void> {
+  const stat = await lstat(target)
+  if (stat.isSymbolicLink()) throw new Error('Backup contains a symbolic link')
+  if (!stat.isDirectory()) return
+
+  for (const child of await readdir(target)) {
+    await assertNoLinks(join(target, child))
+  }
+}
+
+async function refreshRestoredConfigCaches(): Promise<void> {
+  await getAppConfig(true)
+  await getControledMihomoConfig(true)
+  await getProfileConfig(true)
+  await getOverrideConfig(true)
+}
+
+interface ReplacedEntry {
+  name: string
+  hadOriginal: boolean
+}
+
+async function rollbackReplacedEntries(
+  replaced: ReplacedEntry[],
+  rollbackDir: string
+): Promise<void> {
+  for (const { name, hadOriginal } of [...replaced].reverse()) {
+    const target = join(dataDir(), name)
+    await rm(target, { recursive: true, force: true })
+    if (hadOriginal) {
+      await rename(join(rollbackDir, name), target)
+    }
+  }
+}
+
+async function restoreBackupZip(zip: AdmZip): Promise<void> {
+  const metadata = backupMetadata(zip)
+  const entries = restorableTopLevelEntries(zip, metadata)
+  const restoreRoot = await mkdtemp(join(dirname(dataDir()), '.aikobox-restore-'))
+  const stagingDir = join(restoreRoot, 'staging')
+  const rollbackDir = join(restoreRoot, 'rollback')
+  const replaced: ReplacedEntry[] = []
+  let keepRecoveryData = false
+
+  try {
+    await Promise.all([mkdir(stagingDir), mkdir(rollbackDir)])
+    zip.extractAllTo(stagingDir, true)
+
+    for (const name of entries) {
+      const staged = join(stagingDir, name)
+      if (!existsSync(staged)) throw new Error(`Backup entry was not extracted: ${name}`)
+      await assertNoLinks(staged)
+    }
+    await preserveOmittedAppConfigSecrets(stagingDir, metadata)
+
+    for (const name of entries) {
+      const target = join(dataDir(), name)
+      const hadOriginal = existsSync(target)
+      if (hadOriginal) await rename(target, join(rollbackDir, name))
+      replaced.push({ name, hadOriginal })
+      await rename(join(stagingDir, name), target)
+    }
+
+    await refreshRestoredConfigCaches()
+    const { restartCore } = await import('../core/manager')
+    await restartCore()
+  } catch (restoreError) {
+    const rollbackErrors: unknown[] = []
+    let diskRollbackSucceeded = true
+
+    try {
+      await rollbackReplacedEntries(replaced, rollbackDir)
+    } catch (error) {
+      diskRollbackSucceeded = false
+      keepRecoveryData = true
+      rollbackErrors.push(error)
+    }
+
+    if (replaced.length > 0 && diskRollbackSucceeded) {
+      try {
+        await refreshRestoredConfigCaches()
+      } catch (error) {
+        rollbackErrors.push(error)
+      }
+
+      try {
+        const { restartCore } = await import('../core/manager')
+        await restartCore()
+      } catch (error) {
+        rollbackErrors.push(error)
+      }
+    }
+
+    if (rollbackErrors.length > 0) {
+      throw new AggregateError(
+        [restoreError, ...rollbackErrors],
+        keepRecoveryData
+          ? `Backup restore failed and the previous state could not be fully restored; recovery data was retained at ${restoreRoot}`
+          : 'Backup restore failed and the previous runtime state could not be fully restored'
+      )
+    }
+    throw restoreError
+  } finally {
+    if (!keepRecoveryData) {
+      await rm(restoreRoot, { recursive: true, force: true })
+    }
+  }
+}
+
+async function enqueueBackupRestore(zip: AdmZip): Promise<void> {
+  await runProfileStorageTransaction(() => restoreBackupZip(zip))
 }
 
 export async function webdavBackup(): Promise<boolean> {
   const { client, webdavDir, webdavMaxBackups } = await getWebDAVClient()
-  const zip = createBackupZip()
+  const zip = createBackupZip({ omitAppConfigSecrets: true })
   const date = new Date()
   const backupPrefix = getWebDAVBackupPrefix()
   const zipFileName = `${backupPrefix}_${dayjs(date).format('YYYY-MM-DD_HH-mm-ss')}.zip`
@@ -237,11 +409,17 @@ export async function webdavBackup(): Promise<boolean> {
   return result
 }
 
-/**
- * getFileContents 会先把整个响应体读进主进程内存，等到能检查 length 时已经晚了：
- * 一个恶意或被 MITM 的 WebDAV 服务器可以用几 GB 的响应把主进程（同时也是 WinINET
- * 守护者）撑爆。所以这里改成流式读取，一超过上限就立刻掐断连接。
- */
+export async function webdavRestore(filename: string): Promise<void> {
+  const { client, webdavDir } = await getWebDAVClient()
+  const safeFilename = assertWebdavBackupFilename(filename)
+  const zipData = await downloadBoundedBuffer(
+    client.createReadStream(`${webdavDir}/${safeFilename}`),
+    MAX_BACKUP_ARCHIVE_BYTES
+  )
+  const zip = new AdmZip(zipData)
+  await enqueueBackupRestore(zip)
+}
+
 export async function downloadBoundedBuffer(stream: Readable, limit: number): Promise<Buffer> {
   const chunks: Buffer[] = []
   let total = 0
@@ -249,22 +427,12 @@ export async function downloadBoundedBuffer(stream: Readable, limit: number): Pr
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string)
     total += buffer.length
     if (total > limit) {
-      stream.destroy(new Error('Backup archive exceeds 64 MiB'))
+      stream.destroy()
       throw new Error('Backup archive exceeds 64 MiB')
     }
     chunks.push(buffer)
   }
   return Buffer.concat(chunks)
-}
-
-export async function webdavRestore(filename: string): Promise<void> {
-  const safeName = assertSafeBackupFilename(filename)
-  const { client, webdavDir } = await getWebDAVClient()
-  const zipData = await downloadBoundedBuffer(
-    client.createReadStream(`${webdavDir}/${safeName}`),
-    MAX_BACKUP_ARCHIVE_BYTES
-  )
-  extractBackupZip(new AdmZip(zipData))
 }
 
 export async function listWebdavBackups(): Promise<string[]> {
@@ -274,9 +442,23 @@ export async function listWebdavBackups(): Promise<string[]> {
 }
 
 export async function webdavDelete(filename: string): Promise<void> {
-  const safeName = assertSafeBackupFilename(filename)
   const { client, webdavDir } = await getWebDAVClient()
-  await client.deleteFile(`${webdavDir}/${safeName}`)
+  await client.deleteFile(`${webdavDir}/${assertWebdavBackupFilename(filename)}`)
+}
+
+export function assertWebdavBackupFilename(filename: string): string {
+  const value = String(filename)
+  const hasControlCharacter = Array.from(value).some((char) => char.charCodeAt(0) < 32)
+  if (
+    value !== value.trim() ||
+    !value.toLowerCase().endsWith('.zip') ||
+    value.includes('..') ||
+    hasControlCharacter ||
+    /[<>:"/\\|?*%#]/u.test(value)
+  ) {
+    throw new Error('Invalid WebDAV backup filename')
+  }
+  return value
 }
 
 /**
@@ -378,7 +560,8 @@ export async function importLocalBackup(): Promise<boolean> {
     if ((await stat(filePath)).size > MAX_BACKUP_ARCHIVE_BYTES) {
       throw new Error('Backup archive exceeds 64 MiB')
     }
-    extractBackupZip(new AdmZip(filePath))
+    const zip = new AdmZip(filePath)
+    await enqueueBackupRestore(zip)
     await systemLogger.info(`Local backup imported from: ${filePath}`)
     return true
   }

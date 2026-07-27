@@ -13,6 +13,9 @@ services:
       - caddy_config:/config
     depends_on:
       - gateway
+    networks:
+      gateway_net:
+        ipv4_address: 172.31.238.2
 
   gateway:
     build: .
@@ -20,13 +23,23 @@ services:
     env_file: .env
     environment:
       DB_PATH: /data/gateway.db
+      # Only the fixed Caddy container address may supply X-Forwarded-For.
+      TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-172.31.238.2/32}
     volumes:
       - gateway_data:/data
     # Not published to the host — only reachable inside the compose network as gateway:8080.
     expose:
       - '8080'
+    networks:
+      - gateway_net
 
 volumes:
   caddy_data:
   caddy_config:
   gateway_data:
+
+networks:
+  gateway_net:
+    ipam:
+      config:
+        - subnet: 172.31.238.0/24

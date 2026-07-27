@@ -47,3 +47,75 @@ test('two issued codes are distinct', () => {
   const store = createCodeStore()
   assert.notEqual(store.issue(payload), store.issue(payload))
 })
+
+test('automatically sweeps expired abandoned codes on the scheduled interval', () => {
+  let clock = 1000
+  let scheduledSweep
+  let cleared
+  const timer = {
+    unrefCalled: false,
+    unref() {
+      this.unrefCalled = true
+    }
+  }
+  const store = createCodeStore({
+    ttlMs: 100,
+    maxSize: 10,
+    sweepIntervalMs: 25,
+    now: () => clock,
+    setIntervalFn: (callback, interval) => {
+      assert.equal(interval, 25)
+      scheduledSweep = callback
+      return timer
+    },
+    clearIntervalFn: (value) => {
+      cleared = value
+    }
+  })
+
+  store.issue(payload)
+  store.issue(payload)
+  assert.equal(store.size(), 2)
+  clock += 101
+  scheduledSweep()
+  assert.equal(store.size(), 0)
+  assert.equal(timer.unrefCalled, true)
+
+  store.close()
+  assert.equal(cleared, timer)
+})
+
+test('a large volume of abandoned login codes never exceeds the hard capacity', () => {
+  const store = createCodeStore({ maxSize: 256 })
+  let accepted = 0
+  let rejected = 0
+
+  for (let i = 0; i < 100000; i += 1) {
+    if (store.issue({ ...payload, attempt: i })) accepted += 1
+    else rejected += 1
+  }
+
+  assert.equal(accepted, 256)
+  assert.equal(rejected, 99744)
+  assert.equal(store.size(), 256)
+})
+
+test('capacity pressure sweeps expired codes before safely rejecting issuance', () => {
+  let clock = 1000
+  const store = createCodeStore({ ttlMs: 100, maxSize: 2, now: () => clock })
+  assert.ok(store.issue(payload))
+  assert.ok(store.issue(payload))
+  assert.equal(store.issue(payload), undefined)
+  assert.equal(store.size(), 2)
+
+  clock += 101
+  assert.ok(store.issue({ ...payload, username: 'bob' }))
+  assert.equal(store.size(), 1)
+})
+
+test('rejects invalid capacity and timer settings', () => {
+  assert.throws(() => createCodeStore({ maxSize: 0 }), /maxSize/)
+  assert.throws(() => createCodeStore({ maxSize: 1.5 }), /maxSize/)
+  assert.throws(() => createCodeStore({ ttlMs: 0 }), /ttlMs/)
+  assert.throws(() => createCodeStore({ sweepIntervalMs: 0 }), /sweepIntervalMs/)
+})

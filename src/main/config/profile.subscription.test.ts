@@ -78,6 +78,37 @@ describe('remote profile subscriptions', () => {
     rmSync(mocks.root, { recursive: true, force: true })
   })
 
+  it('serializes profile metadata writes behind the shared restore transaction', async () => {
+    const { setProfileConfig, setProfileStr } = await import('./profile')
+    const { runProfileStorageTransaction } = await import('./profileStorageTransaction')
+
+    let releaseTransaction!: () => void
+    const transactionHeld = new Promise<void>((resolve) => {
+      releaseTransaction = resolve
+    })
+    let transactionStarted = false
+    const restoreTransaction = runProfileStorageTransaction(async () => {
+      transactionStarted = true
+      await transactionHeld
+    })
+    await vi.waitFor(() => expect(transactionStarted).toBe(true))
+
+    const write = setProfileConfig({ current: 'after-restore', items: [] })
+    const contentWrite = setProfileStr('queued-profile', 'proxies: []\n')
+    await Promise.resolve()
+    expect(readFileSync(join(mocks.root, 'profile.yaml'), 'utf8')).toContain('current: other')
+    expect(existsSync(join(mocks.root, 'profiles', 'queued-profile.yaml'))).toBe(false)
+
+    releaseTransaction()
+    await Promise.all([restoreTransaction, write, contentWrite])
+    expect(readFileSync(join(mocks.root, 'profile.yaml'), 'utf8')).toContain(
+      'current: after-restore'
+    )
+    expect(readFileSync(join(mocks.root, 'profiles', 'queued-profile.yaml'), 'utf8')).toBe(
+      'proxies: []\n'
+    )
+  })
+
   it('persists a validated payload and then uses ETag/Last-Modified on a 304 update', async () => {
     mocks.axiosGet
       .mockResolvedValueOnce(

@@ -13,6 +13,7 @@ import { MdTag } from 'react-icons/md'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from 'next-themes'
 import { calcTraffic } from '@renderer/utils/calc'
+import { addRendererIpcListener } from '@renderer/utils/ipc-listener'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -265,10 +266,7 @@ const NetworkTopologyCard: React.FC = () => {
       const info = args[0] as IMihomoConnectionsInfo
       setConnections(info.connections ?? [])
     }
-    window.electron.ipcRenderer.on('mihomoConnections', handler)
-    return () => {
-      window.electron.ipcRenderer.removeAllListeners('mihomoConnections')
-    }
+    return addRendererIpcListener(window.electron.ipcRenderer, 'mihomoConnections', handler)
   }, [isPaused])
 
   const currentConnections = isPaused && frozenRef.current ? frozenRef.current : connections

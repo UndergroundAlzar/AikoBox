@@ -8,18 +8,39 @@ test('applies sane defaults for an empty environment', () => {
   assert.equal(c.dbPath, '/data/gateway.db')
   assert.equal(c.deviceLimitDefault, 3)
   assert.equal(c.codeTtlMs, 60000)
+  assert.equal(c.codePoolMax, 10000)
   assert.equal(c.nonceTtlMs, 60000)
   assert.equal(c.noncePoolMax, 8)
   assert.equal(c.clockSkewMs, 300000)
+  assert.equal(c.loginMax, 10)
+  assert.equal(c.loginWindowMs, 60000)
+  assert.equal(c.loginAccountMax, 10)
+  assert.equal(c.loginAccountWindowMs, 60000)
+  assert.deepEqual(c.trustedProxyCidrs, [])
   assert.equal(c.subMaxBytes, 10485760)
   assert.equal(c.retired, false)
 })
 
 test('parses numeric overrides as numbers', () => {
-  const c = loadConfig({ PORT: '9000', CLOCK_SKEW_MS: '120000', NONCE_POOL_MAX: '4' })
+  const c = loadConfig({
+    PORT: '9000',
+    CLOCK_SKEW_MS: '120000',
+    CODE_POOL_MAX: '2048',
+    NONCE_POOL_MAX: '4',
+    LOGIN_ACCOUNT_MAX: '4'
+  })
   assert.strictEqual(c.port, 9000)
   assert.strictEqual(c.clockSkewMs, 120000)
+  assert.strictEqual(c.codePoolMax, 2048)
   assert.strictEqual(c.noncePoolMax, 4)
+  assert.strictEqual(c.loginAccountMax, 4)
+})
+
+test('parses and trims trusted proxy CIDRs', () => {
+  assert.deepEqual(
+    loadConfig({ TRUSTED_PROXY_CIDRS: ' 172.31.238.2/32, ::1/128 ' }).trustedProxyCidrs,
+    ['172.31.238.2/32', '::1/128']
+  )
 })
 
 test('RETIRED is true only for the literal "true"', () => {

@@ -39,6 +39,21 @@
       "id": "shadowtls-v3",
       "type": "shadowtls",
       "uri": "shadowtls://secret@shadowtls.example:443?version=3&sni=www.example.com#ShadowTLS"
+    },
+    {
+      "id": "ss-default-port-80",
+      "type": "ss",
+      "uri": "ss://YWVzLTEyOC1nY206c2VjcmV0@ss80.example:80#SS-Port-80"
+    },
+    {
+      "id": "http-explicit-default-port-80",
+      "type": "http",
+      "uri": "http://user:pass@http80.example:80#HTTP-Port-80"
+    },
+    {
+      "id": "http-implicit-default-port-80",
+      "type": "http",
+      "uri": "http://user:pass@http-default.example#HTTP-Default-Port"
     }
   ],
   "invalid": [

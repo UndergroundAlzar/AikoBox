@@ -1,4 +1,4 @@
-name: Windows quality gate
+name: Windows and Android quality gate
 
 on:
   push:
@@ -69,6 +69,15 @@ jobs:
       - name: Test the fail-closed translation-key audit
         run: pnpm run test:i18n
 
+      - name: Test the fail-closed Android libbox release-evidence generator
+        run: pnpm run test:license-android-libbox-release
+
+      - name: Test the fail-closed Windows sing-box release-evidence generator
+        run: pnpm run test:license-windows-sing-box-release
+
+      - name: Test the sysproxy corresponding-source evidence verifier
+        run: pnpm run test:license-sysproxy
+
       - name: Test final release extraction safety logic
         run: pnpm run test:verify-release
 
@@ -85,3 +94,173 @@ jobs:
         env:
           AIKOBOX_ELECTRON_SMOKE_TOKEN: aikobox-github-windows-electron-smoke-v1
         run: pnpm run smoke:electron:ci
+
+  android-quality:
+    name: Analyze, test, and compile (Android arm64-v8a)
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      ANDROID_COMPILE_SDK: '36'
+      ANDROID_NDK_VERSION: 28.0.13004108
+      ANDROID_APP_NDK_VERSION: 28.2.13676358
+      ANDROID_BUILD_TOOLS: 36.0.0
+      FLUTTER_VERSION: 3.44.4
+      GO_VERSION: 1.24.7
+      LIBBOX_COMMIT: 25a600db24f7680ad9806ce5427bd0ab8afe1114
+      LIBBOX_GOMOBILE_VERSION: v0.1.12
+      ANDROID_APPLICATION_ID: com.aikobox.app
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Enable pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 10.27.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install verifier dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Verify the cross-platform release version contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/release-version-contract.mjs
+          node --test scripts/release-version-contract.test.mjs
+
+      - name: Set up OpenJDK 17
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Go 1.24.7
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: 1.24.7
+          cache: false
+
+      - name: Install fixed Android SDK and NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager \
+            "platforms;android-${ANDROID_COMPILE_SDK}" \
+            "build-tools;${ANDROID_BUILD_TOOLS}" \
+            "ndk;${ANDROID_NDK_VERSION}" \
+            "ndk;${ANDROID_APP_NDK_VERSION}"
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "${ANDROID_SDK_ROOT}/build-tools/${ANDROID_BUILD_TOOLS}" >> "$GITHUB_PATH"
+
+      - name: Install Flutter 3.44.4
+        shell: bash
+        run: |
+          set -euo pipefail
+          metadata="$RUNNER_TEMP/flutter-releases.json"
+          archive="$RUNNER_TEMP/flutter.tar.xz"
+          curl --fail --location --retry 3 \
+            https://storage.googleapis.com/flutter_infra_release/releases/releases_linux.json \
+            --output "$metadata"
+          archive_path="$(jq -r --arg version "$FLUTTER_VERSION" \
+            '.releases[] | select(.channel == "stable" and .version == $version) | .archive' \
+            "$metadata" | head -n1)"
+          archive_sha="$(jq -r --arg version "$FLUTTER_VERSION" \
+            '.releases[] | select(.channel == "stable" and .version == $version) | .sha256' \
+            "$metadata" | head -n1)"
+          test "$archive_path" = "stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz"
+          test "$archive_sha" != "null" && test -n "$archive_sha"
+          curl --fail --location --retry 3 \
+            "https://storage.googleapis.com/flutter_infra_release/releases/${archive_path}" \
+            --output "$archive"
+          printf '%s  %s\n' "$archive_sha" "$archive" | sha256sum --check -
+          tar -xJf "$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: Verify fixed toolchain versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          java --version 2>&1 | tee /tmp/java-version
+          grep -E 'openjdk 17(\.| )' /tmp/java-version
+          test "$(go env GOVERSION)" = "go${GO_VERSION}"
+          flutter --version --machine > /tmp/flutter-version.json
+          test "$(jq -r .frameworkVersion /tmp/flutter-version.json)" = "${FLUTTER_VERSION}"
+          test -f "${ANDROID_NDK_HOME}/source.properties"
+          grep -F "Pkg.Revision = ${ANDROID_NDK_VERSION}" "${ANDROID_NDK_HOME}/source.properties"
+          grep -F "Pkg.Revision = ${ANDROID_APP_NDK_VERSION}" \
+            "${ANDROID_SDK_ROOT}/ndk/${ANDROID_APP_NDK_VERSION}/source.properties"
+
+      - name: Build the locked arm64 libbox AAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/SagerNet/sing-box.git "$RUNNER_TEMP/sing-box"
+          git -C "$RUNNER_TEMP/sing-box" checkout --detach "${LIBBOX_COMMIT}"
+          test "$(git -C "$RUNNER_TEMP/sing-box" rev-parse HEAD)" = "${LIBBOX_COMMIT}"
+          go install "github.com/sagernet/gomobile/cmd/gomobile@${LIBBOX_GOMOBILE_VERSION}"
+          go install "github.com/sagernet/gomobile/cmd/gobind@${LIBBOX_GOMOBILE_VERSION}"
+          (
+            cd "$RUNNER_TEMP/sing-box"
+            go run ./cmd/internal/build_libbox -target android -platform android/arm64
+          )
+          mkdir -p apps/android/android/app/libs
+          cp "$RUNNER_TEMP/sing-box/libbox.aar" apps/android/android/app/libs/libbox.aar
+          unzip -Z1 apps/android/android/app/libs/libbox.aar | tee /tmp/libbox-aar.txt
+          test "$(grep -Ec '^jni/[^/]+/libbox\.so$' /tmp/libbox-aar.txt)" -eq 1
+          grep -Fx 'jni/arm64-v8a/libbox.so' /tmp/libbox-aar.txt
+          test -z "$(grep -E '^jni/[^/]+/.*\.so$' /tmp/libbox-aar.txt | grep -v '^jni/arm64-v8a/' || true)"
+
+      - name: Analyze and test Flutter application
+        working-directory: apps/android
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x android/gradlew
+          flutter pub get --enforce-lockfile
+          flutter analyze --fatal-infos --fatal-warnings
+          flutter test
+          ./android/gradlew -p android lintDebug testDebugUnitTest
+
+      - name: Build signed debug APK for the quality gate
+        working-directory: apps/android
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(jq -r .version ../../package.json)"
+          version_code="$(sed -n 's/^version: [^+]*+\([0-9][0-9]*\)$/\1/p' pubspec.yaml)"
+          test -n "$version_code"
+          flutter build apk \
+            --debug \
+            --target-platform android-arm64 \
+            --build-name "$version" \
+            --build-number "$version_code"
+          apk="$(realpath build/app/outputs/flutter-apk/app-debug.apk)"
+          sidecar="${apk}.sha256"
+          digest="$(sha256sum "$apk" | cut -d' ' -f1)"
+          printf '%s  %s\n' "$digest" "$(basename "$apk")" > "$sidecar"
+          signer_output="$(apksigner verify --verbose --print-certs "$apk")"
+          certificate="$(printf '%s\n' "$signer_output" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
+          node ../../scripts/verify-android-release.mjs \
+            --apk "$apk" \
+            --sha256 "$sidecar" \
+            --apkanalyzer "$(command -v apkanalyzer)" \
+            --apksigner "$(command -v apksigner)" \
+            --application-id "$ANDROID_APPLICATION_ID" \
+            --certificate-sha256 "$certificate" \
+            --version "$version" \
+            --version-code "$version_code"
+
+      - name: Test the Android release verifier
+        run: node --test scripts/verify-android-release.test.mjs

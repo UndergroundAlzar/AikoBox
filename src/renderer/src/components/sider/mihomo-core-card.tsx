@@ -12,6 +12,7 @@ import useSWR from 'swr'
 import { useAppConfig } from '@renderer/hooks/use-app-config'
 import { LuCpu } from 'react-icons/lu'
 import { useTranslation } from 'react-i18next'
+import { addRendererIpcListener } from '@renderer/utils/ipc-listener'
 
 interface Props {
   iconOnly?: boolean
@@ -44,13 +45,17 @@ const MihomoCoreCard: React.FC<Props> = (props) => {
     const token = PubSub.subscribe('mihomo-core-changed', () => {
       mutate()
     })
-    window.electron.ipcRenderer.on('mihomoMemory', (_e, ...args) => {
-      const info = args[0] as IMihomoMemoryInfo
-      setMem(info.inuse)
-    })
+    const removeMemoryListener = addRendererIpcListener(
+      window.electron.ipcRenderer,
+      'mihomoMemory',
+      (_e, ...args) => {
+        const info = args[0] as IMihomoMemoryInfo
+        setMem(info.inuse)
+      }
+    )
     return (): void => {
       PubSub.unsubscribe(token)
-      window.electron.ipcRenderer.removeAllListeners('mihomoMemory')
+      removeMemoryListener()
     }
   }, [mutate])
 

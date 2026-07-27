@@ -24,12 +24,53 @@ test('readBody rejects a body over the cap', async () => {
   await assert.rejects(readBody(req, 10), /too large/)
 })
 
-test('clientIp prefers the first X-Forwarded-For entry, else the socket', () => {
+test('clientIp ignores X-Forwarded-For from an untrusted socket', () => {
   assert.equal(
-    clientIp({ headers: { 'x-forwarded-for': '9.9.9.9, 10.0.0.1' }, socket: {} }),
+    clientIp({
+      headers: { 'x-forwarded-for': '9.9.9.9' },
+      socket: { remoteAddress: '203.0.113.5' }
+    }),
+    '203.0.113.5'
+  )
+})
+
+test('clientIp accepts Caddy-overwritten X-Forwarded-For only from a trusted CIDR', () => {
+  assert.equal(
+    clientIp(
+      { headers: { 'x-forwarded-for': '9.9.9.9' }, socket: { remoteAddress: '172.31.238.2' } },
+      ['172.31.238.2/32']
+    ),
     '9.9.9.9'
   )
+  assert.equal(
+    clientIp(
+      {
+        headers: { 'x-forwarded-for': '8.8.8.8' },
+        socket: { remoteAddress: '::ffff:172.31.238.2' }
+      },
+      ['172.31.238.0/24']
+    ),
+    '8.8.8.8'
+  )
+  assert.equal(
+    clientIp(
+      { headers: { 'x-forwarded-for': '2001:db8::9' }, socket: { remoteAddress: 'fd00::2' } },
+      ['fd00::/64']
+    ),
+    '2001:db8::9'
+  )
+})
+
+test('clientIp falls back safely for a malformed forwarded value or missing socket', () => {
+  assert.equal(
+    clientIp(
+      { headers: { 'x-forwarded-for': 'not-an-ip' }, socket: { remoteAddress: '172.31.238.2' } },
+      ['172.31.238.2/32']
+    ),
+    '172.31.238.2'
+  )
   assert.equal(clientIp({ headers: {}, socket: { remoteAddress: '1.2.3.4' } }), '1.2.3.4')
+  assert.equal(clientIp({ headers: { 'x-forwarded-for': '9.9.9.9' }, socket: {} }), 'unknown')
 })
 
 test('sendJson writes status, json content-type, and the serialized body', () => {

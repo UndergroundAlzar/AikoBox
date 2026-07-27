@@ -35,15 +35,18 @@
       "sha256": "72a635cb3d2f3524c51620cdde406b217204e8a6a06c6a096ff8ed4b5fd6e27b"
     },
     "sysproxy": {
-      "type": "file",
-      "version": "0.5.1 / release v0.1.0",
-      "downloadUrl": "https://github.com/mihomo-party-org/sysproxy-rs-opti/releases/download/v0.1.0/sysproxy.win32-x64-msvc.node",
-      "cacheFile": "sysproxy-rs-opti/v0.1.0/sysproxy.win32-x64-msvc.node",
+      "type": "local-file",
+      "version": "0.5.1 / upstream v0.1.0 / AikoBox reproducible build 1",
+      "source": "licenses/sysproxy-rs-opti/bin/sysproxy.win32-x64-msvc.node",
       "releaseTag": "v0.1.0",
       "releaseTagCommit": "ce9463d95ed5839a43c6a0d7cccf3b3fb892de3a",
+      "rustVersion": "1.97.1",
+      "target": "x86_64-pc-windows-msvc",
+      "sourceDateEpoch": "1780791864",
+      "rustflags": "-C link-arg=/Brepro -C debuginfo=0 -C codegen-units=1 --remap-path-prefix=<SOURCE>=/usr/src/sysproxy-rs-opti --remap-path-prefix=<VENDOR>=/usr/src/cargo-vendor",
       "output": "extra/sidecar/sysproxy.win32-x64-msvc.node",
-      "size": 574464,
-      "sha256": "f17d99976218cb32aab0cc150e4e0fd40bcc4b237cd8af9f184e0ce4703e4995"
+      "size": 583680,
+      "sha256": "646d39126e25aa6d1d2b85741bc1994ad83d9470fbaccd021692d897686fd99a"
     }
   }
 }

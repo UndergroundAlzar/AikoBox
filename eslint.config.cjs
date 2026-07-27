@@ -6,7 +6,20 @@ const { configs } = require('@electron-toolkit/eslint-config-ts')
 
 module.exports = [
   {
-    ignores: ['**/node_modules/**', '**/dist/**', '**/out/**', '**/extra/**', '**/src/native/**']
+    ignores: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/out/**',
+      '**/extra/**',
+      '**/src/native/**',
+      'apps/android/.dart_tool/**',
+      'apps/android/build/**',
+      'apps/android/android/.gradle/**',
+      'apps/android/android/build/**',
+      'apps/android/android/local.properties',
+      'apps/android/android/key.properties',
+      'apps/android/android/app/libs/*.aar'
+    ]
   },
 
   js.configs.recommended,

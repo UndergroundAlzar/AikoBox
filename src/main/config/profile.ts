@@ -28,6 +28,7 @@ import {
   writeHttpCacheMetadata
 } from './remoteResource'
 import { normalizeSubscriptionPayload } from './subscriptionPayload'
+import { runProfileStorageTransaction } from './profileStorageTransaction'
 
 const profileLogger = createLogger('Profile')
 const execFilePromise = promisify(execFile)
@@ -118,11 +119,13 @@ export async function getProfileConfig(force = false): Promise<IProfileConfig> {
 export async function setProfileConfig(config: IProfileConfig): Promise<void> {
   profileConfigWriteQueue = profileConfigWriteQueue
     .catch(() => {})
-    .then(async () => {
-      const next = JSON.parse(JSON.stringify(config)) as IProfileConfig
-      await writeFileAtomically(profileConfigPath(), stringify(next))
-      profileConfig = next
-    })
+    .then(() =>
+      runProfileStorageTransaction(async () => {
+        const next = JSON.parse(JSON.stringify(config)) as IProfileConfig
+        await writeFileAtomically(profileConfigPath(), stringify(next))
+        profileConfig = next
+      })
+    )
   await profileConfigWriteQueue
 }
 
@@ -132,16 +135,18 @@ export async function updateProfileConfig(
   let result: IProfileConfig | undefined
   profileConfigWriteQueue = profileConfigWriteQueue
     .catch(() => {})
-    .then(async () => {
-      const data = await readFile(profileConfigPath(), 'utf-8')
-      profileConfig = parse(data) || { items: [] }
-      if (typeof profileConfig !== 'object') profileConfig = { items: [] }
-      if (!Array.isArray(profileConfig.items)) profileConfig.items = []
-      const next = await updater(JSON.parse(JSON.stringify(profileConfig)))
-      await writeFileAtomically(profileConfigPath(), stringify(next))
-      profileConfig = next
-      result = next
-    })
+    .then(() =>
+      runProfileStorageTransaction(async () => {
+        const data = await readFile(profileConfigPath(), 'utf-8')
+        profileConfig = parse(data) || { items: [] }
+        if (typeof profileConfig !== 'object') profileConfig = { items: [] }
+        if (!Array.isArray(profileConfig.items)) profileConfig.items = []
+        const next = await updater(JSON.parse(JSON.stringify(profileConfig)))
+        await writeFileAtomically(profileConfigPath(), stringify(next))
+        profileConfig = next
+        result = next
+      })
+    )
   await profileConfigWriteQueue
   return JSON.parse(JSON.stringify(result ?? profileConfig))
 }
@@ -858,44 +863,46 @@ export async function setProfileStr(id: string, content: string): Promise<void> 
   const prior = profileContentWriteQueues.get(id) || Promise.resolve()
   const queued = prior
     .catch(() => {})
-    .then(async () => {
-      // 读取最新的配置
-      const { current } = await getProfileConfig(true)
-      const target = profilePath(id)
-      const previous = await readFile(target, 'utf8').catch((error: NodeJS.ErrnoException) => {
-        if (error.code === 'ENOENT') return null
-        throw error
-      })
-      await writeFileAtomically(target, content)
-      if (current === id) {
-        try {
-          await mihomoHotReloadConfig()
-          profileLogger.info('Config reloaded successfully')
-        } catch (error) {
-          profileLogger.error('Failed to reload config', error)
+    .then(() =>
+      runProfileStorageTransaction(async () => {
+        // 读取最新的配置
+        const { current } = await getProfileConfig(true)
+        const target = profilePath(id)
+        const previous = await readFile(target, 'utf8').catch((error: NodeJS.ErrnoException) => {
+          if (error.code === 'ENOENT') return null
+          throw error
+        })
+        await writeFileAtomically(target, content)
+        if (current === id) {
           try {
-            profileLogger.info('Falling back to restart core')
-            await restartCore()
-            profileLogger.info('Core restarted successfully')
-          } catch (restartError) {
-            profileLogger.error('Failed to restart core', restartError)
-            // Keep the subscription and the running configuration in sync. A
-            // rejected update must not destroy the last usable profile.
-            if (previous !== null) {
-              await writeFileAtomically(target, previous)
-              try {
-                await restartCore()
-              } catch (rollbackError) {
-                profileLogger.error('Failed to restart restored subscription', rollbackError)
+            await mihomoHotReloadConfig()
+            profileLogger.info('Config reloaded successfully')
+          } catch (error) {
+            profileLogger.error('Failed to reload config', error)
+            try {
+              profileLogger.info('Falling back to restart core')
+              await restartCore()
+              profileLogger.info('Core restarted successfully')
+            } catch (restartError) {
+              profileLogger.error('Failed to restart core', restartError)
+              // Keep the subscription and the running configuration in sync. A
+              // rejected update must not destroy the last usable profile.
+              if (previous !== null) {
+                await writeFileAtomically(target, previous)
+                try {
+                  await restartCore()
+                } catch (rollbackError) {
+                  profileLogger.error('Failed to restart restored subscription', rollbackError)
+                }
+              } else {
+                await rm(target, { force: true })
               }
-            } else {
-              await rm(target, { force: true })
+              throw restartError
             }
-            throw restartError
           }
         }
-      }
-    })
+      })
+    )
   profileContentWriteQueues.set(id, queued)
   try {
     await queued

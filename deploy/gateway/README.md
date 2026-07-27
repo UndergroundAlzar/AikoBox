@@ -45,6 +45,19 @@ Compose 服务：
 | `caddy`   | 监听 80/443，申请 Let's Encrypt 证书，反代网关 |
 | `gateway` | Node.js 网关进程，只暴露在 compose 内部网络    |
 
+登录请求的客户端 IP 采用显式可信代理策略：
+
+- Compose 把 Caddy 固定在 `172.31.238.2`，gateway 默认只信任该地址提供的
+  `X-Forwarded-For`。
+- Caddy 会覆盖而不是沿用客户端发送的 `X-Forwarded-For`，因此公网客户端不能伪造
+  限流键。
+- 非可信来源直连 gateway 时，转发头会被忽略，限流使用连接的 socket 地址。
+- 登录同时按客户端 IP 和规范化用户名限流；任一维度达到上限都会返回 `429`。
+
+如果宿主机上的 `172.31.238.0/24` 已被占用，可修改
+[`docker-compose.yml`](docker-compose.yml) 中的子网和 Caddy 固定地址，并同步修改
+`TRUSTED_PROXY_CIDRS`。不要把该变量设成公网网段或 `0.0.0.0/0`。
+
 数据卷：
 
 | 卷             | 内容                             |
@@ -233,23 +246,27 @@ docker compose up -d
 
 配置文件为 `.env`。可参考 [`.env.example`](.env.example)。
 
-| 变量                   | 默认值             | 说明                                                 |
-| ---------------------- | ------------------ | ---------------------------------------------------- |
-| `DOMAIN`               | 无                 | 公网域名，必填                                       |
-| `PUBLIC_ORIGIN`        | `https://$DOMAIN`  | 写入 `/.well-known/cpx-gateway` 的 gateway origin    |
-| `DEVICE_LIMIT_DEFAULT` | `3`                | 新用户默认设备数上限，可被 `add-user --limit` 覆盖   |
-| `CLOCK_SKEW_MS`        | `300000`           | `/config`、`/revoke` 签名时间戳允许偏差              |
-| `CODE_TTL_MS`          | `60000`            | authorize code 有效期                                |
-| `NONCE_TTL_MS`         | `60000`            | challenge nonce 有效期                               |
-| `NONCE_POOL_MAX`       | `8`                | 单设备待用 nonce 数上限                              |
-| `LOGIN_MAX`            | `10`               | 单 IP 登录尝试次数上限                               |
-| `LOGIN_WINDOW_MS`      | `60000`            | 登录限流窗口                                         |
-| `SUB_TIMEOUT_MS`       | `30000`            | 拉取隐藏订阅的超时                                   |
-| `SUB_MAX_BYTES`        | `10485760`         | 隐藏订阅响应体上限                                   |
-| `RETIRED`              | `false`            | 设置为 `true` 时返回网关退役信号                     |
-| `ORIGIN_CA_FILE`       | 空                 | 订阅 origin 使用私有 CA 时，在容器内指定 CA 文件路径 |
-| `PORT`                 | `8080`             | gateway 容器内监听端口                               |
-| `DB_PATH`              | `/data/gateway.db` | SQLite 数据库路径                                    |
+| 变量                      | 默认值             | 说明                                                 |
+| ------------------------- | ------------------ | ---------------------------------------------------- |
+| `DOMAIN`                  | 无                 | 公网域名，必填                                       |
+| `PUBLIC_ORIGIN`           | `https://$DOMAIN`  | 写入 `/.well-known/cpx-gateway` 的 gateway origin    |
+| `DEVICE_LIMIT_DEFAULT`    | `3`                | 新用户默认设备数上限，可被 `add-user --limit` 覆盖   |
+| `CLOCK_SKEW_MS`           | `300000`           | `/config`、`/revoke` 签名时间戳允许偏差              |
+| `CODE_TTL_MS`             | `60000`            | authorize code 有效期                                |
+| `CODE_POOL_MAX`           | `10000`            | 待兑换 authorize code 的内存容量硬上限               |
+| `NONCE_TTL_MS`            | `60000`            | challenge nonce 有效期                               |
+| `NONCE_POOL_MAX`          | `8`                | 单设备待用 nonce 数上限                              |
+| `LOGIN_MAX`               | `10`               | 单 IP 登录尝试次数上限                               |
+| `LOGIN_WINDOW_MS`         | `60000`            | 单 IP 登录限流窗口                                   |
+| `LOGIN_ACCOUNT_MAX`       | `10`               | 跨 IP 的单一规范化用户名登录尝试次数上限             |
+| `LOGIN_ACCOUNT_WINDOW_MS` | `60000`            | 单用户名登录限流窗口                                 |
+| `TRUSTED_PROXY_CIDRS`     | 空                 | 可提供 `X-Forwarded-For` 的代理来源 CIDR，逗号分隔   |
+| `SUB_TIMEOUT_MS`          | `30000`            | 拉取隐藏订阅的超时                                   |
+| `SUB_MAX_BYTES`           | `10485760`         | 隐藏订阅响应体上限                                   |
+| `RETIRED`                 | `false`            | 设置为 `true` 时返回网关退役信号                     |
+| `ORIGIN_CA_FILE`          | 空                 | 订阅 origin 使用私有 CA 时，在容器内指定 CA 文件路径 |
+| `PORT`                    | `8080`             | gateway 容器内监听端口                               |
+| `DB_PATH`                 | `/data/gateway.db` | SQLite 数据库路径                                    |
 
 如果登录域名和网关域名需要拆开，保持 `.cpx` 里的 `loginUrl` 指向登录域名，同时把登录域名上的 `/.well-known/cpx-gateway` 的 `gateway` 指向新的公网网关 origin。当前参考部署默认两者使用同一个域名。
 
@@ -279,6 +296,7 @@ npm start
 - 隐藏订阅 URL 是管理员配置项。网关只要求 HTTPS，并设置超时和响应体大小上限；不拦截私网地址，便于把 origin 放在内网。
 - 密码使用 scrypt hash 保存。
 - authorize code 和 nonce 都是一次性短 TTL。
+- authorize code 会自动清理过期项并受容量硬上限保护；满载时登录安全失败且不会覆盖有效 code。
 - 登录接口按 IP 限流。
 - `/config` 和 `/revoke` 使用 Ed25519 设备签名和一次性 nonce 防重放。
 - 日志不要记录密码、完整订阅 URL、code、nonce、签名或完整 Clash YAML。

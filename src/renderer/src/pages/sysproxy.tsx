@@ -7,6 +7,7 @@ import PacEditorModal from '@renderer/components/sysproxy/pac-editor-modal'
 import { useAppConfig } from '@renderer/hooks/use-app-config'
 import { platform } from '@renderer/utils/init'
 import { triggerSysProxy } from '@renderer/utils/ipc'
+import { saveSysProxySettings } from '@renderer/utils/sysproxy-save'
 import React, { Key, useState } from 'react'
 import { MdDeleteForever } from 'react-icons/md'
 import { useTranslation } from 'react-i18next'
@@ -94,20 +95,11 @@ const Sysproxy: React.FC = () => {
   const onSave = async (): Promise<void> => {
     setChanged(false)
 
-    // 保存当前的开关状态，以便在失败时恢复
-    const previousState = values.enable
-
     try {
-      await patchAppConfig({ sysProxy: values })
-      await triggerSysProxy(true)
-
-      await patchAppConfig({ sysProxy: { enable: true } })
+      await saveSysProxySettings(values, patchAppConfig, triggerSysProxy)
     } catch (e) {
-      setValues({ ...values, enable: previousState })
       setChanged(true)
       showErrorSync(e, t('common.error.sysproxySetupFailed'))
-
-      await patchAppConfig({ sysProxy: { enable: false } })
     }
   }
 

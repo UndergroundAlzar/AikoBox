@@ -150,6 +150,7 @@ describe('Windows session-end lifecycle safety', () => {
     expect(mocks.stopCore).toHaveBeenCalledOnce()
     expect(mocks.quit).toHaveBeenCalledOnce()
     expect(mocks.disableSysProxySync).toHaveBeenCalledOnce()
+    expect(lifecycle.isExitApprovedForWindowClose()).toBe(true)
   })
 
   it('arms the exact-endpoint guardian shutdown before the core is stopped', async () => {
@@ -196,6 +197,56 @@ describe('Windows session-end lifecycle safety', () => {
     expect(mocks.stopCore).not.toHaveBeenCalled()
     expect(mocks.showErrorBox).toHaveBeenCalledOnce()
     expect(mocks.quit).not.toHaveBeenCalled()
+    const lifecycle = await import('./lifecycle')
+    expect(lifecycle.isExitApprovedForWindowClose()).toBe(false)
+  })
+
+  it('does not authorize exit when stopping the core times out', async () => {
+    vi.useFakeTimers()
+    try {
+      mocks.stopCore.mockImplementation(() => new Promise<void>(() => {}))
+      const lifecycle = await loadLifecycle()
+      const preventDefault = vi.fn()
+
+      const beforeQuit = mocks.appListeners.get('before-quit')?.({ preventDefault })
+      await vi.advanceTimersByTimeAsync(1200)
+      await beforeQuit
+
+      expect(preventDefault).toHaveBeenCalledOnce()
+      expect(mocks.stopCore).toHaveBeenCalledOnce()
+      expect(mocks.showErrorBox).toHaveBeenCalledOnce()
+      expect(mocks.quit).not.toHaveBeenCalled()
+      expect(lifecycle.isExitApprovedForWindowClose()).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not authorize exit when stopping the core rejects', async () => {
+    mocks.stopCore.mockRejectedValue(new Error('core shutdown failed'))
+    const lifecycle = await loadLifecycle()
+    const preventDefault = vi.fn()
+
+    await mocks.appListeners.get('before-quit')?.({ preventDefault })
+
+    expect(preventDefault).toHaveBeenCalledOnce()
+    expect(mocks.stopCore).toHaveBeenCalledOnce()
+    expect(mocks.showErrorBox).toHaveBeenCalledOnce()
+    expect(mocks.quit).not.toHaveBeenCalled()
+    expect(lifecycle.isExitApprovedForWindowClose()).toBe(false)
+  })
+
+  it('allows the BrowserWindow close only after proxy-first before-quit cleanup succeeds', async () => {
+    const lifecycle = await loadLifecycle()
+    const preventDefault = vi.fn()
+
+    expect(lifecycle.isExitApprovedForWindowClose()).toBe(false)
+    await mocks.appListeners.get('before-quit')?.({ preventDefault })
+
+    expect(preventDefault).toHaveBeenCalledOnce()
+    expect(mocks.stopCore).toHaveBeenCalledOnce()
+    expect(mocks.quit).toHaveBeenCalledOnce()
+    expect(lifecycle.isExitApprovedForWindowClose()).toBe(true)
   })
 })
 

@@ -1,6 +1,6 @@
 {
   "name": "aikobox",
-  "version": "0.1.0-beta.1",
+  "version": "0.1.0-beta.2",
   "description": "Windows proxy client powered by sing-box with Clash YAML compatibility",
   "private": true,
   "license": "GPL-3.0-only",
@@ -50,6 +50,10 @@
     "test:licenses": "node --test scripts/audit-licenses.test.mjs",
     "audit:i18n": "node scripts/audit-i18n.mjs",
     "test:i18n": "node --test scripts/audit-i18n.test.mjs",
+    "test:license-android-libbox-release": "node --test scripts/license-android-libbox-release.test.mjs",
+    "test:license-windows-sing-box-release": "node --test scripts/license-windows-sing-box-release.test.mjs",
+    "verify:license-sysproxy": "node scripts/license-sysproxy-rs-opti.mjs verify",
+    "test:license-sysproxy": "node --test scripts/license-sysproxy-rs-opti.test.mjs",
     "dev": "electron-vite dev",
     "postinstall": "electron-builder install-app-deps",
     "build": "electron-vite build",

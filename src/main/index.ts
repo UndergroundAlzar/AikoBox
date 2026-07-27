@@ -6,7 +6,7 @@ import { initI18n } from '../shared/i18n'
 import { registerIpcMainHandlers } from './utils/ipc'
 import { getAppConfig, patchAppConfig, patchControledMihomoConfig } from './config'
 import {
-  startCore,
+  startCoreQueued,
   checkAdminRestartForTun,
   checkHighPrivilegeCore,
   restartAsAdmin,
@@ -312,7 +312,7 @@ app.whenReady().then(async () => {
         // exact port before any generated candidate is allowed to start.
         await patchControledMihomoConfig({ 'mixed-port': staleProxyCoreEndpoint.port })
       }
-      const startPromises = await startCore(
+      const startPromises = await startCoreQueued(
         false,
         false,
         false,

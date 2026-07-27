@@ -1,0 +1,18 @@
+sysproxy-rs-opti third-party notice
+
+Project: https://github.com/mihomo-party-org/sysproxy-rs-opti
+Release: v0.1.0
+Commit: ce9463d95ed5839a43c6a0d7cccf3b3fb892de3a
+Upstream license: MIT
+Upstream copyright: Copyright (c) 2022 zzzgydi
+Packaged binary: sysproxy.win32-x64-msvc.node
+Binary SHA-256: 646d39126e25aa6d1d2b85741bc1994ad83d9470fbaccd021692d897686fd99a
+Target: x86_64-pc-windows-msvc
+Rust toolchain: 1.97.1
+Production dependency count: 48
+Dependency SPDX expressions: (MIT OR Apache-2.0) AND Unicode-3.0, Apache-2.0 OR MIT, ISC, MIT, MIT OR Apache-2.0, MIT OR Apache-2.0 OR Zlib, Unlicense OR MIT, Zlib OR Apache-2.0 OR MIT
+
+See MIT.txt for the upstream license, rust-production-dependencies.tsv for the exact
+crate graph and checksums, the license-notices archive for all dependency legal text,
+and the corresponding-source archive for complete source sufficient for an offline
+rebuild with the recorded proprietary Microsoft build tools and Windows SDK.

@@ -33,11 +33,14 @@ export function findAvailablePort(startPort: number): Promise<number> {
 
 let pacServer: http.Server | null = null
 
-export async function startPacServer(verifiedProxyPort?: number): Promise<void> {
+export async function startPacServer(
+  verifiedProxyPort?: number,
+  requiredPacPort?: number
+): Promise<void> {
   await stopPacServer()
   const { sysProxy } = await getAppConfig()
   const { mode = 'manual', pacScript } = sysProxy
-  if (mode !== 'auto') {
+  if (mode !== 'auto' && requiredPacPort === undefined) {
     return
   }
   let script = pacScript || defaultPacScript
@@ -51,7 +54,13 @@ export async function startPacServer(verifiedProxyPort?: number): Promise<void> 
       ? verifiedProxyPort
       : configuredPort
   script = script.replaceAll('%mixed-port%', port.toString())
-  pacPort = await findAvailablePort(10000)
+  if (
+    requiredPacPort !== undefined &&
+    (!Number.isInteger(requiredPacPort) || requiredPacPort <= 0 || requiredPacPort > 65535)
+  ) {
+    throw new Error(`Invalid required PAC port: ${requiredPacPort}`)
+  }
+  const listenPort = requiredPacPort ?? (await findAvailablePort(10000))
   const server = http.createServer(async (_req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/x-ns-proxy-autoconfig' })
     res.end(script)
@@ -70,8 +79,9 @@ export async function startPacServer(verifiedProxyPort?: number): Promise<void> 
     server.once('listening', onListening)
     // PAC is a local control endpoint, never a LAN service. The proxy target
     // itself may be customized independently in sysproxy.ts.
-    server.listen(pacPort, '127.0.0.1')
+    server.listen(listenPort, '127.0.0.1')
   })
+  pacPort = listenPort
   server.on('error', (error) => {
     void systemLogger.error('PAC server error', error)
   })

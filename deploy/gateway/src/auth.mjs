@@ -71,7 +71,14 @@ export function authorizeGet(query, res) {
 }
 
 export function authorizePost(form, ip, res, deps) {
-  if (!deps.rateLimiter.hit(ip)) {
+  if (!deps.loginIpLimiter.hit(ip)) {
+    return sendHtml(res, 429, errorPage('尝试过于频繁，请稍后再试 / Too many attempts'))
+  }
+  const accountKey = String(form.username ?? '')
+    .trim()
+    .normalize('NFKC')
+    .toLowerCase()
+  if (!deps.loginAccountLimiter.hit(accountKey)) {
     return sendHtml(res, 429, errorPage('尝试过于频繁，请稍后再试 / Too many attempts'))
   }
   const reason = validateParams(form)
@@ -88,6 +95,13 @@ export function authorizePost(form, ip, res, deps) {
     client_id: form.client_id,
     code_challenge: form.code_challenge
   })
+  if (!code) {
+    return sendHtml(
+      res,
+      503,
+      errorPage('登录服务暂时繁忙，请稍后重试 / Sign-in is temporarily unavailable')
+    )
+  }
   const url = new URL(form.redirect_uri)
   url.searchParams.set('code', code)
   url.searchParams.set('state', form.state)

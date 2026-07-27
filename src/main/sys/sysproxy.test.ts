@@ -246,6 +246,7 @@ describe('Windows system proxy transaction', () => {
   })
 
   it('resumes the exact journaled endpoint without rewriting externally changed WinINET data', async () => {
+    mocks.mode = 'auto'
     const {
       getStaleSystemProxyCoreEndpoint,
       recoverStaleSystemProxy,
@@ -263,7 +264,37 @@ describe('Windows system proxy transaction', () => {
     await expect(recoverStaleSystemProxy()).rejects.toThrow(/still depends/)
     expect(getStaleSystemProxyCoreEndpoint()).toEqual({ host: '127.0.0.1', port: 17890 })
     await expect(resumeStaleSystemProxyDependency()).resolves.toBeUndefined()
+    expect(mocks.startPacServer).toHaveBeenCalledWith(17890, 17900)
     expect(mocks.setSystemProxy).not.toHaveBeenCalled()
+    expect(hasOwnershipJournal()).toBe(true)
+  })
+
+  it('keeps the journal when the exact stale PAC port cannot be rebound', async () => {
+    mocks.mode = 'auto'
+    const {
+      recoverStaleSystemProxy,
+      resumeStaleSystemProxyDependency,
+      setSystemProxyCoreEndpoint,
+      setSystemProxyCoreReady,
+      triggerSysProxy
+    } = await import('./sysproxy')
+    setSystemProxyCoreEndpoint('127.0.0.1', 17890)
+    setSystemProxyCoreReady(true)
+    await triggerSysProxy(true)
+    mocks.rawMarker = 'external-change'
+
+    await expect(recoverStaleSystemProxy()).rejects.toThrow(/still depends/)
+    mocks.startPacServer.mockRejectedValueOnce(
+      Object.assign(new Error('listen EADDRINUSE: address already in use 127.0.0.1:17900'), {
+        code: 'EADDRINUSE'
+      })
+    )
+
+    await expect(resumeStaleSystemProxyDependency()).rejects.toMatchObject({
+      code: 'EADDRINUSE'
+    })
+    expect(mocks.startPacServer).toHaveBeenCalledWith(17890, 17900)
+    expect(mocks.auto.url).toBe('http://127.0.0.1:17900/pac')
     expect(hasOwnershipJournal()).toBe(true)
   })
 
@@ -298,6 +329,44 @@ describe('Windows system proxy transaction', () => {
     await recoverStaleSystemProxy()
     expect(hasOwnershipJournal()).toBe(false)
     expect(mocks.manual.port).toBe(7890)
+  })
+
+  it('continues an interrupted restoring transaction instead of treating it as external', async () => {
+    const previousManual: ManualProxyState = {
+      enable: false,
+      host: '',
+      port: 0,
+      bypass: 'enterprise.local'
+    }
+    const previousAuto: AutoProxyState = {
+      enable: true,
+      url: 'https://enterprise.local/proxy.pac'
+    }
+    mocks.manual = structuredClone(previousManual)
+    mocks.auto = structuredClone(previousAuto)
+
+    const { setSystemProxyCoreEndpoint, setSystemProxyCoreReady, triggerSysProxy } =
+      await import('./sysproxy')
+    setSystemProxyCoreEndpoint('127.0.0.1', 17890)
+    setSystemProxyCoreReady(true)
+    await triggerSysProxy(true)
+
+    // The manual registry values are restored first, then the auto/PAC write
+    // fails. This leaves a state that matches neither the applied nor previous
+    // complete image.
+    mocks.autoFailuresRemaining = 1
+    await expect(triggerSysProxy(false)).rejects.toThrow('auto setter failed')
+    expect(mocks.manual).toEqual(previousManual)
+    expect(mocks.auto).toEqual({ enable: false, url: '' })
+    expect(hasOwnershipJournal()).toBe(true)
+
+    vi.resetModules()
+    const { recoverStaleSystemProxy } = await import('./sysproxy')
+    await recoverStaleSystemProxy()
+
+    expect(mocks.manual).toEqual(previousManual)
+    expect(mocks.auto).toEqual(previousAuto)
+    expect(hasOwnershipJournal()).toBe(false)
   })
 
   it('reports synchronous restore failure so shutdown can keep the guardian alive', async () => {

@@ -6,7 +6,6 @@ import { fileURLToPath } from 'node:url'
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url))
 const repositoryRoot = path.resolve(scriptDirectory, '..')
-const allowKnownBlockers = process.argv.includes('--allow-known-blockers')
 
 function readJson(relativePath) {
   return JSON.parse(fs.readFileSync(path.join(repositoryRoot, relativePath), 'utf8'))
@@ -405,6 +404,483 @@ export function readSfntNameMetadata(filePath) {
   }
 }
 
+function assertVerifiedNotice(name, noticeSection) {
+  invariant(
+    /### [^\n]+ — `VERIFIED`/.test(noticeSection),
+    `${name}: notice does not claim VERIFIED evidence`
+  )
+}
+
+function verifyEvidenceRecord(record, label, noticeSection) {
+  invariant(record && typeof record === 'object', `${label}: evidence record is missing`)
+  invariant(
+    Number.isSafeInteger(record.size) && record.size > 0,
+    `${label}: evidence size is invalid`
+  )
+  invariant(/^[a-f0-9]{64}$/.test(record.sha256), `${label}: evidence SHA-256 is invalid`)
+  const absolutePath = resolveEvidenceFile(record.path, label)
+  const contents = fs.readFileSync(absolutePath)
+  invariant(
+    contents.length === record.size && sha256(contents) === record.sha256,
+    `${label}: size or SHA-256 differs from its evidence lock`
+  )
+  if (noticeSection) {
+    invariant(noticeSection.includes(record.path), `${label}: path is absent from notice`)
+    invariant(noticeSection.includes(record.sha256), `${label}: SHA-256 is absent from notice`)
+  }
+  return { absolutePath, contents }
+}
+
+export function assertSafeEvidenceArchiveEntries(entries, label) {
+  invariant(Array.isArray(entries) && entries.length > 0, `${label}: archive is empty`)
+  const roots = new Set()
+  for (const entry of entries) {
+    invariant(typeof entry === 'string' && entry.length > 0, `${label}: empty archive entry`)
+    invariant(!entry.includes('\0') && !entry.includes('\\'), `${label}: unsafe archive entry`)
+    invariant(
+      !path.posix.isAbsolute(entry) && !path.win32.isAbsolute(entry),
+      `${label}: absolute archive entry`
+    )
+    const normalized = entry.replace(/\/$/, '')
+    const segments = normalized.split('/')
+    invariant(
+      segments.every((segment) => segment.length > 0 && segment !== '.' && segment !== '..'),
+      `${label}: archive traversal entry`
+    )
+    roots.add(segments[0])
+  }
+  invariant(roots.size === 1, `${label}: archive must have exactly one top-level directory`)
+  return [...roots][0]
+}
+
+function listTarGzEntries(archivePath, label) {
+  const result = spawnSync('tar', ['-tzf', archivePath], {
+    cwd: repositoryRoot,
+    encoding: 'utf8',
+    windowsHide: true,
+    maxBuffer: 64 * 1024 * 1024
+  })
+  invariant(result.error === undefined, `${label}: unable to inspect archive: ${result.error}`)
+  invariant(result.status === 0, `${label}: tar listing failed: ${String(result.stderr).trim()}`)
+  const entries = String(result.stdout).replaceAll('\r\n', '\n').split('\n').filter(Boolean)
+  assertSafeEvidenceArchiveEntries(entries, label)
+  return new Set(entries.map((entry) => entry.replace(/\/$/, '')))
+}
+
+function parseSysproxyInventory(contents) {
+  const lines = contents.toString('utf8').replaceAll('\r\n', '\n').trim().split('\n')
+  invariant(
+    lines.shift() ===
+      'crate\tversion\tspdx_license\tregistry_source\tcrate_sha256\tvendor_directory\tlegal_files\tlegal_provenance',
+    'sysproxy: dependency inventory header is invalid'
+  )
+  const records = lines.map((line) => {
+    const fields = line.split('\t')
+    invariant(fields.length === 8, `sysproxy: malformed dependency inventory row: ${line}`)
+    const [crate, version, license, source, crateSha256, vendorDirectory, legal, provenance] =
+      fields
+    invariant(crate && version && license, 'sysproxy: dependency identity is incomplete')
+    invariant(
+      source === 'registry+https://github.com/rust-lang/crates.io-index',
+      `${crate}@${version}: registry source is not fixed`
+    )
+    invariant(/^[a-f0-9]{64}$/.test(crateSha256), `${crate}@${version}: crate hash is invalid`)
+    invariant(
+      vendorDirectory === `${crate}-${version}` &&
+        !vendorDirectory.includes('/') &&
+        !vendorDirectory.includes('\\'),
+      `${crate}@${version}: vendor directory is invalid`
+    )
+    const legalFiles = legal.split(';').filter(Boolean)
+    invariant(legalFiles.length > 0, `${crate}@${version}: legal files are missing`)
+    invariant(provenance.length > 0, `${crate}@${version}: legal provenance is missing`)
+    return { crate, version, vendorDirectory, legalFiles }
+  })
+  const identities = new Set(records.map((record) => `${record.crate}@${record.version}`))
+  invariant(identities.size === records.length, 'sysproxy: duplicate dependency inventory row')
+  return records
+}
+
+function assertPeAmd64Dll(contents, label) {
+  invariant(contents.length >= 256, `${label}: native module is too small`)
+  invariant(contents[0] === 0x4d && contents[1] === 0x5a, `${label}: MZ header is missing`)
+  const peOffset = contents.readUInt32LE(0x3c)
+  invariant(peOffset + 24 <= contents.length, `${label}: PE header is truncated`)
+  invariant(
+    contents.toString('ascii', peOffset, peOffset + 4) === 'PE\0\0',
+    `${label}: PE signature is missing`
+  )
+  invariant(contents.readUInt16LE(peOffset + 4) === 0x8664, `${label}: PE machine is not AMD64`)
+  invariant(
+    (contents.readUInt16LE(peOffset + 22) & 0x2000) !== 0,
+    `${label}: PE image is not a DLL`
+  )
+}
+
+export function verifyPinnedEvidenceLock(contents, reviewedLock, label = 'evidence lock') {
+  invariant(Buffer.isBuffer(contents), `${label}: contents must be a buffer`)
+  invariant(
+    reviewedLock &&
+      Number.isSafeInteger(reviewedLock.size) &&
+      reviewedLock.size > 0 &&
+      /^[a-f0-9]{64}$/.test(reviewedLock.sha256),
+    `${label}: reviewed size or SHA-256 is invalid`
+  )
+  invariant(
+    contents.length === reviewedLock.size && sha256(contents) === reviewedLock.sha256,
+    `${label}: size or SHA-256 differs from review`
+  )
+  return JSON.parse(contents.toString('utf8'))
+}
+
+export function verifySysproxyVerifiedEvidence(resource, item, noticeSection) {
+  assertVerifiedNotice('sysproxy', noticeSection)
+  invariant(
+    item.evidenceLock?.path === 'licenses/sysproxy-rs-opti/evidence-lock.json' &&
+      item.evidenceLock.schemaVersion === 1 &&
+      Number.isSafeInteger(item.evidenceLock.size) &&
+      item.evidenceLock.size > 0 &&
+      /^[a-f0-9]{64}$/.test(item.evidenceLock.sha256) &&
+      item.evidenceLock.dependencyCount === 48 &&
+      item.evidenceLock.vendorPackageCount === 126,
+    'sysproxy: review does not pin the expected evidence-lock contract'
+  )
+  const evidenceLockPath = resolveEvidenceFile(item.evidenceLock.path, 'sysproxy: evidence lock')
+  const evidenceLockContents = fs.readFileSync(evidenceLockPath)
+  const evidenceLockHash = sha256(evidenceLockContents)
+  invariant(
+    noticeSection.includes('licenses/sysproxy-rs-opti/evidence-lock.json'),
+    'sysproxy: evidence-lock path is absent from notice'
+  )
+  const evidence = verifyPinnedEvidenceLock(
+    evidenceLockContents,
+    item.evidenceLock,
+    'sysproxy: evidence lock'
+  )
+  invariant(evidence.schemaVersion === 1, 'sysproxy: unsupported evidence schema')
+  invariant(
+    evidence.upstream?.project === 'https://github.com/mihomo-party-org/sysproxy-rs-opti' &&
+      evidence.upstream.tag === resource.releaseTag &&
+      evidence.upstream.commit === resource.releaseTagCommit &&
+      evidence.upstream.crateVersion === '0.5.1',
+    'sysproxy: upstream identity differs from resource lock'
+  )
+  invariant(
+    evidence.build?.rustVersion === resource.rustVersion &&
+      evidence.build.target === resource.target &&
+      evidence.build.sourceDateEpoch === resource.sourceDateEpoch &&
+      evidence.build.rustflags === resource.rustflags,
+    'sysproxy: build identity differs from resource lock'
+  )
+  invariant(
+    Number.isSafeInteger(evidence.dependencyCount) && evidence.dependencyCount >= 25,
+    'sysproxy: dependency count is invalid'
+  )
+  invariant(
+    evidence.schemaVersion === item.evidenceLock.schemaVersion &&
+      evidence.dependencyCount === item.evidenceLock.dependencyCount &&
+      evidence.vendorPackageCount === item.evidenceLock.vendorPackageCount,
+    'sysproxy: evidence lock differs from reviewed schema or dependency counts'
+  )
+
+  const requiredRecords = [
+    'binary',
+    'cargoLock',
+    'inventory',
+    'vendorInventory',
+    'buildInfo',
+    'notice',
+    'correspondingSource',
+    'licenseNotices'
+  ]
+  invariant(
+    JSON.stringify(Object.keys(evidence.files ?? {}).sort()) ===
+      JSON.stringify([...requiredRecords].sort()),
+    'sysproxy: evidence file set is not exact'
+  )
+  const verified = {}
+  for (const name of requiredRecords) {
+    verified[name] = verifyEvidenceRecord(
+      evidence.files[name],
+      `sysproxy: ${name}`,
+      name === 'vendorInventory' ? undefined : noticeSection
+    )
+  }
+  invariant(
+    evidence.files.binary.path === resource.source &&
+      evidence.files.binary.size === resource.size &&
+      evidence.files.binary.sha256 === resource.sha256,
+    'sysproxy: binary evidence differs from resource lock'
+  )
+  assertPeAmd64Dll(verified.binary.contents, 'sysproxy')
+
+  const packagedPath = resolveEvidenceFile(
+    resource.output,
+    'sysproxy: packaged sidecar',
+    repositoryRoot,
+    true
+  )
+  if (fs.existsSync(packagedPath)) {
+    const packaged = fs.readFileSync(packagedPath)
+    invariant(
+      packaged.length === resource.size && sha256(packaged) === resource.sha256,
+      'sysproxy: packaged sidecar differs from verified binary'
+    )
+  }
+
+  const records = parseSysproxyInventory(verified.inventory.contents)
+  invariant(
+    records.length === evidence.dependencyCount,
+    'sysproxy: dependency inventory count differs from evidence lock'
+  )
+  const vendorLines = verified.vendorInventory.contents
+    .toString('utf8')
+    .replaceAll('\r\n', '\n')
+    .trim()
+    .split('\n')
+  invariant(
+    vendorLines.shift() === 'crate\tversion\tcrate_sha256\tvendor_directory',
+    'sysproxy: vendor inventory header is invalid'
+  )
+  const vendorDirectories = new Set()
+  for (const line of vendorLines) {
+    const [crate, version, crateSha256, vendorDirectory, ...extra] = line.split('\t')
+    invariant(
+      crate &&
+        version &&
+        /^[a-f0-9]{64}$/.test(crateSha256) &&
+        vendorDirectory === `${crate}-${version}` &&
+        extra.length === 0,
+      `sysproxy: malformed vendor inventory row: ${line}`
+    )
+    invariant(
+      !vendorDirectories.has(vendorDirectory),
+      `sysproxy: duplicate vendor ${vendorDirectory}`
+    )
+    vendorDirectories.add(vendorDirectory)
+  }
+  invariant(
+    vendorDirectories.size === evidence.vendorPackageCount,
+    'sysproxy: vendor inventory count differs from evidence lock'
+  )
+  const sourceEntries = listTarGzEntries(
+    verified.correspondingSource.absolutePath,
+    'sysproxy corresponding source'
+  )
+  const licenseEntries = listTarGzEntries(
+    verified.licenseNotices.absolutePath,
+    'sysproxy license notices'
+  )
+  const sourcePrefix = 'sysproxy-rs-opti-v0.1.0-windows-x64-corresponding-source'
+  const licensePrefix = 'sysproxy-rs-opti-v0.1.0-windows-x64-license-notices'
+  for (const required of [
+    `${sourcePrefix}/upstream/Cargo.toml`,
+    `${sourcePrefix}/upstream/Cargo.lock`,
+    `${sourcePrefix}/upstream/LICENSE`,
+    `${sourcePrefix}/.cargo/config.toml`,
+    `${sourcePrefix}/BUILD-INFO.txt`,
+    `${sourcePrefix}/rust-production-dependencies.tsv`,
+    `${licensePrefix}/upstream/LICENSE`,
+    `${licensePrefix}/NOTICE.txt`,
+    `${licensePrefix}/rust-production-dependencies.tsv`
+  ]) {
+    invariant(
+      sourceEntries.has(required) || licenseEntries.has(required),
+      `sysproxy: release archive is missing ${required}`
+    )
+  }
+  for (const record of records) {
+    invariant(
+      sourceEntries.has(`${sourcePrefix}/vendor/${record.vendorDirectory}/Cargo.toml`) &&
+        sourceEntries.has(`${sourcePrefix}/vendor/${record.vendorDirectory}/.cargo-checksum.json`),
+      `${record.crate}@${record.version}: corresponding source is incomplete`
+    )
+    for (const legalFile of record.legalFiles) {
+      invariant(
+        licenseEntries.has(`${licensePrefix}/crates/${record.vendorDirectory}/${legalFile}`),
+        `${record.crate}@${record.version}: license bundle is missing ${legalFile}`
+      )
+    }
+  }
+  for (const vendorDirectory of vendorDirectories) {
+    invariant(
+      sourceEntries.has(`${sourcePrefix}/vendor/${vendorDirectory}/Cargo.toml`) &&
+        sourceEntries.has(`${sourcePrefix}/vendor/${vendorDirectory}/.cargo-checksum.json`),
+      `sysproxy: corresponding source omits vendored package ${vendorDirectory}`
+    )
+  }
+  const vendoredCargoManifests = [...sourceEntries].filter((entry) =>
+    new RegExp(`^${sourcePrefix}/vendor/[^/]+/Cargo\\.toml$`).test(entry)
+  )
+  const vendoredChecksums = [...sourceEntries].filter((entry) =>
+    new RegExp(`^${sourcePrefix}/vendor/[^/]+/\\.cargo-checksum\\.json$`).test(entry)
+  )
+  invariant(
+    vendoredCargoManifests.length === evidence.vendorPackageCount &&
+      vendoredChecksums.length === evidence.vendorPackageCount,
+    'sysproxy: corresponding source does not cover the complete vendored package graph'
+  )
+  invariant(
+    Array.isArray(evidence.reviewedLegalOverrides) && evidence.reviewedLegalOverrides.length === 6,
+    'sysproxy: reviewed legal override set is incomplete'
+  )
+  for (const override of evidence.reviewedLegalOverrides) {
+    invariant(
+      /^[a-f0-9]{40}$/.test(override.vcsCommit) &&
+        override.sourceUrl.includes(`/${override.vcsCommit}/`),
+      `${override.crate}: reviewed legal override is not commit-pinned`
+    )
+    verifyEvidenceRecord(override, `${override.crate}: reviewed legal override`)
+    const directory = override.crate.replace('@', '-')
+    invariant(
+      sourceEntries.has(
+        `${sourcePrefix}/reviewed-license-overrides/${directory}/LICENSE.reviewed-upstream`
+      ),
+      `${override.crate}: corresponding source omits reviewed legal override`
+    )
+  }
+  return { dependencyCount: records.length, evidenceLockHash }
+}
+
+function verifyGeneratedComponentChecksums(distDirectory, prefix, expectedNames, label) {
+  const checksumPath = path.join(distDirectory, `${prefix}-SHA256SUMS.txt`)
+  const lines = fs.readFileSync(checksumPath, 'utf8').replaceAll('\r\n', '\n').trim().split('\n')
+  const found = new Map()
+  for (const line of lines) {
+    const match = /^([a-f0-9]{64}) {2}([A-Za-z0-9._-]+)$/.exec(line)
+    invariant(match, `${label}: malformed component checksum line`)
+    invariant(!found.has(match[2]), `${label}: duplicate component checksum entry`)
+    found.set(match[2], match[1])
+  }
+  invariant(
+    JSON.stringify([...found.keys()].sort()) === JSON.stringify([...expectedNames].sort()),
+    `${label}: component checksum set is not exact`
+  )
+  for (const [name, digest] of found) {
+    const contents = fs.readFileSync(path.join(distDirectory, name))
+    invariant(sha256(contents) === digest, `${label}: checksum differs for ${name}`)
+  }
+}
+
+export function verifyWindowsSingBoxVerifiedEvidence(resource, partial, noticeSection) {
+  assertVerifiedNotice('singBox', noticeSection)
+  invariant(partial?.release?.tag === resource.releaseTag, 'singBox: release tag differs')
+  invariant(
+    partial.release.tagCommit === resource.releaseTagCommit,
+    'singBox: release commit differs'
+  )
+  invariant(
+    Array.isArray(partial.licenseFiles) && partial.licenseFiles.length === 1,
+    'singBox: upstream license evidence is incomplete'
+  )
+  const licenseFile = partial.licenseFiles[0]
+  const licenseContents = fs.readFileSync(
+    resolveEvidenceFile(licenseFile.path, 'singBox: upstream license')
+  )
+  invariant(
+    licenseContents.length === licenseFile.size &&
+      sha256(licenseContents) === licenseFile.sha256 &&
+      licenseFile.sha256 === licenseFile.upstreamSha256,
+    'singBox: upstream license evidence differs'
+  )
+  for (const required of [
+    partial.release.tag,
+    partial.release.tagCommit,
+    partial.release.url,
+    partial.release.sourceUrl,
+    licenseFile.path,
+    licenseFile.sha256,
+    licenseFile.sourceUrl,
+    licenseFile.upstreamSha256
+  ]) {
+    invariant(
+      noticeSection.includes(required),
+      'singBox: reviewed release evidence is absent from notice'
+    )
+  }
+  assertSourceIdentityFiles('singBox', partial, noticeSection)
+  assertBuildinfoInventory('singBox', partial, resource, noticeSection)
+
+  const prefix = 'aikobox-sing-box-1.13.14-windows-amd64'
+  const generatedNames = [
+    `${prefix}-corresponding-source.tar.gz`,
+    `${prefix}-licenses.tar.gz`,
+    `${prefix}-COVERAGE.json`,
+    `${prefix}-SHA256SUMS.txt`
+  ]
+  for (const name of generatedNames) {
+    invariant(noticeSection.includes(name), `singBox: required release asset is absent from notice`)
+  }
+  const workflow = fs.readFileSync(
+    path.join(repositoryRoot, '.github', 'workflows', 'release.yml'),
+    'utf8'
+  )
+  invariant(
+    workflow.includes('scripts/license-windows-sing-box-release.mjs'),
+    'singBox: release workflow does not invoke the evidence generator'
+  )
+  for (const name of generatedNames) {
+    invariant(workflow.includes(name), `singBox: release workflow omits ${name}`)
+  }
+  for (const relativePath of [
+    'scripts/license-windows-sing-box-release.mjs',
+    'scripts/license-windows-sing-box-release.test.mjs'
+  ]) {
+    const absolutePath = resolveEvidenceFile(relativePath, `singBox: ${relativePath}`)
+    invariant(fs.statSync(absolutePath).isFile(), `singBox: ${relativePath} is not a file`)
+  }
+
+  const distDirectory = path.join(repositoryRoot, 'dist')
+  const presentGenerated = generatedNames.filter((name) =>
+    fs.existsSync(path.join(distDirectory, name))
+  )
+  if (presentGenerated.length > 0) {
+    invariant(
+      presentGenerated.length === generatedNames.length,
+      'singBox: generated release evidence is only partially present'
+    )
+    const coverage = JSON.parse(
+      fs.readFileSync(path.join(distDirectory, `${prefix}-COVERAGE.json`), 'utf8')
+    )
+    invariant(
+      coverage.releaseReady === true &&
+        Array.isArray(coverage.blockers) &&
+        coverage.blockers.length === 0 &&
+        coverage.component === 'sing-box' &&
+        coverage.version === '1.13.14' &&
+        coverage.commit === resource.releaseTagCommit &&
+        coverage.target === 'windows/amd64' &&
+        coverage.actualStaticModules === 100 &&
+        coverage.coveredActualStaticModules === 100 &&
+        Array.isArray(coverage.linkedNativeInputs) &&
+        coverage.linkedNativeInputs.length === 0,
+      'singBox: generated coverage report is not release-ready'
+    )
+    verifyGeneratedComponentChecksums(
+      distDirectory,
+      prefix,
+      generatedNames.filter((name) => !name.endsWith('-SHA256SUMS.txt')),
+      'singBox'
+    )
+    const sourceEntries = listTarGzEntries(
+      path.join(distDirectory, `${prefix}-corresponding-source.tar.gz`),
+      'singBox corresponding source'
+    )
+    const licenseEntries = listTarGzEntries(
+      path.join(distDirectory, `${prefix}-licenses.tar.gz`),
+      'singBox licenses'
+    )
+    invariant(
+      sourceEntries.has(`${prefix}-corresponding-source/BUILDING.md`) &&
+        sourceEntries.has(`${prefix}-corresponding-source/COVERAGE.json`) &&
+        licenseEntries.has(`${prefix}-licenses/COVERAGE.json`) &&
+        licenseEntries.has(`${prefix}-licenses/MODULE-LICENSE-MANIFEST.json`),
+      'singBox: generated release archives are incomplete'
+    )
+  }
+  return { dynamicAssets: generatedNames.length, generatedAssetsPresent: presentGenerated.length }
+}
+
 function inspectResourceReview() {
   const lock = readJson('scripts/resources-lock.json')
   const review = readJson('scripts/third-party-review.json')
@@ -432,6 +908,7 @@ function inspectResourceReview() {
   )
 
   const blockers = []
+  const verifiedNativeEvidence = []
   for (const name of lockNames) {
     const resource = lock.resources[name]
     const item = review.resources[name]
@@ -460,6 +937,32 @@ function inspectResourceReview() {
           `${name}: ${hashField} is absent from notice`
         )
       }
+    }
+
+    if (item.status === 'verified' && item.verificationModel !== undefined) {
+      invariant(item.blocker === undefined, `${name}: verified item still declares a blocker`)
+      invariant(
+        typeof item.license === 'string' && item.license.length > 0,
+        `${name}: verified license expression is missing`
+      )
+      invariant(
+        typeof item.licenseCopyright === 'string' && item.licenseCopyright.length > 0,
+        `${name}: verified license copyright is missing`
+      )
+      invariant(noticeSection.includes(item.license), `${name}: license is absent from notice`)
+      invariant(
+        noticeSection.includes(item.licenseCopyright),
+        `${name}: license copyright is absent from notice`
+      )
+      if (item.verificationModel === 'windows-sing-box-release-v1') {
+        verifyWindowsSingBoxVerifiedEvidence(resource, item, noticeSection)
+      } else if (item.verificationModel === 'sysproxy-evidence-lock-v1') {
+        verifySysproxyVerifiedEvidence(resource, item, noticeSection)
+      } else {
+        throw new Error(`${name}: unsupported verification model ${item.verificationModel}`)
+      }
+      verifiedNativeEvidence.push(name)
+      continue
     }
 
     if (item.status === 'blocked') {
@@ -741,6 +1244,7 @@ function inspectResourceReview() {
 
   return {
     blockers,
+    verifiedNativeEvidence,
     reviewedLicenseExpressions: review.reviewedProductionLicenseExpressions,
     expectedPackagesWithoutLicenseFiles: review.productionPackagesWithoutLicenseFiles,
     productionPackageEvidence: review.productionPackageEvidence,
@@ -1011,6 +1515,11 @@ export function runAudit() {
     console.log(
       `[OK] ${production.reviewedEvidence.length} exact production package evidence records passed: ${production.reviewedEvidence.join(', ')}`
     )
+    if (resourceReview.verifiedNativeEvidence.length > 0) {
+      console.log(
+        `[OK] Machine-verified native redistribution evidence passed: ${resourceReview.verifiedNativeEvidence.join(', ')}`
+      )
+    }
 
     if (production.packagesWithoutLicenseFiles.length > 0) {
       console.error(
@@ -1026,10 +1535,7 @@ export function runAudit() {
       console.log('[OK] Every locked runtime resource has verified redistribution evidence')
     }
 
-    if (
-      !allowKnownBlockers &&
-      (resourceReview.blockers.length > 0 || production.packagesWithoutLicenseFiles.length > 0)
-    ) {
+    if (resourceReview.blockers.length > 0 || production.packagesWithoutLicenseFiles.length > 0) {
       process.exitCode = 1
     }
   } catch (error) {

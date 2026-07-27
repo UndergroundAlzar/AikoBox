@@ -8,6 +8,7 @@ import { quitWithoutCore } from './core/manager'
 import {
   handleWindowsQuerySessionEnd,
   handleWindowsSessionEnd,
+  isExitApprovedForWindowClose,
   setLifecycleWindowStateSaver
 } from './lifecycle'
 import { hideDockIcon, showDockIcon } from './resolve/tray'
@@ -129,17 +130,17 @@ const MAIN_WINDOW_MAX_CRASH_RECOVERIES = 3
 let mainWindowCrashTimestamps: number[] = []
 type AutoQuitWithoutCoreMode = NonNullable<IAppConfig['autoQuitWithoutCoreMode']>
 
-export async function createWindow(): Promise<void> {
+export async function createWindow(options: { forceHidden?: boolean } = {}): Promise<void> {
   if (mainWindow && !mainWindow.isDestroyed()) return
   if (createWindowPromise) return createWindowPromise
 
-  createWindowPromise = createWindowInternal().finally(() => {
+  createWindowPromise = createWindowInternal(options).finally(() => {
     createWindowPromise = null
   })
   return createWindowPromise
 }
 
-async function createWindowInternal(): Promise<void> {
+async function createWindowInternal(options: { forceHidden?: boolean }): Promise<void> {
   const {
     useWindowFrame = false,
     silentStart = false,
@@ -150,7 +151,8 @@ async function createWindowInternal(): Promise<void> {
 
   // Isolated CI smoke must stay fully headless even when silentStart is off or is.dev.
   const isolatedSmoke = isCiIsolatedSmokeMode()
-  const effectiveSilentStart = isolatedSmoke || silentStart
+  const forceHidden = isolatedSmoke || options.forceHidden === true
+  const effectiveSilentStart = forceHidden || silentStart
 
   windowState = ensureVisibleOnScreen(loadWindowState())
   const savedState = windowState
@@ -194,7 +196,7 @@ async function createWindowInternal(): Promise<void> {
 
   setupWindowEvents(mainWindow, {
     silentStart: effectiveSilentStart,
-    forceHidden: isolatedSmoke,
+    forceHidden,
     autoQuitWithoutCore,
     autoQuitWithoutCoreDelay,
     autoQuitWithoutCoreMode
@@ -273,9 +275,11 @@ function setupWindowEvents(window: BrowserWindow, config: WindowConfig): void {
       return
     }
 
-    // 可见时立即重建，否则留待下次 showMainWindow()，避免后台崩溃突然弹窗
-    if (wasVisible) {
-      void createWindow().then(() => {
+    // Windows 必须始终保留一个 BrowserWindow 接收 query-session-end/session-end，
+    // 否则系统关机时可能来不及恢复 WinINET。后台崩溃时静默重建，避免突然弹窗。
+    if (wasVisible || process.platform === 'win32') {
+      void createWindow({ forceHidden: !wasVisible }).then(() => {
+        if (!wasVisible) return
         clearQuitTimeout()
         mainWindow?.show()
         mainWindow?.focusOnWebView()
@@ -293,6 +297,8 @@ function setupWindowEvents(window: BrowserWindow, config: WindowConfig): void {
 
   window.on('close', async (event) => {
     saveWindowState(window) // 关窗前兜底（#1954）
+
+    if (isExitApprovedForWindowClose()) return
 
     event.preventDefault()
     window.hide()
@@ -362,7 +368,9 @@ function scheduleQuitWithoutCore(
   quitTimeout = setTimeout(async () => {
     if (mode === 'tray') {
       if (mainWindow && !mainWindow.isVisible()) {
-        mainWindow.destroy()
+        // Windows 的隐藏主窗口同时承担 WM_QUERYENDSESSION/WM_ENDSESSION
+        // 守护职责；销毁它会让系统代理在关机后残留。
+        if (process.platform !== 'win32') mainWindow.destroy()
         hideDockIcon()
       }
       return

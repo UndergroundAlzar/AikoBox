@@ -77,7 +77,7 @@ import {
 } from './permissions'
 import { waitForCoreReady, waitForTcpPort } from './process'
 import { setPublicDNS, recoverDNS } from './dns'
-import { CrashRestartPolicy } from './restartPolicy'
+import { CrashRestartPolicy, runRestartTransaction } from './restartPolicy'
 import { preflightWindowsTunCandidate } from './tunPreflight'
 import { SerialTaskQueue } from './serialTaskQueue'
 import {
@@ -953,7 +953,7 @@ function setupCoreListeners(
 }
 
 // 启动核心
-export async function startCore(
+async function startCore(
   detached = false,
   skipStop = false,
   reportCandidateFallback = false,
@@ -1144,46 +1144,44 @@ setStopCoreBeforeAdminRestart(stopCore)
 // 重启核心
 async function performRestart(): Promise<void> {
   isRestarting = true
-  let retryCount = 0
-  const maxRetries = 3
 
   try {
-    // 尝试启动核心，失败时重试
-    while (retryCount < maxRetries) {
-      try {
+    await runRestartTransaction({
+      startCore: async () => {
         // startCore validates the candidate while the current core is still
         // alive, then transactionally restores WinINET and swaps processes.
         await startCore(false, false, true)
+      },
+      applySystemProxy: async () => {
         const { sysProxy } = await getAppConfig()
         if (sysProxy.enable) {
           await triggerSysProxy(true)
         }
-        return // 成功启动，退出函数
-      } catch (e) {
-        if (e instanceof CoreCandidateRejectedError) {
-          // The fallback endpoint is already healthy. Re-enable the user's
-          // owned system proxy before reporting rejection so profile callers
-          // can roll back their source transaction without an outage.
-          const { sysProxy } = await getAppConfig()
-          if (sysProxy.enable) {
-            await triggerSysProxy(true)
-          }
-          throw e
+      },
+      isTerminalStartError: (error) => error instanceof CoreCandidateRejectedError,
+      onTerminalStartError: async () => {
+        // The fallback endpoint is already healthy. Re-enable the user's owned
+        // system proxy before reporting rejection so profile callers can roll
+        // back their source transaction without an outage.
+        const { sysProxy } = await getAppConfig()
+        if (sysProxy.enable) {
+          await triggerSysProxy(true)
         }
-        retryCount++
-        managerLogger.error(`restart core failed (attempt ${retryCount}/${maxRetries})`, e)
-
-        if (retryCount >= maxRetries) {
-          throw e
-        }
-
-        // 重试前等待一段时间
-        await new Promise((resolve) => setTimeout(resolve, 1000 * retryCount))
-      }
-    }
+      },
+      onRetry: (error, attempt, maxAttempts) => {
+        managerLogger.error(`restart core failed (attempt ${attempt}/${maxAttempts})`, error)
+      },
+      sleep: (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs))
+    })
   } finally {
     isRestarting = false
   }
+}
+
+export function startCoreQueued(
+  ...args: Parameters<typeof startCore>
+): Promise<Awaited<ReturnType<typeof startCore>>> {
+  return restartQueue.enqueue(() => startCore(...args))
 }
 
 export function restartCore(): Promise<void> {
@@ -1261,7 +1259,7 @@ export async function setTunEnabled(enable: boolean): Promise<void> {
 // 保持核心运行
 export async function keepCoreAlive(): Promise<void> {
   try {
-    await startCore(true)
+    await startCoreQueued(true)
     if (child?.pid) {
       if (process.platform === 'win32') {
         await persistCoreIdentity(child, singboxCorePath())
@@ -1278,11 +1276,11 @@ export async function keepCoreAlive(): Promise<void> {
 export async function quitWithoutCore(): Promise<void> {
   if (process.platform === 'win32') {
     // A detached TUN/core cannot provide crash-safe proxy rollback on Windows.
-    // Keep the small main/tray process as the guardian and discard only the
-    // renderer window; it will be recreated on demand from the tray.
+    // Keep the hidden BrowserWindow as the WM_QUERYENDSESSION/WM_ENDSESSION
+    // guardian; destroying the last window would strand WinINET on shutdown.
     managerLogger.info('Windows safe background mode: keeping guardian process alive')
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.destroy()
+      mainWindow.hide()
     }
     return
   }

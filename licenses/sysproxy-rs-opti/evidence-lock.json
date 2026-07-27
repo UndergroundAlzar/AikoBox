@@ -1,0 +1,110 @@
+{
+  "schemaVersion": 1,
+  "upstream": {
+    "project": "https://github.com/mihomo-party-org/sysproxy-rs-opti",
+    "tag": "v0.1.0",
+    "commit": "ce9463d95ed5839a43c6a0d7cccf3b3fb892de3a",
+    "crateVersion": "0.5.1"
+  },
+  "build": {
+    "rustVersion": "1.97.1",
+    "target": "x86_64-pc-windows-msvc",
+    "sourceDateEpoch": "1780791864",
+    "rustflags": "-C link-arg=/Brepro -C debuginfo=0 -C codegen-units=1 --remap-path-prefix=<SOURCE>=/usr/src/sysproxy-rs-opti --remap-path-prefix=<VENDOR>=/usr/src/cargo-vendor",
+    "command": "cargo +1.97.1 build --release --locked --offline --target x86_64-pc-windows-msvc"
+  },
+  "dependencyCount": 48,
+  "vendorPackageCount": 126,
+  "reviewedLegalOverrides": [
+    {
+      "crate": "lazy-regex-proc_macros@3.6.0",
+      "path": "licenses/sysproxy-rs-opti/reviewed-license-overrides/lazy-regex-proc_macros-3.6.0/LICENSE.reviewed-upstream",
+      "sourceUrl": "https://raw.githubusercontent.com/Canop/lazy-regex/692c46e624ad1e37d9587a99ca4ca12dae1bad26/LICENSE",
+      "vcsCommit": "692c46e624ad1e37d9587a99ca4ca12dae1bad26",
+      "size": 1062,
+      "sha256": "89461664ce2aee7d80ea8fba7118fe7abd490d76ba435cf1d81d3128e060711f"
+    },
+    {
+      "crate": "napi-build@2.1.0",
+      "path": "licenses/sysproxy-rs-opti/reviewed-license-overrides/napi-build-2.1.0/LICENSE.reviewed-upstream",
+      "sourceUrl": "https://raw.githubusercontent.com/napi-rs/napi-rs/688ee04247fa17fab9a644c4cf0509b0e63853db/LICENSE",
+      "vcsCommit": "688ee04247fa17fab9a644c4cf0509b0e63853db",
+      "size": 2138,
+      "sha256": "3f1ce66533302df3a32edbfdfc0b78f0dd34659e4c1f5817162e5ea3c2297215"
+    },
+    {
+      "crate": "napi-derive-backend@1.0.75",
+      "path": "licenses/sysproxy-rs-opti/reviewed-license-overrides/napi-derive-backend-1.0.75/LICENSE.reviewed-upstream",
+      "sourceUrl": "https://raw.githubusercontent.com/napi-rs/napi-rs/a312b7eb4e12d3e0a3e9770429ee05c333947a39/LICENSE",
+      "vcsCommit": "a312b7eb4e12d3e0a3e9770429ee05c333947a39",
+      "size": 2138,
+      "sha256": "3f1ce66533302df3a32edbfdfc0b78f0dd34659e4c1f5817162e5ea3c2297215"
+    },
+    {
+      "crate": "napi-derive@2.16.13",
+      "path": "licenses/sysproxy-rs-opti/reviewed-license-overrides/napi-derive-2.16.13/LICENSE.reviewed-upstream",
+      "sourceUrl": "https://raw.githubusercontent.com/napi-rs/napi-rs/a312b7eb4e12d3e0a3e9770429ee05c333947a39/LICENSE",
+      "vcsCommit": "a312b7eb4e12d3e0a3e9770429ee05c333947a39",
+      "size": 2138,
+      "sha256": "3f1ce66533302df3a32edbfdfc0b78f0dd34659e4c1f5817162e5ea3c2297215"
+    },
+    {
+      "crate": "napi-sys@2.4.0",
+      "path": "licenses/sysproxy-rs-opti/reviewed-license-overrides/napi-sys-2.4.0/LICENSE.reviewed-upstream",
+      "sourceUrl": "https://raw.githubusercontent.com/napi-rs/napi-rs/f1b8ab5e645e674df33c796ef75aa278cd1b4a31/LICENSE",
+      "vcsCommit": "f1b8ab5e645e674df33c796ef75aa278cd1b4a31",
+      "size": 2138,
+      "sha256": "3f1ce66533302df3a32edbfdfc0b78f0dd34659e4c1f5817162e5ea3c2297215"
+    },
+    {
+      "crate": "napi@2.16.17",
+      "path": "licenses/sysproxy-rs-opti/reviewed-license-overrides/napi-2.16.17/LICENSE.reviewed-upstream",
+      "sourceUrl": "https://raw.githubusercontent.com/napi-rs/napi-rs/f2178312d0e3e07beecc19836b91716a229107d3/LICENSE",
+      "vcsCommit": "f2178312d0e3e07beecc19836b91716a229107d3",
+      "size": 2138,
+      "sha256": "3f1ce66533302df3a32edbfdfc0b78f0dd34659e4c1f5817162e5ea3c2297215"
+    }
+  ],
+  "files": {
+    "binary": {
+      "path": "licenses/sysproxy-rs-opti/bin/sysproxy.win32-x64-msvc.node",
+      "size": 583680,
+      "sha256": "646d39126e25aa6d1d2b85741bc1994ad83d9470fbaccd021692d897686fd99a"
+    },
+    "cargoLock": {
+      "path": "licenses/sysproxy-rs-opti/Cargo.lock",
+      "size": 29934,
+      "sha256": "1751a5f247d3a066845167ca149e7f4394b9e63c64b36159368eff271c655a98"
+    },
+    "inventory": {
+      "path": "licenses/sysproxy-rs-opti/rust-production-dependencies.tsv",
+      "size": 13684,
+      "sha256": "43bc4697cf6dbb2e1c8942c7b7b5edeb736a57533c31997dfb851d90b617fea9"
+    },
+    "vendorInventory": {
+      "path": "licenses/sysproxy-rs-opti/rust-lock-vendor.tsv",
+      "size": 12984,
+      "sha256": "b7d9fed5eb916cc17f4bd532ac43859f5aa2f5e649933b45ca16cd9be1cbbfa1"
+    },
+    "buildInfo": {
+      "path": "licenses/sysproxy-rs-opti/BUILD-INFO.txt",
+      "size": 1517,
+      "sha256": "789a6333387e12f84abdd2f091b13cd99d04a01c52a7bcb2ffe115a1769e06a1"
+    },
+    "notice": {
+      "path": "licenses/sysproxy-rs-opti/NOTICE.txt",
+      "size": 963,
+      "sha256": "7b58521ba3799e49a8711824f1c701aaae95163cee4562debbe868c6ddfcf927"
+    },
+    "correspondingSource": {
+      "path": "licenses/sysproxy-rs-opti/sysproxy-rs-opti-v0.1.0-windows-x64-corresponding-source.tar.gz",
+      "size": 30037359,
+      "sha256": "0ff42644b04fa62c4393a4f40b57f623ff025b4e2ea155bf8c1dfecba11546e4"
+    },
+    "licenseNotices": {
+      "path": "licenses/sysproxy-rs-opti/sysproxy-rs-opti-v0.1.0-windows-x64-license-notices.tar.gz",
+      "size": 25961,
+      "sha256": "dc85f38e0a6c1746400551df07e02e50b49fddf481f6ece8f83de3ba1270a12d"
+    }
+  }
+}

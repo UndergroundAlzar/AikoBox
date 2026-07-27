@@ -138,9 +138,31 @@ function applyTls(proxy: Dict, query: URLSearchParams, forced = false): void {
   }
 }
 
+function declaredAuthorityPort(value: string): string | undefined {
+  const authority = value.split(/[/?#]/, 1)[0]
+  const hostAndPort = authority.slice(authority.lastIndexOf('@') + 1)
+  if (hostAndPort.startsWith('[')) {
+    const closingBracket = hostAndPort.indexOf(']')
+    if (closingBracket < 0 || closingBracket === hostAndPort.length - 1) return undefined
+    return hostAndPort.slice(closingBracket + 1).startsWith(':')
+      ? hostAndPort.slice(closingBracket + 2)
+      : undefined
+  }
+  const colon = hostAndPort.lastIndexOf(':')
+  return colon >= 0 ? hostAndPort.slice(colon + 1) : undefined
+}
+
+function normalizedUrlHostname(parsed: URL): string {
+  const hostname = parsed.hostname
+  return hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname
+}
+
 function parseStandardUri(uri: string, fallback: string): Dict {
   const parsed = new URL(uri)
   const scheme = parsed.protocol.slice(0, -1).toLowerCase()
+  const declaredPort = declaredAuthorityPort(uri.slice(`${scheme}://`.length))
+  const port =
+    parsed.port || declaredPort || (scheme === 'http' && declaredPort === undefined ? '80' : '')
   const proxy: Dict = {
     name: displayName(parsed.hash, fallback),
     type:
@@ -151,8 +173,8 @@ function parseStandardUri(uri: string, fallback: string): Dict {
           : scheme === 'socks'
             ? 'socks5'
             : scheme,
-    server: parsed.hostname,
-    port: numberPort(parsed.port),
+    server: normalizedUrlHostname(parsed),
+    port: numberPort(port),
     udp: true
   }
   const username = decoded(parsed.username)
@@ -231,7 +253,10 @@ function parseStandardUri(uri: string, fallback: string): Dict {
 
 function splitEndpoint(value: string): { host: string; port: number } {
   const parsed = new URL(`http://${value}`)
-  return { host: parsed.hostname, port: numberPort(parsed.port) }
+  return {
+    host: normalizedUrlHostname(parsed),
+    port: numberPort(parsed.port || declaredAuthorityPort(value) || '')
+  }
 }
 
 function parseShadowsocks(uri: string, fallback: string): Dict {

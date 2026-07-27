@@ -1,4 +1,4 @@
-name: Windows release
+name: Windows and Android release
 
 on:
   push:
@@ -12,9 +12,81 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
+  release-contract:
+    name: Verify new tag and cross-platform version contract
+    runs-on: ubuntu-latest
+    outputs:
+      notes: ${{ steps.contract.outputs.notes }}
+      version: ${{ steps.contract.outputs.version }}
+      version_code: ${{ steps.contract.outputs.version_code }}
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Require a newly created, immutable release tag
+        shell: bash
+        env:
+          TAG_CREATED: ${{ github.event.created }}
+          TAG_FORCED: ${{ github.event.forced }}
+        run: |
+          set -euo pipefail
+          test "$TAG_CREATED" = "true" || {
+            echo "::error::Release tags must be newly created; an existing or moved tag is not publishable."
+            exit 1
+          }
+          test "$TAG_FORCED" != "true" || {
+            echo "::error::Force-updated release tags are not publishable."
+            exit 1
+          }
+          test "$(git rev-list -n 1 "$GITHUB_REF_NAME")" = "$GITHUB_SHA"
+
+      - name: Verify package, Android, tag, and release-note versions
+        id: contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          contract="$(node scripts/release-version-contract.mjs --tag "$GITHUB_REF_NAME")"
+          version="$(jq -r .version <<<"$contract")"
+          version_code="$(jq -r .versionCode <<<"$contract")"
+          notes="$(jq -r .notesPath <<<"$contract")"
+          test -f "$notes"
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          printf 'version_code=%s\n' "$version_code" >> "$GITHUB_OUTPUT"
+          printf 'notes=%s\n' "$notes" >> "$GITHUB_OUTPUT"
+          node --test scripts/release-version-contract.test.mjs
+
+      - name: Reject an existing GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          status="$(
+            curl --silent --output "$RUNNER_TEMP/existing-release.json" --write-out '%{http_code}' \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              --header 'Accept: application/vnd.github+json' \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME"
+          )"
+          if test "$status" = "200"; then
+            echo "::error::GitHub Release $GITHUB_REF_NAME already exists."
+            exit 1
+          fi
+          test "$status" = "404" || {
+            cat "$RUNNER_TEMP/existing-release.json"
+            echo "::error::Unable to prove that the GitHub Release does not already exist (HTTP $status)."
+            exit 1
+          }
+
+  windows-build:
+    name: Build and verify Windows x64
+    needs: release-contract
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     outputs:
       is_prerelease: ${{ steps.release_policy.outputs.is_prerelease }}
       signing_status: ${{ steps.release_policy.outputs.signing_status }}
@@ -28,15 +100,14 @@ jobs:
         shell: pwsh
         env:
           RELEASE_TAG: ${{ github.ref_name }}
+          CONTRACT_NOTES: ${{ needs.release-contract.outputs.notes }}
+          CONTRACT_VERSION: ${{ needs.release-contract.outputs.version }}
         run: |
-          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $version = $env:CONTRACT_VERSION
           if ($env:RELEASE_TAG -cne "v$version") {
             throw "Tag $env:RELEASE_TAG must exactly equal package version v$version"
           }
-          if ($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
-            throw "Package version $version is not a supported release version"
-          }
-          $notes = "docs/releases/$($env:RELEASE_TAG).md"
+          $notes = $env:CONTRACT_NOTES
           if (-not (Test-Path -LiteralPath $notes -PathType Leaf)) {
             throw "Missing bilingual release notes: $notes"
           }
@@ -57,6 +128,11 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      - name: Set up Go 1.26.4 for Windows sing-box source evidence
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: 1.26.4
+          cache: false
       - name: Select signed or explicitly unsigned beta policy
         id: release_policy
         shell: pwsh
@@ -92,6 +168,10 @@ jobs:
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: node scripts/prepare.mjs --x64
       - run: node --test scripts/prepare.test.mjs
+      - name: Verify fixed sysproxy corresponding-source and license evidence
+        run: |
+          pnpm run verify:license-sysproxy
+          pnpm run test:license-sysproxy
       - name: Test CI Electron smoke safety boundaries
         run: |
           pnpm run test:electron-smoke
@@ -100,28 +180,19 @@ jobs:
         run: pnpm run test:verify-release
       - name: Audit third-party redistribution evidence
         shell: pwsh
-        env:
-          IS_PRERELEASE: ${{ steps.release_policy.outputs.is_prerelease }}
         run: |
-          $arguments = @('run', 'audit:licenses')
-          if ($env:IS_PRERELEASE -eq 'true') {
-            $arguments += @('--', '--allow-known-blockers')
-          }
-          $auditOutput = @(& pnpm @arguments 2>&1 | ForEach-Object { "$_" })
+          $auditOutput = @(& pnpm run audit:licenses 2>&1 | ForEach-Object { "$_" })
           $auditExitCode = $LASTEXITCODE
           $header = @(
             "AikoBox third-party license audit for $env:GITHUB_REF_NAME",
             "Commit: $env:GITHUB_SHA",
-            "Policy: $(if ($env:IS_PRERELEASE -eq 'true') { 'known blockers disclosed for prerelease' } else { 'zero blockers required for stable release' })",
+            'Policy: zero unresolved redistribution blockers required for every binary release',
             ''
           )
           @($header + $auditOutput) | Set-Content -LiteralPath "$env:RUNNER_TEMP/THIRD_PARTY-LICENSE-AUDIT.txt" -Encoding utf8
           $auditOutput | ForEach-Object { Write-Host $_ }
           if ($auditExitCode -ne 0) {
             throw "Third-party license audit failed with exit code $auditExitCode"
-          }
-          if ($env:IS_PRERELEASE -eq 'true' -and ($auditOutput -match '^\[BLOCKED\]')) {
-            Write-Warning 'This prerelease contains known redistribution-evidence blockers; they will be published verbatim with the release.'
           }
       - run: pnpm exec electron-builder install-app-deps
       - run: pnpm run review
@@ -165,6 +236,97 @@ jobs:
         env:
           AIKOBOX_RELEASE_TAG: ${{ github.ref_name }}
         run: pnpm run verify:release
+      - name: Generate fail-closed Windows sing-box corresponding-source assets
+        shell: pwsh
+        run: |
+          $source = Join-Path $env:RUNNER_TEMP 'sing-box-windows-source'
+          git clone --filter=blob:none https://github.com/SagerNet/sing-box.git $source
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to clone fixed sing-box source' }
+          git -C $source checkout --detach 25a600db24f7680ad9806ce5427bd0ab8afe1114
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to check out fixed sing-box commit' }
+          $head = (git -C $source rev-parse HEAD).Trim()
+          if ($head -cne '25a600db24f7680ad9806ce5427bd0ab8afe1114') {
+            throw "Unexpected sing-box source commit $head"
+          }
+          if ((go env GOVERSION).Trim() -cne 'go1.26.4') {
+            throw "Windows sing-box evidence requires Go 1.26.4"
+          }
+
+          node scripts/license-windows-sing-box-release.mjs `
+            --source-dir $source `
+            --binary extra/sidecar/sing-box.exe `
+            --go (Get-Command go.exe).Source `
+            --dist-dir dist
+          if ($LASTEXITCODE -ne 0) { throw 'Windows sing-box release-evidence generator failed' }
+
+          $prefix = 'aikobox-sing-box-1.13.14-windows-amd64'
+          Copy-Item -LiteralPath THIRD_PARTY_NOTICES.md -Destination "dist/$prefix-NOTICE.txt"
+          $coverage = Get-Content -LiteralPath "dist/$prefix-COVERAGE.json" -Raw | ConvertFrom-Json
+          if (
+            $coverage.releaseReady -ne $true -or
+            @($coverage.blockers).Count -ne 0 -or
+            $coverage.component -cne 'sing-box' -or
+            $coverage.version -cne '1.13.14' -or
+            $coverage.commit -cne '25a600db24f7680ad9806ce5427bd0ab8afe1114' -or
+            $coverage.target -cne 'windows/amd64' -or
+            $coverage.actualStaticModules -ne 100
+          ) {
+            throw 'Windows sing-box coverage report is not release-ready or has the wrong identity'
+          }
+          $checksumNames = @(
+            "$prefix-corresponding-source.tar.gz",
+            "$prefix-licenses.tar.gz",
+            "$prefix-COVERAGE.json",
+            "$prefix-NOTICE.txt"
+          ) | Sort-Object
+          $checksumLines = foreach ($name in $checksumNames) {
+            $path = Join-Path dist $name
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Missing Windows sing-box release evidence $name"
+            }
+            $digest = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$digest  $name"
+          }
+          $checksumLines | Set-Content -LiteralPath "dist/$prefix-SHA256SUMS.txt" -Encoding utf8
+          pnpm run test:license-windows-sing-box-release
+      - name: Stage the exact sysproxy redistribution assets
+        shell: pwsh
+        run: |
+          $prefix = 'aikobox-sysproxy-rs-opti-v0.1.0-windows-x64'
+          $evidenceRoot = 'licenses/sysproxy-rs-opti'
+          $mappings = [ordered]@{
+            "$prefix-corresponding-source.tar.gz" = "$evidenceRoot/sysproxy-rs-opti-v0.1.0-windows-x64-corresponding-source.tar.gz"
+            "$prefix-license-notices.tar.gz" = "$evidenceRoot/sysproxy-rs-opti-v0.1.0-windows-x64-license-notices.tar.gz"
+            "$prefix-NOTICE.txt" = "$evidenceRoot/NOTICE.txt"
+            "$prefix-EVIDENCE.json" = "$evidenceRoot/evidence-lock.json"
+          }
+          foreach ($entry in $mappings.GetEnumerator()) {
+            if (-not (Test-Path -LiteralPath $entry.Value -PathType Leaf)) {
+              throw "Missing required sysproxy redistribution evidence: $($entry.Value)"
+            }
+            Copy-Item -LiteralPath $entry.Value -Destination (Join-Path dist $entry.Key)
+          }
+
+          $lock = Get-Content -LiteralPath "$evidenceRoot/evidence-lock.json" -Raw | ConvertFrom-Json
+          if (
+            $lock.schemaVersion -ne 1 -or
+            $lock.upstream.tag -cne 'v0.1.0' -or
+            $lock.upstream.commit -cne 'ce9463d95ed5839a43c6a0d7cccf3b3fb892de3a' -or
+            $lock.upstream.crateVersion -cne '0.5.1' -or
+            $lock.build.target -cne 'x86_64-pc-windows-msvc' -or
+            $lock.dependencyCount -ne 48 -or
+            $lock.vendorPackageCount -ne 126
+          ) {
+            throw 'sysproxy evidence lock has the wrong identity or an incomplete dependency graph'
+          }
+
+          $checksumNames = @($mappings.Keys | Sort-Object)
+          $checksumLines = foreach ($name in $checksumNames) {
+            $path = Join-Path dist $name
+            $digest = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$digest  $name"
+          }
+          $checksumLines | Set-Content -LiteralPath "dist/$prefix-SHA256SUMS.txt" -Encoding utf8
       - name: Create the exact bilingual GitHub release body
         shell: pwsh
         env:
@@ -192,73 +354,601 @@ jobs:
           }
           Add-Content -LiteralPath dist/RELEASE_NOTES.md -Value @'
 
+          ## Android 签名状态 / Android signing status
+
+          Android ARM64 APK 使用仓库固定发布密钥签名。发布工作流已验证 APK 签名、配置的证书 SHA-256、版本名、应用 ID、SHA-256，并确认原生库仅包含 `arm64-v8a` 且存在 `libbox.so`。
+
+          The Android ARM64 APK is signed with the repository's fixed release key. The workflow verified the APK signature, configured certificate SHA-256, version name, application ID, SHA-256, arm64-v8a-only native payload, and the required `libbox.so`.
+
           ## 第三方许可审计 / Third-party license audit
 
-          本次构建的完整审计输出作为 `THIRD_PARTY-LICENSE-AUDIT.txt` 随 Release 发布。Beta 允许继续发布已被准确记录的已知许可证据缺口；这不表示这些缺口已经解决。正式版本仍要求零缺口。
+          本次构建的完整审计输出作为 `THIRD_PARTY-LICENSE-AUDIT.txt` 随 Release 发布。发布门禁要求所有运行时资源的再分发证据均已验证，不允许 Beta 绕过已知缺口。
 
-          The complete audit output is attached as `THIRD_PARTY-LICENSE-AUDIT.txt`. A beta may proceed only with accurately recorded and disclosed known evidence gaps; this does not mean those gaps are resolved. Stable releases still require zero blockers.
+          The complete audit output is attached as `THIRD_PARTY-LICENSE-AUDIT.txt`. Every binary release, including a beta, must pass the fail-closed redistribution audit with zero unresolved runtime-resource blockers.
           '@
-      - name: Write the public asset manifest
+      - name: Stage Windows release metadata
         shell: pwsh
-        env:
-          SIGNING_STATUS: ${{ steps.release_policy.outputs.signing_status }}
         run: |
           Copy-Item -LiteralPath "$env:RUNNER_TEMP/THIRD_PARTY-LICENSE-AUDIT.txt" -Destination dist/THIRD_PARTY-LICENSE-AUDIT.txt
-          $authenticode = if ($env:SIGNING_STATUS -eq 'signed') { 'Valid, identity and timestamp verified' } else { 'NotSigned (unsigned prerelease)' }
-          $manifest = @(
-            "AikoBox release asset manifest",
-            "Tag: $env:GITHUB_REF_NAME",
-            "Commit: $env:GITHUB_SHA",
-            "Authenticode: $authenticode",
-            "Target: Windows x64",
-            ''
-          )
-          $payloads = @(Get-ChildItem -LiteralPath dist -File | Where-Object { $_.Name -match '(-setup\.exe$|-portable\.exe$|\.exe\.sha256$|^SHA256SUMS\.txt$)' } | Sort-Object Name)
-          foreach ($payload in $payloads) {
-            $digest = (Get-FileHash -LiteralPath $payload.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            $manifest += "$digest  $($payload.Length)  $($payload.Name)"
-          }
-          $manifest | Set-Content -LiteralPath dist/RELEASE-MANIFEST.txt -Encoding utf8
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: aikobox-${{ github.ref_name }}-${{ steps.release_policy.outputs.signing_status }}
+          name: aikobox-windows-${{ github.ref_name }}-${{ steps.release_policy.outputs.signing_status }}
           path: |
             dist/*-setup.exe
             dist/*-portable.exe
-            dist/*.sha256
-            dist/SHA256SUMS.txt
-            dist/RELEASE-MANIFEST.txt
+            dist/*.exe.sha256
+            dist/aikobox-sing-box-1.13.14-windows-amd64-corresponding-source.tar.gz
+            dist/aikobox-sing-box-1.13.14-windows-amd64-licenses.tar.gz
+            dist/aikobox-sing-box-1.13.14-windows-amd64-COVERAGE.json
+            dist/aikobox-sing-box-1.13.14-windows-amd64-NOTICE.txt
+            dist/aikobox-sing-box-1.13.14-windows-amd64-SHA256SUMS.txt
+            dist/aikobox-sysproxy-rs-opti-v0.1.0-windows-x64-corresponding-source.tar.gz
+            dist/aikobox-sysproxy-rs-opti-v0.1.0-windows-x64-license-notices.tar.gz
+            dist/aikobox-sysproxy-rs-opti-v0.1.0-windows-x64-NOTICE.txt
+            dist/aikobox-sysproxy-rs-opti-v0.1.0-windows-x64-EVIDENCE.json
+            dist/aikobox-sysproxy-rs-opti-v0.1.0-windows-x64-SHA256SUMS.txt
             dist/RELEASE_NOTES.md
             dist/THIRD_PARTY-LICENSE-AUDIT.txt
           if-no-files-found: error
           retention-days: 7
 
+  android-build:
+    name: Build and verify signed Android arm64-v8a
+    needs: release-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      ANDROID_APPLICATION_ID: com.aikobox.app
+      ANDROID_BUILD_TOOLS: 36.0.0
+      ANDROID_COMPILE_SDK: '36'
+      ANDROID_NDK_VERSION: 28.0.13004108
+      ANDROID_APP_NDK_VERSION: 28.2.13676358
+      FLUTTER_VERSION: 3.44.4
+      GO_VERSION: 1.24.7
+      LIBBOX_COMMIT: 25a600db24f7680ad9806ce5427bd0ab8afe1114
+      LIBBOX_GOMOBILE_VERSION: v0.1.12
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Require exact Android release version and main ancestry
+        id: release_version
+        shell: bash
+        env:
+          CONTRACT_VERSION: ${{ needs.release-contract.outputs.version }}
+          CONTRACT_VERSION_CODE: ${{ needs.release-contract.outputs.version_code }}
+        run: |
+          set -euo pipefail
+          version="$CONTRACT_VERSION"
+          test "$GITHUB_REF_NAME" = "v${version}"
+          test -f "docs/releases/${GITHUB_REF_NAME}.md"
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          printf 'version_code=%s\n' "$CONTRACT_VERSION_CODE" >> "$GITHUB_OUTPUT"
+
+      - name: Enable pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 10.27.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install verifier dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Set up OpenJDK 17
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Go 1.24.7
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: 1.24.7
+          cache: false
+
+      - name: Install fixed Android SDK and NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager \
+            "platforms;android-${ANDROID_COMPILE_SDK}" \
+            "build-tools;${ANDROID_BUILD_TOOLS}" \
+            "ndk;${ANDROID_NDK_VERSION}" \
+            "ndk;${ANDROID_APP_NDK_VERSION}"
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "${ANDROID_SDK_ROOT}/build-tools/${ANDROID_BUILD_TOOLS}" >> "$GITHUB_PATH"
+
+      - name: Install Flutter 3.44.4
+        shell: bash
+        run: |
+          set -euo pipefail
+          metadata="$RUNNER_TEMP/flutter-releases.json"
+          archive="$RUNNER_TEMP/flutter.tar.xz"
+          curl --fail --location --retry 3 \
+            https://storage.googleapis.com/flutter_infra_release/releases/releases_linux.json \
+            --output "$metadata"
+          archive_path="$(jq -r --arg version "$FLUTTER_VERSION" \
+            '.releases[] | select(.channel == "stable" and .version == $version) | .archive' \
+            "$metadata" | head -n1)"
+          archive_sha="$(jq -r --arg version "$FLUTTER_VERSION" \
+            '.releases[] | select(.channel == "stable" and .version == $version) | .sha256' \
+            "$metadata" | head -n1)"
+          test "$archive_path" = "stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz"
+          test "$archive_sha" != "null" && test -n "$archive_sha"
+          curl --fail --location --retry 3 \
+            "https://storage.googleapis.com/flutter_infra_release/releases/${archive_path}" \
+            --output "$archive"
+          printf '%s  %s\n' "$archive_sha" "$archive" | sha256sum --check -
+          tar -xJf "$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: Verify fixed toolchain versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          java --version 2>&1 | tee /tmp/java-version
+          grep -E 'openjdk 17(\.| )' /tmp/java-version
+          test "$(go env GOVERSION)" = "go${GO_VERSION}"
+          flutter --version --machine > /tmp/flutter-version.json
+          test "$(jq -r .frameworkVersion /tmp/flutter-version.json)" = "${FLUTTER_VERSION}"
+          test -f "${ANDROID_NDK_HOME}/source.properties"
+          grep -F "Pkg.Revision = ${ANDROID_NDK_VERSION}" "${ANDROID_NDK_HOME}/source.properties"
+          grep -F "Pkg.Revision = ${ANDROID_APP_NDK_VERSION}" \
+            "${ANDROID_SDK_ROOT}/ndk/${ANDROID_APP_NDK_VERSION}/source.properties"
+
+      - name: Build the locked arm64 libbox AAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/SagerNet/sing-box.git "$RUNNER_TEMP/sing-box"
+          git -C "$RUNNER_TEMP/sing-box" checkout --detach "${LIBBOX_COMMIT}"
+          test "$(git -C "$RUNNER_TEMP/sing-box" rev-parse HEAD)" = "${LIBBOX_COMMIT}"
+          go install "github.com/sagernet/gomobile/cmd/gomobile@${LIBBOX_GOMOBILE_VERSION}"
+          go install "github.com/sagernet/gomobile/cmd/gobind@${LIBBOX_GOMOBILE_VERSION}"
+          (
+            cd "$RUNNER_TEMP/sing-box"
+            go run ./cmd/internal/build_libbox -target android -platform android/arm64
+          )
+          mkdir -p apps/android/android/app/libs
+          cp "$RUNNER_TEMP/sing-box/libbox.aar" apps/android/android/app/libs/libbox.aar
+          unzip -Z1 apps/android/android/app/libs/libbox.aar | tee /tmp/libbox-aar.txt
+          test "$(grep -Ec '^jni/[^/]+/libbox\.so$' /tmp/libbox-aar.txt)" -eq 1
+          grep -Fx 'jni/arm64-v8a/libbox.so' /tmp/libbox-aar.txt
+          test -z "$(grep -E '^jni/[^/]+/.*\.so$' /tmp/libbox-aar.txt | grep -v '^jni/arm64-v8a/' || true)"
+
+      - name: Generate fail-closed libbox corresponding-source and license assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          component_prefix="aikobox-libbox-1.13.14-android-arm64"
+          component_dist="$GITHUB_WORKSPACE/dist-android"
+          node scripts/license-android-libbox-release.mjs \
+            --source-dir "$RUNNER_TEMP/sing-box" \
+            --aar "$GITHUB_WORKSPACE/apps/android/android/app/libs/libbox.aar" \
+            --go "$(command -v go)" \
+            --dist-dir "$component_dist"
+
+          source_archive="$component_dist/${component_prefix}-corresponding-source.tar.gz"
+          license_archive="$component_dist/${component_prefix}-licenses.tar.gz"
+          coverage="$component_dist/${component_prefix}-COVERAGE.json"
+          notice="$component_dist/${component_prefix}-NOTICE.txt"
+          component_sums="$component_dist/${component_prefix}-SHA256SUMS.txt"
+
+          cp licenses/sing-box-1.13.14/android-arm64/NOTICE.txt "$notice"
+          for path in "$source_archive" "$license_archive" "$coverage" "$notice"; do
+            test -s "$path"
+          done
+          jq -e \
+            --arg commit "$LIBBOX_COMMIT" \
+            '.releaseReady == true and
+             (.blockers | length) == 0 and
+             .component == "sing-box/libbox" and
+             .version == "1.13.14" and
+             .commit == $commit and
+             .target == "android/arm64"' \
+            "$coverage" >/dev/null
+          (
+            cd "$component_dist"
+            sha256sum \
+              "${component_prefix}-corresponding-source.tar.gz" \
+              "${component_prefix}-licenses.tar.gz" \
+              "${component_prefix}-COVERAGE.json" \
+              "${component_prefix}-NOTICE.txt" |
+              LC_ALL=C sort > "${component_prefix}-SHA256SUMS.txt"
+          )
+          test -s "$component_sums"
+          (
+            cd "$component_dist"
+            sha256sum --check "${component_prefix}-SHA256SUMS.txt"
+          )
+          node --test scripts/license-android-libbox-release.test.mjs
+
+      - name: Require a complete Android signing identity
+        shell: bash
+        env:
+          ANDROID_CERTIFICATE_SHA256: ${{ secrets.ANDROID_CERTIFICATE_SHA256 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in ANDROID_CERTIFICATE_SHA256 ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD; do
+            test -n "${!name}" || { echo "::error::Missing required secret ${name}"; exit 1; }
+          done
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/aikobox-release.jks"
+          test -s "$RUNNER_TEMP/aikobox-release.jks"
+          chmod 600 "$RUNNER_TEMP/aikobox-release.jks"
+
+      - name: Analyze, test, and build signed release APK
+        working-directory: apps/android
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x android/gradlew
+          flutter pub get --enforce-lockfile
+          flutter analyze --fatal-infos --fatal-warnings
+          flutter test
+          flutter build apk \
+            --release \
+            --target-platform android-arm64 \
+            --build-name "${{ steps.release_version.outputs.version }}" \
+            --build-number "${{ steps.release_version.outputs.version_code }}"
+
+      - name: Verify APK version, signature, ABI, libbox, and SHA-256
+        shell: bash
+        env:
+          ANDROID_CERTIFICATE_SHA256: ${{ secrets.ANDROID_CERTIFICATE_SHA256 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          RELEASE_VERSION: ${{ steps.release_version.outputs.version }}
+          RELEASE_VERSION_CODE: ${{ steps.release_version.outputs.version_code }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist-android
+          unsigned_apk="apps/android/build/app/outputs/flutter-apk/app-release.apk"
+          aligned_apk="$RUNNER_TEMP/aikobox-aligned.apk"
+          apk="dist-android/aikobox-android-${RELEASE_VERSION}-arm64-v8a.apk"
+          zipalign -f -p 4 "$unsigned_apk" "$aligned_apk"
+          apksigner sign \
+            --ks "$RUNNER_TEMP/aikobox-release.jks" \
+            --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-pass env:ANDROID_KEYSTORE_PASSWORD \
+            --key-pass env:ANDROID_KEY_PASSWORD \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            --out "$apk" \
+            "$aligned_apk"
+          digest="$(sha256sum "$apk" | cut -d' ' -f1)"
+          printf '%s  %s\n' "$digest" "$(basename "$apk")" > "${apk}.sha256"
+          node scripts/verify-android-release.mjs \
+            --apk "$(realpath "$apk")" \
+            --sha256 "$(realpath "${apk}.sha256")" \
+            --apkanalyzer "$(command -v apkanalyzer)" \
+            --apksigner "$(command -v apksigner)" \
+            --application-id "$ANDROID_APPLICATION_ID" \
+            --certificate-sha256 "$ANDROID_CERTIFICATE_SHA256" \
+            --version "$RELEASE_VERSION" \
+            --version-code "$RELEASE_VERSION_CODE"
+          node --test scripts/verify-android-release.test.mjs
+
+      - name: Upload verified Android assets
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: aikobox-android-${{ github.ref_name }}-signed
+          path: |
+            dist-android/aikobox-android-${{ steps.release_version.outputs.version }}-arm64-v8a.apk
+            dist-android/aikobox-android-${{ steps.release_version.outputs.version }}-arm64-v8a.apk.sha256
+            dist-android/aikobox-libbox-1.13.14-android-arm64-corresponding-source.tar.gz
+            dist-android/aikobox-libbox-1.13.14-android-arm64-licenses.tar.gz
+            dist-android/aikobox-libbox-1.13.14-android-arm64-COVERAGE.json
+            dist-android/aikobox-libbox-1.13.14-android-arm64-NOTICE.txt
+            dist-android/aikobox-libbox-1.13.14-android-arm64-SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 7
+
   publish:
-    needs: build
+    name: Publish unified verified release
+    needs: [release-contract, windows-build, android-build]
     runs-on: windows-latest
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: aikobox-${{ github.ref_name }}-${{ needs.build.outputs.signing_status }}
+          name: aikobox-windows-${{ github.ref_name }}-${{ needs.windows-build.outputs.signing_status }}
           path: dist
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: aikobox-android-${{ github.ref_name }}-signed
+          path: dist
+      - name: Build the unified checksum list and public manifest
+        shell: pwsh
+        env:
+          SIGNING_STATUS: ${{ needs.windows-build.outputs.signing_status }}
+        run: |
+          $version = $env:GITHUB_REF_NAME.Substring(1)
+          $expectedBinaries = @(
+            "aikobox-windows-$version-x64-setup.exe",
+            "aikobox-windows-$version-x64-portable.exe",
+            "aikobox-android-$version-arm64-v8a.apk"
+          )
+          $binarySidecars = @($expectedBinaries | ForEach-Object { "$_.sha256" })
+          $libboxPrefix = 'aikobox-libbox-1.13.14-android-arm64'
+          $libboxAssets = @(
+            "$libboxPrefix-corresponding-source.tar.gz",
+            "$libboxPrefix-licenses.tar.gz",
+            "$libboxPrefix-COVERAGE.json",
+            "$libboxPrefix-NOTICE.txt",
+            "$libboxPrefix-SHA256SUMS.txt"
+          )
+          $windowsSingBoxPrefix = 'aikobox-sing-box-1.13.14-windows-amd64'
+          $windowsSingBoxAssets = @(
+            "$windowsSingBoxPrefix-corresponding-source.tar.gz",
+            "$windowsSingBoxPrefix-licenses.tar.gz",
+            "$windowsSingBoxPrefix-COVERAGE.json",
+            "$windowsSingBoxPrefix-NOTICE.txt",
+            "$windowsSingBoxPrefix-SHA256SUMS.txt"
+          )
+          $sysproxyPrefix = 'aikobox-sysproxy-rs-opti-v0.1.0-windows-x64'
+          $sysproxyAssets = @(
+            "$sysproxyPrefix-corresponding-source.tar.gz",
+            "$sysproxyPrefix-license-notices.tar.gz",
+            "$sysproxyPrefix-EVIDENCE.json",
+            "$sysproxyPrefix-NOTICE.txt",
+            "$sysproxyPrefix-SHA256SUMS.txt"
+          )
+          $expectedPayloadAssets = @(
+            $expectedBinaries
+            $binarySidecars
+            'THIRD_PARTY-LICENSE-AUDIT.txt'
+            $libboxAssets
+            $windowsSingBoxAssets
+            $sysproxyAssets
+          )
+          $expectedStagedFiles = @($expectedPayloadAssets + 'RELEASE_NOTES.md' | Sort-Object)
+          $actualStagedFiles = @(
+            Get-ChildItem -LiteralPath dist -File |
+              Select-Object -ExpandProperty Name |
+              Sort-Object
+          )
+          if ((Compare-Object $expectedStagedFiles $actualStagedFiles).Count -ne 0) {
+            throw "Downloaded release staging set differs from the explicit contract.`nExpected: $($expectedStagedFiles -join ', ')`nActual: $($actualStagedFiles -join ', ')"
+          }
+
+          foreach ($name in $expectedBinaries) {
+            $binary = Join-Path dist $name
+            $sidecar = "$binary.sha256"
+            $digest = (Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()
+            $line = "$digest  $name"
+            if ((Get-Content -LiteralPath $sidecar -Raw).Trim() -cne $line) {
+              throw "Checksum sidecar does not match $name"
+            }
+          }
+
+          $coveragePath = Join-Path dist "$libboxPrefix-COVERAGE.json"
+          $coverage = Get-Content -LiteralPath $coveragePath -Raw | ConvertFrom-Json
+          if (
+            $coverage.releaseReady -ne $true -or
+            @($coverage.blockers).Count -ne 0 -or
+            $coverage.component -cne 'sing-box/libbox' -or
+            $coverage.version -cne '1.13.14' -or
+            $coverage.commit -cne '25a600db24f7680ad9806ce5427bd0ab8afe1114' -or
+            $coverage.target -cne 'android/arm64'
+          ) {
+            throw 'Android libbox coverage report is not release-ready or has the wrong component identity'
+          }
+
+          $componentChecksumsPath = Join-Path dist "$libboxPrefix-SHA256SUMS.txt"
+          $expectedComponentFiles = @(
+            "$libboxPrefix-corresponding-source.tar.gz",
+            "$libboxPrefix-licenses.tar.gz",
+            "$libboxPrefix-COVERAGE.json",
+            "$libboxPrefix-NOTICE.txt"
+          ) | Sort-Object
+          $componentChecksumEntries = @(
+            Get-Content -LiteralPath $componentChecksumsPath |
+              Where-Object { $_.Trim().Length -gt 0 } |
+              ForEach-Object {
+                if ($_ -cnotmatch '^([a-f0-9]{64})  ([A-Za-z0-9._-]+)$') {
+                  throw "Malformed libbox component checksum line: $_"
+                }
+                [pscustomobject]@{ Digest = $Matches[1]; Name = $Matches[2] }
+              }
+          )
+          $actualComponentFiles = @($componentChecksumEntries.Name | Sort-Object)
+          if ((Compare-Object $expectedComponentFiles $actualComponentFiles).Count -ne 0) {
+            throw 'Libbox component checksum file does not cover the exact required asset set'
+          }
+          foreach ($entry in $componentChecksumEntries) {
+            $actualDigest = (Get-FileHash -LiteralPath (Join-Path dist $entry.Name) -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actualDigest -cne $entry.Digest) {
+              throw "Libbox component checksum does not match $($entry.Name)"
+            }
+          }
+
+          $windowsSingBoxCoverage = Get-Content -LiteralPath (Join-Path dist "$windowsSingBoxPrefix-COVERAGE.json") -Raw | ConvertFrom-Json
+          if (
+            $windowsSingBoxCoverage.releaseReady -ne $true -or
+            @($windowsSingBoxCoverage.blockers).Count -ne 0 -or
+            $windowsSingBoxCoverage.component -cne 'sing-box' -or
+            $windowsSingBoxCoverage.version -cne '1.13.14' -or
+            $windowsSingBoxCoverage.commit -cne '25a600db24f7680ad9806ce5427bd0ab8afe1114' -or
+            $windowsSingBoxCoverage.target -cne 'windows/amd64' -or
+            $windowsSingBoxCoverage.actualStaticModules -ne 100
+          ) {
+            throw 'Windows sing-box coverage report is not release-ready or has the wrong component identity'
+          }
+          $expectedWindowsSingBoxFiles = @(
+            "$windowsSingBoxPrefix-corresponding-source.tar.gz",
+            "$windowsSingBoxPrefix-licenses.tar.gz",
+            "$windowsSingBoxPrefix-COVERAGE.json",
+            "$windowsSingBoxPrefix-NOTICE.txt"
+          ) | Sort-Object
+          $windowsSingBoxChecksumEntries = @(
+            Get-Content -LiteralPath (Join-Path dist "$windowsSingBoxPrefix-SHA256SUMS.txt") |
+              Where-Object { $_.Trim().Length -gt 0 } |
+              ForEach-Object {
+                if ($_ -cnotmatch '^([a-f0-9]{64})  ([A-Za-z0-9._-]+)$') {
+                  throw "Malformed Windows sing-box component checksum line: $_"
+                }
+                [pscustomobject]@{ Digest = $Matches[1]; Name = $Matches[2] }
+              }
+          )
+          $actualWindowsSingBoxFiles = @($windowsSingBoxChecksumEntries.Name | Sort-Object)
+          if ((Compare-Object $expectedWindowsSingBoxFiles $actualWindowsSingBoxFiles).Count -ne 0) {
+            throw 'Windows sing-box checksum file does not cover the exact required asset set'
+          }
+          foreach ($entry in $windowsSingBoxChecksumEntries) {
+            $actualDigest = (Get-FileHash -LiteralPath (Join-Path dist $entry.Name) -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actualDigest -cne $entry.Digest) {
+              throw "Windows sing-box component checksum does not match $($entry.Name)"
+            }
+          }
+
+          $sysproxyEvidencePath = Join-Path dist "$sysproxyPrefix-EVIDENCE.json"
+          $sysproxyEvidence = Get-Content -LiteralPath $sysproxyEvidencePath -Raw | ConvertFrom-Json
+          if (
+            $sysproxyEvidence.schemaVersion -ne 1 -or
+            $sysproxyEvidence.upstream.tag -cne 'v0.1.0' -or
+            $sysproxyEvidence.upstream.commit -cne 'ce9463d95ed5839a43c6a0d7cccf3b3fb892de3a' -or
+            $sysproxyEvidence.upstream.crateVersion -cne '0.5.1' -or
+            $sysproxyEvidence.build.target -cne 'x86_64-pc-windows-msvc' -or
+            $sysproxyEvidence.dependencyCount -ne 48 -or
+            $sysproxyEvidence.vendorPackageCount -ne 126
+          ) {
+            throw 'sysproxy evidence report has the wrong identity or an incomplete dependency graph'
+          }
+          $expectedSysproxyFiles = @(
+            "$sysproxyPrefix-corresponding-source.tar.gz",
+            "$sysproxyPrefix-license-notices.tar.gz",
+            "$sysproxyPrefix-EVIDENCE.json",
+            "$sysproxyPrefix-NOTICE.txt"
+          ) | Sort-Object
+          $sysproxyChecksumEntries = @(
+            Get-Content -LiteralPath (Join-Path dist "$sysproxyPrefix-SHA256SUMS.txt") |
+              Where-Object { $_.Trim().Length -gt 0 } |
+              ForEach-Object {
+                if ($_ -cnotmatch '^([a-f0-9]{64})  ([A-Za-z0-9._-]+)$') {
+                  throw "Malformed sysproxy component checksum line: $_"
+                }
+                [pscustomobject]@{ Digest = $Matches[1]; Name = $Matches[2] }
+              }
+          )
+          $actualSysproxyFiles = @($sysproxyChecksumEntries.Name | Sort-Object)
+          if ((Compare-Object $expectedSysproxyFiles $actualSysproxyFiles).Count -ne 0) {
+            throw 'sysproxy component checksum file does not cover the exact required asset set'
+          }
+          foreach ($entry in $sysproxyChecksumEntries) {
+            $actualDigest = (Get-FileHash -LiteralPath (Join-Path dist $entry.Name) -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actualDigest -cne $entry.Digest) {
+              throw "sysproxy component checksum does not match $($entry.Name)"
+            }
+          }
+
+          $authenticode = if ($env:SIGNING_STATUS -eq 'signed') { 'Valid, identity and timestamp verified' } else { 'NotSigned (unsigned prerelease)' }
+          $manifest = @(
+            'AikoBox release asset manifest',
+            "Tag: $env:GITHUB_REF_NAME",
+            "Commit: $env:GITHUB_SHA",
+            "Windows Authenticode: $authenticode",
+            'Android APK signature: Valid, configured certificate identity verified',
+            'Targets: Windows x64; Android arm64-v8a',
+            'libbox: sing-box v1.13.14 (25a600db24f7680ad9806ce5427bd0ab8afe1114)',
+            'Windows core: sing-box v1.13.14 (25a600db24f7680ad9806ce5427bd0ab8afe1114)',
+            'sysproxy: sysproxy-rs-opti v0.1.0 (ce9463d95ed5839a43c6a0d7cccf3b3fb892de3a)',
+            'License policy: fail-closed audit with zero unresolved redistribution blockers',
+            'Index policy: SHA256SUMS.txt covers every published asset except itself',
+            ''
+          )
+          foreach ($name in ($expectedPayloadAssets | Sort-Object)) {
+            $file = Get-Item -LiteralPath (Join-Path dist $name)
+            $digest = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            $manifest += "$digest  $($file.Length)  $name"
+          }
+          $manifest | Set-Content -LiteralPath dist/RELEASE-MANIFEST.txt -Encoding utf8
+
+          $checksumTargets = @($expectedPayloadAssets + 'RELEASE-MANIFEST.txt' | Sort-Object)
+          $checksumLines = foreach ($name in $checksumTargets) {
+            $file = Get-Item -LiteralPath (Join-Path dist $name)
+            $digest = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$digest  $name"
+          }
+          $checksumLines | Set-Content -LiteralPath dist/SHA256SUMS.txt -Encoding utf8
       - name: Publish the verified release set
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
-          IS_PRERELEASE: ${{ needs.build.outputs.is_prerelease }}
-          SIGNING_STATUS: ${{ needs.build.outputs.signing_status }}
+          IS_PRERELEASE: ${{ needs.windows-build.outputs.is_prerelease }}
+          SIGNING_STATUS: ${{ needs.windows-build.outputs.signing_status }}
         run: |
-          $assets = @(
+          $tagRef = & gh api "repos/$env:GH_REPO/git/ref/tags/$env:RELEASE_TAG" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw "Unable to resolve release tag $env:RELEASE_TAG" }
+          $tagObject = $tagRef.object
+          $peelDepth = 0
+          while ($tagObject.type -eq 'tag') {
+            if (++$peelDepth -gt 8) { throw "Release tag $env:RELEASE_TAG has an excessive annotation chain" }
+            $annotatedTag = & gh api "repos/$env:GH_REPO/git/tags/$($tagObject.sha)" | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0) { throw "Unable to peel annotated release tag $env:RELEASE_TAG" }
+            $tagObject = $annotatedTag.object
+          }
+          if ($tagObject.type -ne 'commit' -or $tagObject.sha -cne $env:GITHUB_SHA) {
+            throw "Release tag $env:RELEASE_TAG currently targets $($tagObject.type) $($tagObject.sha), expected commit $env:GITHUB_SHA"
+          }
+
+          $version = $env:RELEASE_TAG.Substring(1)
+          $expectedAssetNames = @(
+            "aikobox-windows-$version-x64-setup.exe",
+            "aikobox-windows-$version-x64-setup.exe.sha256",
+            "aikobox-windows-$version-x64-portable.exe",
+            "aikobox-windows-$version-x64-portable.exe.sha256",
+            "aikobox-android-$version-arm64-v8a.apk",
+            "aikobox-android-$version-arm64-v8a.apk.sha256",
+            'aikobox-libbox-1.13.14-android-arm64-corresponding-source.tar.gz',
+            'aikobox-libbox-1.13.14-android-arm64-licenses.tar.gz',
+            'aikobox-libbox-1.13.14-android-arm64-COVERAGE.json',
+            'aikobox-libbox-1.13.14-android-arm64-NOTICE.txt',
+            'aikobox-libbox-1.13.14-android-arm64-SHA256SUMS.txt',
+            'aikobox-sing-box-1.13.14-windows-amd64-corresponding-source.tar.gz',
+            'aikobox-sing-box-1.13.14-windows-amd64-licenses.tar.gz',
+            'aikobox-sing-box-1.13.14-windows-amd64-COVERAGE.json',
+            'aikobox-sing-box-1.13.14-windows-amd64-NOTICE.txt',
+            'aikobox-sing-box-1.13.14-windows-amd64-SHA256SUMS.txt',
+            'aikobox-sysproxy-rs-opti-v0.1.0-windows-x64-corresponding-source.tar.gz',
+            'aikobox-sysproxy-rs-opti-v0.1.0-windows-x64-license-notices.tar.gz',
+            'aikobox-sysproxy-rs-opti-v0.1.0-windows-x64-EVIDENCE.json',
+            'aikobox-sysproxy-rs-opti-v0.1.0-windows-x64-NOTICE.txt',
+            'aikobox-sysproxy-rs-opti-v0.1.0-windows-x64-SHA256SUMS.txt',
+            'THIRD_PARTY-LICENSE-AUDIT.txt',
+            'RELEASE-MANIFEST.txt',
+            'SHA256SUMS.txt'
+          ) | Sort-Object
+          $actualAssetNames = @(
             Get-ChildItem -LiteralPath dist -File |
-              Where-Object { $_.Name -match '(-setup\.exe|-portable\.exe|\.exe\.sha256|^SHA256SUMS\.txt|^RELEASE-MANIFEST\.txt|^THIRD_PARTY-LICENSE-AUDIT\.txt)$' } |
-              Sort-Object Name |
-              ForEach-Object FullName
+              Where-Object Name -cne 'RELEASE_NOTES.md' |
+              Select-Object -ExpandProperty Name |
+              Sort-Object
           )
-          if ($assets.Count -ne 7) { throw "Expected exactly seven release assets, found $($assets.Count)" }
+          if ((Compare-Object $expectedAssetNames $actualAssetNames).Count -ne 0) {
+            throw "Final release asset set differs from the explicit contract.`nExpected: $($expectedAssetNames -join ', ')`nActual: $($actualAssetNames -join ', ')"
+          }
+          $assets = @($expectedAssetNames | ForEach-Object { (Get-Item -LiteralPath (Join-Path dist $_)).FullName })
           $titleSuffix = if ($env:SIGNING_STATUS -eq 'signed') { 'signed' } else { 'UNSIGNED beta' }
           $arguments = @(
             'release', 'create', $env:RELEASE_TAG,

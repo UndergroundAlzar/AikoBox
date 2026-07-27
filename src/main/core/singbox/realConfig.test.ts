@@ -108,12 +108,12 @@ describe.skipIf(!hasSidecar)('real sing-box configuration gate', () => {
       { platform: 'win32', controllerSecret: 'fixture-controller-secret' }
     )
     expect(result.errors).toEqual([])
-    // a routing-time resolve action would make any DNS failure drop the connection
+    // Destination-IP rules need an explicit lookup when the destination is a domain.
     expect(
       ((result.config.route as Record<string, unknown>).rules as Record<string, unknown>[]).some(
         (rule) => rule.action === 'resolve'
       )
-    ).toBe(false)
+    ).toBe(true)
 
     const configPath = join(workDir, 'sing-box-ip-rules.json')
     writeFileSync(configPath, JSON.stringify(result.config, null, 2))
@@ -146,6 +146,88 @@ describe.skipIf(!hasSidecar)('real sing-box configuration gate', () => {
     })
     expect(result.errors).toEqual([])
     const configPath = join(workDir, 'sing-box-shadowtls.json')
+    writeFileSync(configPath, JSON.stringify(result.config, null, 2))
+    expect(() =>
+      execFileSync(corePath, ['check', '-D', workDir, '-c', configPath, '--disable-color'], {
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: 15000
+      })
+    ).not.toThrow()
+  })
+
+  it('accepts fake-ip DNS detours and port-based DNS hijacking without sniffing', () => {
+    const result = convertClashToSingbox(
+      {
+        'mixed-port': 17890,
+        sniffer: { enable: false },
+        tun: { enable: true },
+        dns: {
+          enable: true,
+          ipv6: false,
+          'enhanced-mode': 'fake-ip',
+          nameserver: ['https://1.1.1.1/dns-query#PROXY&h3=true'],
+          'nameserver-policy': {
+            'example.com': 'https://8.8.8.8/dns-query#PROXY'
+          }
+        },
+        proxies: [
+          {
+            name: 'ProxyNode',
+            type: 'socks5',
+            server: '127.0.0.1',
+            port: 1080
+          }
+        ],
+        'proxy-groups': [{ name: 'PROXY', type: 'select', proxies: ['ProxyNode'] }],
+        rules: ['PROCESS-NAME-REGEX,^chrome,PROXY', 'IP-CIDR,192.0.2.0/24,DIRECT', 'MATCH,PROXY']
+      },
+      { platform: 'win32', controllerSecret: 'fixture-controller-secret' }
+    )
+    expect(result.errors).toEqual([])
+    const configPath = join(workDir, 'sing-box-dns-detour.json')
+    writeFileSync(configPath, JSON.stringify(result.config, null, 2))
+    expect(() =>
+      execFileSync(corePath, ['check', '-D', workDir, '-c', configPath, '--disable-color'], {
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: 15000
+      })
+    ).not.toThrow()
+  })
+
+  it('accepts a converted WireGuard endpoint with multiple peers', () => {
+    const result = convertClashToSingbox({
+      'mixed-port': 17890,
+      proxies: [
+        {
+          name: 'WireGuard',
+          type: 'wireguard',
+          ip: '172.16.0.2/32',
+          ipv6: 'fd00::2/128',
+          'private-key': 'YWlrb2JveC13aXJlZ3VhcmQtcHJpdmF0ZS1rZXktMDE=',
+          peers: [
+            {
+              server: '192.0.2.1',
+              port: 51820,
+              'public-key': 'YWlrb2JveC13aXJlZ3VhcmQtcHVibGljLWtleS0tMDE=',
+              'allowed-ips': ['0.0.0.0/1']
+            },
+            {
+              server: '192.0.2.2',
+              port: 51820,
+              'public-key': 'YWlrb2JveC13aXJlZ3VhcmQtcHVibGljLWtleS0tMDI=',
+              'allowed-ips': ['128.0.0.0/1', '::/0'],
+              reserved: [1, 2, 3]
+            }
+          ]
+        }
+      ],
+      'proxy-groups': [{ name: 'PROXY', type: 'select', proxies: ['WireGuard'] }],
+      rules: ['MATCH,PROXY']
+    })
+    expect(result.errors).toEqual([])
+    const configPath = join(workDir, 'sing-box-wireguard-peers.json')
     writeFileSync(configPath, JSON.stringify(result.config, null, 2))
     expect(() =>
       execFileSync(corePath, ['check', '-D', workDir, '-c', configPath, '--disable-color'], {

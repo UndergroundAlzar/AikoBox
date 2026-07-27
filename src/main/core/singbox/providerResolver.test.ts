@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { convertClashToSingbox } from './convert'
 import { resolveProxyProviders } from './providerResolver'
 
 let root = ''
@@ -44,6 +45,150 @@ describe('proxy provider resolver', () => {
       'HK-01'
     ])
     expect(result.config['proxy-providers']).toBeUndefined()
+  })
+
+  it('includes inline proxies and every provider node for mihomo include-all groups', async () => {
+    const result = await resolveProxyProviders(
+      {
+        proxies: [
+          {
+            name: 'Inline',
+            type: 'ss',
+            server: '192.0.2.1',
+            port: 443,
+            cipher: 'aes-128-gcm',
+            password: 'inline'
+          }
+        ],
+        'proxy-providers': {
+          first: {
+            type: 'inline',
+            payload: [
+              {
+                name: 'Provider A',
+                type: 'ss',
+                server: '192.0.2.2',
+                port: 443,
+                cipher: 'aes-128-gcm',
+                password: 'first'
+              }
+            ]
+          },
+          second: {
+            type: 'inline',
+            payload: [
+              {
+                name: 'Provider B',
+                type: 'ss',
+                server: '192.0.2.3',
+                port: 443,
+                cipher: 'aes-128-gcm',
+                password: 'second'
+              }
+            ]
+          }
+        },
+        'proxy-groups': [{ name: 'All', type: 'select', 'include-all': true }]
+      },
+      { baseDir: root, cacheDir: join(root, 'cache') }
+    )
+
+    expect(result.errors).toEqual([])
+    expect((result.config.proxies as Record<string, unknown>[]).map((proxy) => proxy.name)).toEqual(
+      ['Inline', 'Provider A', 'Provider B']
+    )
+    expect(result.config['proxy-providers']).toBeUndefined()
+
+    const converted = convertClashToSingbox(result.config)
+    const group = (converted.config.outbounds as Record<string, unknown>[]).find(
+      (outbound) => outbound.tag === 'All'
+    )
+    expect(converted.errors).toEqual([])
+    expect(group?.outbounds).toEqual(['Inline', 'Provider A', 'Provider B'])
+  })
+
+  it('inherits supported provider overrides and preserves the converted tag and detour', async () => {
+    const result = await resolveProxyProviders(
+      {
+        proxies: [
+          {
+            name: 'Upstream',
+            type: 'ss',
+            server: '192.0.2.1',
+            port: 443,
+            cipher: 'aes-128-gcm',
+            password: 'upstream'
+          }
+        ],
+        'proxy-providers': {
+          airport: {
+            type: 'inline',
+            override: {
+              'additional-prefix': 'Provider | ',
+              'dialer-proxy': 'Upstream',
+              'interface-name': 'Ethernet 2',
+              tfo: true,
+              mptcp: false,
+              udp: true,
+              'udp-over-tcp': true,
+              down: '50 Mbps',
+              up: '10 Mbps',
+              'skip-cert-verify': true,
+              'routing-mark': 233,
+              'ip-version': 'ipv4-prefer',
+              unsupported: 'must-not-leak'
+            },
+            payload: [
+              {
+                name: 'HK-01',
+                type: 'ss',
+                server: '192.0.2.2',
+                port: 443,
+                cipher: 'aes-128-gcm',
+                password: 'provider',
+                tfo: false,
+                'interface-name': 'Wi-Fi'
+              }
+            ]
+          }
+        },
+        'proxy-groups': [{ name: 'Proxy', type: 'select', use: ['airport'] }]
+      },
+      { baseDir: root, cacheDir: join(root, 'cache') }
+    )
+
+    expect(result.errors).toEqual([])
+    const providerProxy = (result.config.proxies as Record<string, unknown>[])[1]
+    expect(providerProxy).toMatchObject({
+      name: 'Provider | HK-01',
+      'dialer-proxy': 'Upstream',
+      'interface-name': 'Ethernet 2',
+      tfo: true,
+      mptcp: false,
+      udp: true,
+      'udp-over-tcp': true,
+      down: '50 Mbps',
+      up: '10 Mbps',
+      'skip-cert-verify': true,
+      'routing-mark': 233,
+      'ip-version': 'ipv4-prefer'
+    })
+    expect(providerProxy).not.toHaveProperty('unsupported')
+
+    const converted = convertClashToSingbox(result.config)
+    expect(converted.errors).toEqual([])
+    const outbound = (converted.config.outbounds as Record<string, unknown>[]).find(
+      (candidate) => candidate.tag === 'Provider | HK-01'
+    )
+    expect(outbound).toMatchObject({
+      tag: 'Provider | HK-01',
+      detour: 'Upstream',
+      bind_interface: 'Ethernet 2',
+      tcp_fast_open: true,
+      tcp_multi_path: false,
+      udp_over_tcp: true,
+      domain_strategy: 'prefer_ipv4'
+    })
   })
 
   it('caches HTTP payloads and falls back to stale cache', async () => {

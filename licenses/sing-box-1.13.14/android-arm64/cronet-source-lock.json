@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "nativeInput": {
+    "module": "github.com/sagernet/cronet-go/lib/android_arm64",
+    "version": "v0.0.0-20260620135226-def9ff0fb992",
+    "moduleSum": "h1:dlnG1E42xx8ms2fyZigYwsYJ1Gqoj2QT8WeGlpOAWK8=",
+    "moduleCommit": "def9ff0fb992d0360f56ddbd4b43d65d29849771",
+    "file": "libcronet.a",
+    "size": 65334860,
+    "sha256": "88baecf52984daf0dd1ae7465d1f5820a6c6fa744d44703cd3198b7aec9c960b"
+  },
+  "provenance": {
+    "moduleCommitSubject": "Build from 98d539ce",
+    "moduleCommitParent": "98d539ce67568fb911654e66a14cf4247ed833ec",
+    "cronetGoCommit": "98d539ce67568fb911654e66a14cf4247ed833ec",
+    "naiveproxySubmoduleCommit": "888e114241c89b05fac4e4ee01482d7bd89ca15a",
+    "chromiumVersion": "148.0.7778.96"
+  },
+  "sourceArchives": [
+    {
+      "id": "cronet-go-build-source",
+      "url": "https://codeload.github.com/SagerNet/cronet-go/tar.gz/98d539ce67568fb911654e66a14cf4247ed833ec",
+      "size": 135783,
+      "sha256": "45de7d3506675941eddb24c9f4c685cbee3f4c2df651682238895886705351a3",
+      "requiredPaths": [
+        ".gitmodules",
+        "LICENSE",
+        "Makefile",
+        "cmd/build-naive/cmd_build.go",
+        "cmd/build-naive/cmd_package.go"
+      ]
+    },
+    {
+      "id": "naiveproxy-chromium-source",
+      "url": "https://codeload.github.com/SagerNet/naiveproxy/tar.gz/888e114241c89b05fac4e4ee01482d7bd89ca15a",
+      "size": 52001385,
+      "sha256": "7a81f599734857ec5381c91a53e867ad5bf3e71fc26a75e3f86306834b84604d",
+      "requiredPaths": [
+        "CHROMIUM_VERSION",
+        "LICENSE",
+        "src/components/cronet",
+        "src/net",
+        "src/third_party"
+      ]
+    }
+  ]
+}

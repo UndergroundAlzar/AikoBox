@@ -201,4 +201,44 @@ describe('subscription payload normalization', () => {
     ])
     expect(convertClashToSingbox(config).errors).toEqual([])
   })
+
+  it('preserves explicit port 80 and applies the HTTP scheme default safely', () => {
+    const credentials = base64('aes-128-gcm:secret')
+    const result = normalizeSubscriptionPayload(
+      [
+        `ss://${credentials}@ss.example:80#SS`,
+        'http://user:pass@explicit.example:80#HTTP-Explicit',
+        'http://user:pass@implicit.example#HTTP-Implicit'
+      ].join('\n')
+    )
+    const config = parse<Record<string, unknown>>(result.content)
+    const proxies = config.proxies as Record<string, unknown>[]
+
+    expect(proxies.map((proxy) => proxy.port)).toEqual([80, 80, 80])
+    expect(convertClashToSingbox(config).errors).toEqual([])
+    expect(() => normalizeSubscriptionPayload(`ss://${credentials}@ss.example#Missing`)).toThrow(
+      /invalid server port/
+    )
+    expect(() => normalizeSubscriptionPayload('socks5://socks.example#Missing')).toThrow(
+      /invalid server port/
+    )
+    expect(() => normalizeSubscriptionPayload('http://http.example:0#Zero')).toThrow(
+      /invalid server port/
+    )
+  })
+
+  it('normalizes bracketed IPv6 literal servers for standard and Shadowsocks URIs', () => {
+    const credentials = base64('aes-128-gcm:secret')
+    const result = normalizeSubscriptionPayload(
+      [
+        `ss://${credentials}@[2001:db8::1]:8388#SS-v6`,
+        'http://user:pass@[2001:db8::2]:8080#HTTP-v6'
+      ].join('\n')
+    )
+    const config = parse<Record<string, unknown>>(result.content)
+    const proxies = config.proxies as Record<string, unknown>[]
+
+    expect(proxies.map((proxy) => proxy.server)).toEqual(['2001:db8::1', '2001:db8::2'])
+    expect(convertClashToSingbox(config).errors).toEqual([])
+  })
 })

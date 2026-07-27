@@ -4,13 +4,13 @@ AikoBox is derived from [Clash Party](https://github.com/mihomo-party-org/clash-
 
 This document records what the current repository can prove offline. An item marked `VERIFIED` has exact source and license evidence plus locally packaged notice files enforced by the release audit. **The repository as a whole is not yet cleared for redistribution while any item remains `BLOCKED`.** Every blocked item must be resolved before publishing a binary release: obtain the authoritative license/copyright material for the exact locked artifact, preserve all required notices, record source provenance, satisfy any source-code obligations, and include the required files in the packaged application. A project URL or npm `license` field is not a substitute for the applicable license text.
 
-The resource identities below come from `scripts/resources-lock.json` and target Windows x64 only. For files, SHA-256 identifies the packaged payload. For directory resources, the archive SHA-256 identifies the download and `AIKOBOX-DIR-SHA256-v1` identifies the normalized extracted tree.
+The Windows resource identities below come from `scripts/resources-lock.json`. The Android libbox identity is recorded separately from the actual arm64 AAR and embedded shared object. For files, SHA-256 identifies the packaged payload. For directory resources, the archive SHA-256 identifies the download and `AIKOBOX-DIR-SHA256-v1` identifies the normalized extracted tree.
 
 ## Locked runtime resources
 
 <!-- resource:singBox -->
 
-### sing-box — `BLOCKED`
+### sing-box — `VERIFIED`
 
 - Version: `1.13.14`
 - Packaged path: `extra/sidecar/sing-box.exe`
@@ -23,11 +23,66 @@ The resource identities below come from `scripts/resources-lock.json` and target
 - Upstream license: `GPL-3.0-or-later plus upstream name/association restriction`; `Copyright (C) 2022 by nekohasekai <contact-sagernet@sekai.icu>`
 - Packaged upstream notice: [`licenses/sing-box-1.13.14/LICENSE.upstream.txt`](./licenses/sing-box-1.13.14/LICENSE.upstream.txt), 791 bytes, SHA-256 `650d5e3b99a446fb38e820fa87a49562e0c79eab868fff58618ac487a58e554c`
 - Exact upstream notice: https://raw.githubusercontent.com/SagerNet/sing-box/25a600db24f7680ad9806ce5427bd0ab8afe1114/LICENSE, SHA-256 `650d5e3b99a446fb38e820fa87a49562e0c79eab868fff58618ac487a58e554c`
-- Pinned source identity (module graph roots, not corresponding source): [`licenses/sing-box-1.13.14/go.mod`](./licenses/sing-box-1.13.14/go.mod), 9,387 bytes, SHA-256 `d0b353be0205774084936bae4114a2efa52381cd0860c704ff6172e4b8b50d2d` from https://raw.githubusercontent.com/SagerNet/sing-box/25a600db24f7680ad9806ce5427bd0ab8afe1114/go.mod; [`licenses/sing-box-1.13.14/go.sum`](./licenses/sing-box-1.13.14/go.sum), 39,961 bytes, SHA-256 `6bfa03cfa6f352a203c8bc077776112223f84c54ee5144fa0806932c4caae7ab` from https://raw.githubusercontent.com/SagerNet/sing-box/25a600db24f7680ad9806ce5427bd0ab8afe1114/go.sum
+- Pinned source identity: [`licenses/sing-box-1.13.14/go.mod`](./licenses/sing-box-1.13.14/go.mod), 9,387 bytes, SHA-256 `d0b353be0205774084936bae4114a2efa52381cd0860c704ff6172e4b8b50d2d` from https://raw.githubusercontent.com/SagerNet/sing-box/25a600db24f7680ad9806ce5427bd0ab8afe1114/go.mod; [`licenses/sing-box-1.13.14/go.sum`](./licenses/sing-box-1.13.14/go.sum), 39,961 bytes, SHA-256 `6bfa03cfa6f352a203c8bc077776112223f84c54ee5144fa0806932c4caae7ab` from https://raw.githubusercontent.com/SagerNet/sing-box/25a600db24f7680ad9806ce5427bd0ab8afe1114/go.sum
 - Binary build-info inventory (read-only `go version -m extra/sidecar/sing-box.exe`): toolchain `go1.26.4`; main module `github.com/sagernet/sing-box` `v1.13.14`; 100 static `dep` entries; packaged at [`licenses/sing-box-1.13.14/buildinfo-modules.txt`](./licenses/sing-box-1.13.14/buildinfo-modules.txt), 10,271 bytes, SHA-256 `2d8d0819f63f2e5f54ab86d5c3775d49544189fa3df7f570f68f3ce379a03029`; TSV extract [`licenses/sing-box-1.13.14/static-modules.tsv`](./licenses/sing-box-1.13.14/static-modules.tsv), 9,668 bytes, SHA-256 `e926925f14833b3c358015eacfb7b27bdc6db609063f0be96ef74c50fb098e38`; bound to binary SHA-256 `db0d779948214cf761011d154c3a5da36df20394fa01a9fc798f1dc39fe9d183`
-- Release blocker: The exact upstream release, license notice, archive, and source revision are pinned, but the release payload still lacks a corresponding-source bundle and the complete license/notice inventory for the statically linked Go dependency graph.
+- Recorded build target: `GOOS=windows`, `GOARCH=amd64`, `CGO_ENABLED=0`, `-buildmode=exe`, with the exact 14 build tags preserved in the executable and generated build guide. The selected package graph contains no linked native archive.
 
-The packaged upstream notice now fixes the exact license grant and additional name/association restriction to the release commit. AikoBox's root [`LICENSE`](./LICENSE) contains the complete GPLv3 text. The pinned `go.mod`/`go.sum` and the binary build-info module list advance redistribution evidence but do not replace a corresponding-source archive or per-module license/NOTICE texts, so this resource remains blocked.
+[`scripts/license-windows-sing-box-release.mjs`](./scripts/license-windows-sing-box-release.mjs) dynamically generates the large corresponding-source and license assets in a caller-selected `--dist-dir`; those archives are intentionally not committed. The generator verifies the exact source tag/commit, binary hash, Go build identity, and committed 100-module inventory; runs `go mod verify` and `go mod vendor`; resolves the exact Windows package graph; downloads and checksum-verifies module source; and fails closed without archives if any actual module is absent from vendor, any vendor module lacks a legal file, a linked native input lacks corresponding source, or any recorded identity differs.
+
+The verified graph covers all 100 modules recorded in the executable and all 159 modules produced by `go mod vendor`. All 159 vendor modules have collected `LICENSE`, `NOTICE`, `COPYING`, `COPYRIGHT`, `AUTHORS`, or equivalent legal material. Because the executable is CGO-disabled and the selected package graph has no linked native input, 41 unreferenced prebuilt native files found in module payloads are removed from the corresponding-source archive rather than represented as part of the executable.
+
+**Every Windows Release containing this `sing-box.exe` must attach all four dynamically generated files:**
+
+- `aikobox-sing-box-1.13.14-windows-amd64-corresponding-source.tar.gz`
+- `aikobox-sing-box-1.13.14-windows-amd64-licenses.tar.gz`
+- `aikobox-sing-box-1.13.14-windows-amd64-COVERAGE.json`
+- `aikobox-sing-box-1.13.14-windows-amd64-SHA256SUMS.txt`
+
+The source package contains the exact main source, complete generated vendor source, module/build evidence, and rebuild instructions. The separate license package contains the main GPL/upstream notices, all per-module legal files, the 100-module mapping, and its coverage report. Release upload is permitted by this evidence gate only when `releaseReady` is `true`, all counts match, `linkedNativeInputs` and `blockers` are empty, and the generated checksums are independently verified.
+
+#### Android arm64 libbox evidence — `VERIFIED`
+
+The Android application embeds a separately built libbox shared library from the same fixed sing-box release. This evidence is specific to the locally verified `libbox.aar`; it does not describe or clear the Windows executable above.
+
+- Packaged APK path: `lib/arm64-v8a/libbox.so`; no other native ABI is present in the AAR.
+- Source tag and commit: `v1.13.14`, `25a600db24f7680ad9806ce5427bd0ab8afe1114`.
+- Build command from the exact clean checkout: `go run ./cmd/internal/build_libbox -target android -platform android/arm64`.
+- Build tools: Go `1.24.7`; Android NDK `28.0.13004108`; `github.com/sagernet/gomobile/cmd/gomobile@v0.1.12`; `github.com/sagernet/gomobile/cmd/gobind@v0.1.12`.
+- Actual AAR: 22,552,878 bytes; SHA-256 `cde14b0b16689901c46d786ee02ade397c65d1ee7df59931c9a2703ef3725a77`.
+- Actual `libbox.so`: 63,239,528 bytes; SHA-256 `42c31593cd6e330f33e9711edd2fb0529d6b667359c29ac3296218752233dc5c`.
+- Binary build information: [`licenses/sing-box-1.13.14/android-arm64/go-version-m.txt`](./licenses/sing-box-1.13.14/android-arm64/go-version-m.txt), 7,704 bytes, SHA-256 `b27a80e2a8570af21871df7dde7a5b7b16380f5acc2ed8bb0cb9e84fba09355a`. It records `go1.24.7`, `GOOS=android`, `GOARCH=arm64`, `CGO_ENABLED=1`, `-buildmode=c-shared`, the enabled build tags, and 75 static dependency entries.
+- Android static module inventory: [`licenses/sing-box-1.13.14/android-arm64/android-arm64-static-modules.tsv`](./licenses/sing-box-1.13.14/android-arm64/android-arm64-static-modules.tsv), 6,775 bytes, SHA-256 `9cddfac88659d175cf283db36b4af17e875fe118b0f5e4b15e14e4506f58de8f`.
+- Exact upstream license: [`licenses/sing-box-1.13.14/android-arm64/LICENSE.upstream.txt`](./licenses/sing-box-1.13.14/android-arm64/LICENSE.upstream.txt), 791 bytes, SHA-256 `650d5e3b99a446fb38e820fa87a49562e0c79eab868fff58618ac487a58e554c`.
+- Fixed upstream source snapshot: [`licenses/sing-box-1.13.14/android-arm64/sing-box-v1.13.14-source-snapshot.tar.gz`](./licenses/sing-box-1.13.14/android-arm64/sing-box-v1.13.14-source-snapshot.tar.gz), 947,322 bytes, SHA-256 `95e274cf6fa33d1d5ab98352913d81571451eafe17026d04a3136d797c0cbc03`. This deterministic `git archive` is committed as compact provenance; the complete corresponding source is generated as a Release asset as described below.
+- Android-specific notice: [`licenses/sing-box-1.13.14/android-arm64/NOTICE.txt`](./licenses/sing-box-1.13.14/android-arm64/NOTICE.txt), 2,101 bytes, SHA-256 `5773e6800c8b999c6d3889801cf6449848e452b011fdf7102270ff6229301709`.
+- Linked native input: `github.com/sagernet/cronet-go/lib/android_arm64@v0.0.0-20260620135226-def9ff0fb992/libcronet.a`, 65,334,860 bytes, SHA-256 `88baecf52984daf0dd1ae7465d1f5820a6c6fa744d44703cd3198b7aec9c960b`.
+- Native-source lock: [`licenses/sing-box-1.13.14/android-arm64/cronet-source-lock.json`](./licenses/sing-box-1.13.14/android-arm64/cronet-source-lock.json), 1,650 bytes, SHA-256 `dfb10257c0ad301ebd025468350246835f4d5a51912bd4c0238b8372e4f0f1b8`. It binds the native module commit `def9ff0fb992d0360f56ddbd4b43d65d29849771`, its declared build-source commit `98d539ce67568fb911654e66a14cf4247ed833ec`, NaiveProxy/Chromium source commit `888e114241c89b05fac4e4ee01482d7bd89ca15a`, and Chromium version `148.0.7778.96`.
+- Locked Cronet build source: 135,783 bytes, SHA-256 `45de7d3506675941eddb24c9f4c685cbee3f4c2df651682238895886705351a3`; locked NaiveProxy/Chromium source: 52,001,385 bytes, SHA-256 `7a81f599734857ec5381c91a53e867ad5bf3e71fc26a75e3f86306834b84604d`.
+
+The APK packages the following files under `assets/third_party/sing-box/`:
+
+- `NOTICE.txt`: 2,101 bytes, SHA-256 `5773e6800c8b999c6d3889801cf6449848e452b011fdf7102270ff6229301709`.
+- `LICENSE.upstream.txt`: 791 bytes, SHA-256 `650d5e3b99a446fb38e820fa87a49562e0c79eab868fff58618ac487a58e554c`.
+- `GPL-3.0.txt`: 35,149 bytes, SHA-256 `3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986`.
+
+The compact committed evidence is reproducible with [`scripts/license-android-libbox.mjs`](./scripts/license-android-libbox.mjs). The script rejects the wrong source commit/tag, a modified source checkout, an unexpected AAR hash, any ABI other than `arm64-v8a`, a missing `libbox.so`, or incompatible Go build information; `--verify` regenerates the evidence in a temporary directory and compares it byte-for-byte with the committed files.
+
+[`scripts/license-android-libbox-release.mjs`](./scripts/license-android-libbox-release.mjs) dynamically produces the large redistribution artifacts in a caller-selected `--dist-dir`; those archives are intentionally not committed. It verifies the exact source identity and AAR, runs `go mod verify` and `go mod vendor`, resolves the packages selected by the Android build tags, and fails closed before emitting archives unless all of the following are true:
+
+1. The 75 modules recorded in the shipped `libbox.so` are exactly matched and covered.
+2. Every module produced by `go mod vendor` has source and at least one collected `LICENSE`, `NOTICE`, `COPYING`, `COPYRIGHT`, `AUTHORS`, or equivalent legal file. The verified graph contains 159 vendor modules, all 159 covered.
+3. Every native archive selected by the actual package graph is hash-matched to locked source. For this artifact, the sole linked archive is the Cronet input above; unreferenced native archives are removed from the source package rather than represented as linked.
+4. The source package contains the exact sing-box source, complete generated vendor tree, module/build manifests, rebuild instructions, and locked Cronet/NaiveProxy source. The separate license package contains the main GPL and notice texts, per-module legal files, native-source legal files, and a machine-readable manifest.
+5. The coverage report has `releaseReady: true` and an empty `blockers` array.
+
+**Every Android Release must attach all four dynamically generated files:**
+
+- `aikobox-libbox-1.13.14-android-arm64-corresponding-source.tar.gz`
+- `aikobox-libbox-1.13.14-android-arm64-licenses.tar.gz`
+- `aikobox-libbox-1.13.14-android-arm64-COVERAGE.json`
+- `aikobox-libbox-1.13.14-android-arm64-SHA256SUMS.txt`
+
+The checksums are intentionally generated for each Release output and must be verified before upload. The Android APK must continue to contain the three notice files listed above. This Android evidence applies only to the exact AAR and native-source lock; it does not substitute for the separately enforced Windows `sing-box.exe` evidence gate above or clear any other item marked `BLOCKED`.
 
 <!-- resource:notoColorEmoji -->
 
@@ -53,22 +108,30 @@ The official `v2.051` license permits the unmodified font to be bundled with sof
 
 <!-- resource:sysproxy -->
 
-### sysproxy-rs-opti — `BLOCKED`
+### sysproxy-rs-opti — `VERIFIED`
 
-- Version: `0.5.1 / release v0.1.0`
+- Version: `0.5.1 / upstream v0.1.0 / AikoBox reproducible build 1`
 - Packaged path: `extra/sidecar/sysproxy.win32-x64-msvc.node`
+- Pinned local source: `licenses/sysproxy-rs-opti/bin/sysproxy.win32-x64-msvc.node`
 - Project: https://github.com/mihomo-party-org/sysproxy-rs-opti
-- Locked download: https://github.com/mihomo-party-org/sysproxy-rs-opti/releases/download/v0.1.0/sysproxy.win32-x64-msvc.node
 - Release: tag `v0.1.0`; commit `ce9463d95ed5839a43c6a0d7cccf3b3fb892de3a`; https://github.com/mihomo-party-org/sysproxy-rs-opti/releases/tag/v0.1.0
 - Fixed source tree: https://github.com/mihomo-party-org/sysproxy-rs-opti/tree/ce9463d95ed5839a43c6a0d7cccf3b3fb892de3a
-- Packaged payload: 574,464 bytes; SHA-256 `f17d99976218cb32aab0cc150e4e0fd40bcc4b237cd8af9f184e0ce4703e4995`
+- Self-built payload and pinned local source [`licenses/sysproxy-rs-opti/bin/sysproxy.win32-x64-msvc.node`](./licenses/sysproxy-rs-opti/bin/sysproxy.win32-x64-msvc.node): 583,680 bytes; SHA-256 `646d39126e25aa6d1d2b85741bc1994ad83d9470fbaccd021692d897686fd99a`
 - Upstream license: `MIT`; `Copyright (c) 2022 zzzgydi`
 - Packaged upstream license: [`licenses/sysproxy-rs-opti/MIT.txt`](./licenses/sysproxy-rs-opti/MIT.txt), 1,064 bytes, SHA-256 `e3dee6d5b240791312cd89333a5cc62e6f65be66bff8ab6903dc9a67bbe84263`
 - Exact upstream license: https://raw.githubusercontent.com/mihomo-party-org/sysproxy-rs-opti/ce9463d95ed5839a43c6a0d7cccf3b3fb892de3a/LICENSE, SHA-256 `e3dee6d5b240791312cd89333a5cc62e6f65be66bff8ab6903dc9a67bbe84263`
-- Pinned source identity (manifest only, not a reproducible lockfile): [`licenses/sysproxy-rs-opti/Cargo.toml`](./licenses/sysproxy-rs-opti/Cargo.toml), 3,323 bytes, SHA-256 `2f05cf8e93c64654e623bbf41f53d334b9cb3520b697a45527da4f84c25cd401` from https://raw.githubusercontent.com/mihomo-party-org/sysproxy-rs-opti/ce9463d95ed5839a43c6a0d7cccf3b3fb892de3a/Cargo.toml; [`licenses/sysproxy-rs-opti/package.json`](./licenses/sysproxy-rs-opti/package.json), 661 bytes, SHA-256 `170374b6a195c4a1ba617463f98b9e951e7879865a3c6d32f03d5d511c78027e` from https://raw.githubusercontent.com/mihomo-party-org/sysproxy-rs-opti/ce9463d95ed5839a43c6a0d7cccf3b3fb892de3a/package.json
-- Release blocker: The native release tag, payload SHA-256, source revision, and upstream MIT text are pinned, but that revision has no Cargo.lock and the packaged static Rust dependency graph still lacks a complete reproducible license/notice inventory.
+- Locked Rust dependency graph: [`licenses/sysproxy-rs-opti/Cargo.lock`](./licenses/sysproxy-rs-opti/Cargo.lock), 29,934 bytes, SHA-256 `1751a5f247d3a066845167ca149e7f4394b9e63c64b36159368eff271c655a98`.
+- Production graph and legal provenance: 48 statically linked normal/build crates in [`licenses/sysproxy-rs-opti/rust-production-dependencies.tsv`](./licenses/sysproxy-rs-opti/rust-production-dependencies.tsv), 13,684 bytes, SHA-256 `43bc4697cf6dbb2e1c8942c7b7b5edeb736a57533c31997dfb851d90b617fea9`.
+- Complete lockfile vendor inventory: 126 crates in [`licenses/sysproxy-rs-opti/rust-lock-vendor.tsv`](./licenses/sysproxy-rs-opti/rust-lock-vendor.tsv), 12,984 bytes, SHA-256 `b7d9fed5eb916cc17f4bd532ac43859f5aa2f5e649933b45ca16cd9be1cbbfa1`.
+- Complete corresponding source: [`licenses/sysproxy-rs-opti/sysproxy-rs-opti-v0.1.0-windows-x64-corresponding-source.tar.gz`](./licenses/sysproxy-rs-opti/sysproxy-rs-opti-v0.1.0-windows-x64-corresponding-source.tar.gz), 30,037,359 bytes, SHA-256 `0ff42644b04fa62c4393a4f40b57f623ff025b4e2ea155bf8c1dfecba11546e4`. It contains the exact upstream tree, generated `Cargo.lock`, all 126 locked crate sources, registry checksums, Cargo offline configuration, both inventories, and build instructions.
+- Complete dependency legal bundle: [`licenses/sysproxy-rs-opti/sysproxy-rs-opti-v0.1.0-windows-x64-license-notices.tar.gz`](./licenses/sysproxy-rs-opti/sysproxy-rs-opti-v0.1.0-windows-x64-license-notices.tar.gz), 25,961 bytes, SHA-256 `dc85f38e0a6c1746400551df07e02e50b49fddf481f6ece8f83de3ba1270a12d`. It includes every packaged production crate LICENSE/COPYING/NOTICE file. Six crates that omitted license files from their crates.io packages are bound to exact `.cargo_vcs_info.json` commits and exact upstream MIT texts under [`licenses/sysproxy-rs-opti/reviewed-license-overrides`](./licenses/sysproxy-rs-opti/reviewed-license-overrides).
+- Reproducible build record: [`licenses/sysproxy-rs-opti/BUILD-INFO.txt`](./licenses/sysproxy-rs-opti/BUILD-INFO.txt), 1,517 bytes, SHA-256 `789a6333387e12f84abdd2f091b13cd99d04a01c52a7bcb2ffe115a1769e06a1`; Rust `1.97.1`, target `x86_64-pc-windows-msvc`, `SOURCE_DATE_EPOCH=1780791864`, `RUSTFLAGS=-C link-arg=/Brepro -C debuginfo=0 -C codegen-units=1 --remap-path-prefix=<SOURCE>=/usr/src/sysproxy-rs-opti --remap-path-prefix=<VENDOR>=/usr/src/cargo-vendor`, command `cargo +1.97.1 build --release --locked --offline --target x86_64-pc-windows-msvc`.
+- Component notice: [`licenses/sysproxy-rs-opti/NOTICE.txt`](./licenses/sysproxy-rs-opti/NOTICE.txt), 963 bytes, SHA-256 `7b58521ba3799e49a8711824f1c701aaae95163cee4562debbe868c6ddfcf927`.
+- Evidence lock: [`licenses/sysproxy-rs-opti/evidence-lock.json`](./licenses/sysproxy-rs-opti/evidence-lock.json), 5,105 bytes, SHA-256 `2dea8d9a0b7ba01f92da526f04fd4c434b19190a1bddc488f9d3722834553f7e`.
 
-The JavaScript loader in `src/native/sysproxy` is AikoBox-owned code under `GPL-3.0-only`, independently of the native module. Its installed `index.js` is 3,605 bytes with SHA-256 `bfa9d0f66702286ac824203b9c8add8b665ed6ae56082ee2479853ed94bc02f0`; the packaged project [`LICENSE`](./LICENSE) is 35,149 bytes with SHA-256 `3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986`. This local ownership evidence does not clear the separately downloaded native module. The pinned `Cargo.toml` and napi `package.json` record declared crate/target ranges for future self-build work; without `Cargo.lock` and a rebuilt `.node`, redistribution remains blocked.
+The upstream release binary is no longer packaged. AikoBox builds the fixed source itself and stores the reviewed result as a locked `local-file` resource. Two independent clean target directories produced byte-identical `.node` files; a third offline build from the committed corresponding-source archive is required by the verification procedure. [`scripts/license-sysproxy-rs-opti.mjs`](./scripts/license-sysproxy-rs-opti.mjs) fails closed on a changed commit or tag, dirty tracked source, unlocked Cargo graph, missing crate source/checksum/legal text, unreviewed legal override, unsafe archive path, wrong PE architecture, changed N-API exports, mismatched binary, or divergence from `scripts/resources-lock.json`.
+
+The JavaScript loader in `src/native/sysproxy` remains AikoBox-owned code under `GPL-3.0-only`, independently of the verified native module. Its installed `index.js` is 3,605 bytes with SHA-256 `bfa9d0f66702286ac824203b9c8add8b665ed6ae56082ee2479853ed94bc02f0`; the packaged project [`LICENSE`](./LICENSE) is 35,149 bytes with SHA-256 `3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986`.
 
 ## Android client (`mobile/`)
 

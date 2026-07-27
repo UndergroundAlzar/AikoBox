@@ -20,7 +20,6 @@ party.md
 CLAUDE.md
 agent.md
 tsconfig.node.tsbuildinfo
-
 # Android client
 mobile/build
 mobile/.dart_tool
@@ -38,3 +37,12 @@ mobile/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.ja
 mobile/android/app/libs/*.aar
 *.jks
 *.keystore
+
+# Minimal Android release client
+apps/android/.dart_tool/
+apps/android/build/
+apps/android/android/.gradle/
+apps/android/android/build/
+apps/android/android/local.properties
+apps/android/android/key.properties
+apps/android/android/app/libs/*.aar

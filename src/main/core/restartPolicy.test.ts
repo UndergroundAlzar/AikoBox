@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { CrashRestartPolicy } from './restartPolicy'
+import { describe, expect, it, vi } from 'vitest'
+import { CrashRestartPolicy, runRestartTransaction } from './restartPolicy'
 
 describe('CrashRestartPolicy', () => {
   it('backs off and opens the circuit after repeated short-lived starts', () => {
@@ -33,5 +33,53 @@ describe('CrashRestartPolicy', () => {
     expect(() => new CrashRestartPolicy({ windowMs: 0 })).toThrow()
     expect(() => new CrashRestartPolicy({ maxRestarts: -1 })).toThrow()
     expect(() => new CrashRestartPolicy({ baseDelayMs: 10, maxDelayMs: 5 })).toThrow()
+  })
+})
+
+describe('runRestartTransaction', () => {
+  it('does not restart a healthy core when applying WinINET fails', async () => {
+    const startCore = vi.fn(async () => undefined)
+    const proxyError = new Error('registry write failed')
+    const applySystemProxy = vi.fn(async () => {
+      throw proxyError
+    })
+
+    await expect(
+      runRestartTransaction({
+        startCore,
+        applySystemProxy,
+        isTerminalStartError: () => false,
+        onTerminalStartError: async () => undefined,
+        onRetry: () => undefined,
+        sleep: async () => undefined
+      })
+    ).rejects.toBe(proxyError)
+
+    expect(startCore).toHaveBeenCalledOnce()
+    expect(applySystemProxy).toHaveBeenCalledOnce()
+  })
+
+  it('serially retries core startup before applying the proxy once', async () => {
+    const startCore = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new Error('first'))
+      .mockRejectedValueOnce(new Error('second'))
+      .mockResolvedValue(undefined)
+    const applySystemProxy = vi.fn(async () => undefined)
+    const sleep = vi.fn(async () => undefined)
+
+    await runRestartTransaction({
+      startCore,
+      applySystemProxy,
+      isTerminalStartError: () => false,
+      onTerminalStartError: async () => undefined,
+      onRetry: () => undefined,
+      sleep
+    })
+
+    expect(startCore).toHaveBeenCalledTimes(3)
+    expect(sleep).toHaveBeenNthCalledWith(1, 1000)
+    expect(sleep).toHaveBeenNthCalledWith(2, 2000)
+    expect(applySystemProxy).toHaveBeenCalledOnce()
   })
 })

@@ -1,202 +1,328 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { Readable } from 'stream'
 import AdmZip from 'adm-zip'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { parse } from '../utils/yaml'
 
 const mocks = vi.hoisted(() => ({
   root: '',
-  savePath: '',
-  openPaths: [] as string[]
+  selectedBackup: '',
+  appCache: '',
+  restartCore: vi.fn(),
+  getAppConfig: vi.fn(),
+  getControledMihomoConfig: vi.fn(),
+  getProfileConfig: vi.fn(),
+  getOverrideConfig: vi.fn()
 }))
 
 vi.mock('electron', () => ({
   dialog: {
-    showSaveDialog: async () => ({ canceled: false, filePath: mocks.savePath }),
-    showOpenDialog: async () => ({ canceled: false, filePaths: mocks.openPaths })
+    showOpenDialog: vi.fn(async () => ({
+      canceled: false,
+      filePaths: [mocks.selectedBackup]
+    })),
+    showSaveDialog: vi.fn()
   }
 }))
-vi.mock('i18next', () => ({ default: { t: (key: string) => key } }))
-vi.mock('../utils/logger', () => ({
-  systemLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
-}))
-vi.mock('../config', () => ({ getAppConfig: vi.fn(async () => ({})) }))
+
 vi.mock('../utils/dirs', () => ({
   dataDir: () => mocks.root,
   appConfigPath: () => join(mocks.root, 'config.yaml'),
   controledMihomoConfigPath: () => join(mocks.root, 'mihomo.yaml'),
-  profileConfigPath: () => join(mocks.root, 'profile.yaml'),
+  profileConfigPath: () => join(mocks.root, 'profiles.yaml'),
   overrideConfigPath: () => join(mocks.root, 'override.yaml'),
-  pluginConfigPath: () => join(mocks.root, 'plugin.yaml'),
-  pluginVaultDir: () => join(mocks.root, 'plugin-vault'),
-  overrideDir: () => join(mocks.root, 'override'),
+  themesDir: () => join(mocks.root, 'themes'),
   profilesDir: () => join(mocks.root, 'profiles'),
+  overrideDir: () => join(mocks.root, 'override'),
   rulesDir: () => join(mocks.root, 'rules'),
-  subStoreDir: () => join(mocks.root, 'substore'),
-  themesDir: () => join(mocks.root, 'themes')
+  subStoreDir: () => join(mocks.root, 'substore')
 }))
 
-let workspace = ''
+vi.mock('../config', () => ({
+  getAppConfig: mocks.getAppConfig,
+  getControledMihomoConfig: mocks.getControledMihomoConfig,
+  getProfileConfig: mocks.getProfileConfig,
+  getOverrideConfig: mocks.getOverrideConfig
+}))
 
-function seedDataDir(): void {
-  for (const name of ['config.yaml', 'mihomo.yaml', 'profile.yaml', 'override.yaml', 'plugin.yaml'])
-    writeFileSync(join(mocks.root, name), `${name}\n`)
-  for (const dir of ['themes', 'profiles', 'override', 'rules', 'substore', 'plugin-vault'])
-    mkdirSync(join(mocks.root, dir))
-  writeFileSync(join(mocks.root, 'profiles', 'a.yaml'), 'proxies: []\n')
-  writeFileSync(join(mocks.root, 'plugin-vault', 'a.bin'), 'secret')
+vi.mock('../core/manager', () => ({ restartCore: mocks.restartCore }))
+vi.mock('../utils/logger', () => ({
+  systemLogger: {
+    info: vi.fn(),
+    error: vi.fn()
+  }
+}))
+
+function writeBackup(contents: Record<string, string>): string {
+  const zip = new AdmZip()
+  for (const [name, content] of Object.entries(contents)) {
+    zip.addFile(name, Buffer.from(content))
+  }
+  const file = join(mocks.root, 'backup.zip')
+  zip.writeZip(file)
+  return file
 }
 
-describe('backup archive safety', () => {
+describe('local backup restore transaction', () => {
   beforeEach(() => {
-    vi.resetModules()
-    workspace = mkdtempSync(join(tmpdir(), 'aikobox-backup-'))
-    mocks.root = join(workspace, 'data')
-    mkdirSync(mocks.root)
-    mocks.savePath = join(workspace, 'backup.zip')
-    mocks.openPaths = []
-    seedDataDir()
-  })
-
-  afterEach(() => rmSync(workspace, { recursive: true, force: true }))
-
-  it('rejects renderer filenames that could escape the webdav directory', async () => {
-    const { webdavDelete, webdavRestore } = await import('./backup')
-    for (const name of [
-      '../other/backup.zip',
-      '..\\other\\backup.zip',
-      '/etc/backup.zip',
-      'C:\\backup.zip',
-      'sub/backup.zip',
-      '.hidden.zip',
-      'backup.txt',
-      ''
-    ]) {
-      await expect(webdavRestore(name)).rejects.toThrow('Invalid backup filename')
-      await expect(webdavDelete(name)).rejects.toThrow('Invalid backup filename')
-    }
-  })
-
-  it('accepts the filenames webdavBackup actually produces', async () => {
-    const { assertSafeBackupFilename } = await import('./backup')
-    for (const name of ['win32_my-pc_2026-07-26_10-00-00.zip', 'aikobox-backup-2026-07-26.zip'])
-      expect(assertSafeBackupFilename(name)).toBe(name)
-  })
-
-  it('rejects archive entries outside the allowlist createBackupZip produces', async () => {
-    const { assertSafeBackupEntry } = await import('./backup')
-    for (const entryName of [
-      '../evil.yaml',
-      'profiles/../../evil.yaml',
-      '/etc/passwd',
-      'C:/Windows/win.ini',
-      'profiles\\..\\evil.yaml',
-      'evil.exe',
-      'sing-box.json',
-      'logs/aikobox.log',
-      'work/config.yaml',
-      // 设备私钥不进备份，也就不能被构造出来的归档覆盖
-      'plugin-vault/a.bin'
-    ]) {
-      expect(() => assertSafeBackupEntry({ entryName, isDirectory: false })).toThrow(
-        /backup archive entry/
-      )
-    }
-  })
-
-  it('accepts every entry createBackupZip emits', async () => {
-    const { assertSafeBackupEntry } = await import('./backup')
-    for (const entryName of [
-      'config.yaml',
-      'mihomo.yaml',
-      'profile.yaml',
-      'override.yaml',
-      'plugin.yaml',
-      'profiles/a.yaml',
-      'themes/nested/deep.css'
-    ]) {
-      expect(() => assertSafeBackupEntry({ entryName, isDirectory: false })).not.toThrow()
-    }
-    expect(() => assertSafeBackupEntry({ entryName: 'profiles/', isDirectory: true })).not.toThrow()
-  })
-
-  it('never puts the safeStorage plugin vault into an archive', async () => {
-    const { exportLocalBackup } = await import('./backup')
-    expect(await exportLocalBackup()).toBe(true)
-
-    const names = new AdmZip(mocks.savePath).getEntries().map((entry) => entry.entryName)
-    // webdavBackup 由 cron 无人值守地上传，设备私钥不能跟着走
-    expect(names.some((name) => name.startsWith('plugin-vault'))).toBe(false)
-    expect(names).toContain('plugin.yaml')
-    expect(names).toContain('config.yaml')
-    expect(names).toContain('profiles/a.yaml')
-  })
-
-  it('round-trips its own archive', async () => {
-    const { exportLocalBackup, importLocalBackup } = await import('./backup')
-    await exportLocalBackup()
-    rmSync(join(mocks.root, 'profiles', 'a.yaml'))
-
-    mocks.openPaths = [mocks.savePath]
-    expect(await importLocalBackup()).toBe(true)
-    expect(readFileSync(join(mocks.root, 'profiles', 'a.yaml'), 'utf8')).toBe('proxies: []\n')
-  })
-
-  it('refuses a crafted archive and writes nothing at all', async () => {
-    const zip = new AdmZip()
-    zip.addFile('config.yaml', Buffer.from('proxies: []\n'))
-    zip.addFile('../../evil.txt', Buffer.from('pwned'))
-    const craftedPath = join(workspace, 'crafted.zip')
-    zip.writeZip(craftedPath)
-
-    const { importLocalBackup } = await import('./backup')
-    mocks.openPaths = [craftedPath]
-    await expect(importLocalBackup()).rejects.toThrow(/backup archive entry/)
-    expect(existsSync(join(workspace, 'evil.txt'))).toBe(false)
-    expect(existsSync(join(mocks.root, 'evil.txt'))).toBe(false)
-    // config.yaml 排在恶意条目之前：整包校验必须在任何一次落盘之前完成，
-    // 所以用户原来的内容必须原样还在，而不只是“文件仍然存在”
-    expect(readFileSync(join(mocks.root, 'config.yaml'), 'utf8')).toBe('config.yaml\n')
-  })
-
-  it('stops a hostile webdav response before it can exhaust main-process memory', async () => {
-    const { downloadBoundedBuffer } = await import('./backup')
-    const chunk = Buffer.alloc(64 * 1024, 1)
-    let emitted = 0
-    const endless = Readable.from(
-      (function* () {
-        for (;;) {
-          emitted += 1
-          // 无限流：只有上限生效才会停下来，否则这个测试会一直跑到 OOM
-          yield chunk
-        }
-      })()
+    vi.clearAllMocks()
+    mocks.root = mkdtempSync(join(tmpdir(), 'aikobox-backup-'))
+    mocks.selectedBackup = ''
+    mocks.appCache = 'old'
+    writeFileSync(
+      join(mocks.root, 'config.yaml'),
+      'marker: old\nwebdavPassword: current-secret\ngithubToken: current-token\n'
+    )
+    writeFileSync(join(mocks.root, 'mihomo.yaml'), 'mode: old\n')
+    writeFileSync(join(mocks.root, 'profiles.yaml'), 'current: old\nitems: []\n')
+    writeFileSync(join(mocks.root, 'override.yaml'), 'items: []\n')
+    mkdirSync(join(mocks.root, 'profiles'))
+    writeFileSync(join(mocks.root, 'profiles', 'old.yaml'), 'old')
+    mkdirSync(join(mocks.root, 'substore'))
+    writeFileSync(
+      join(mocks.root, 'substore', 'cache.yaml'),
+      'url: https://secret.example/?token=old'
     )
 
-    await expect(downloadBoundedBuffer(endless, 256 * 1024)).rejects.toThrow(/exceeds 64 MiB/)
-    expect(emitted).toBeLessThan(16)
-    expect(endless.destroyed).toBe(true)
+    mocks.getAppConfig.mockImplementation(async (force?: boolean) => {
+      if (force) {
+        mocks.appCache = readFileSync(join(mocks.root, 'config.yaml'), 'utf8').match(
+          /marker:\s*(\w+)/
+        )?.[1] as string
+      }
+      return { marker: mocks.appCache }
+    })
+    mocks.getControledMihomoConfig.mockResolvedValue({})
+    mocks.getProfileConfig.mockResolvedValue({ items: [] })
+    mocks.getOverrideConfig.mockResolvedValue({ items: [] })
+    mocks.restartCore.mockResolvedValue(undefined)
   })
 
-  it('returns the whole body when it stays under the cap', async () => {
-    const { downloadBoundedBuffer } = await import('./backup')
-    const body = await downloadBoundedBuffer(
-      Readable.from([Buffer.from('ab'), Buffer.from('c')]),
-      8
-    )
-    expect(body.toString()).toBe('abc')
+  afterEach(() => {
+    rmSync(mocks.root, { recursive: true, force: true })
   })
 
-  it('refuses an archive whose entries are inside the allowlist but unexpected', async () => {
-    const zip = new AdmZip()
-    zip.addFile('sing-box.json', Buffer.from('{}'))
-    const craftedPath = join(workspace, 'unexpected.zip')
-    zip.writeZip(craftedPath)
+  it('refreshes every config cache before restarting the core', async () => {
+    mocks.selectedBackup = writeBackup({
+      'config.yaml': 'marker: restored\n',
+      'mihomo.yaml': 'mode: restored\n',
+      'profiles.yaml': 'current: restored\nitems: []\n',
+      'override.yaml': 'items: []\n',
+      'profiles/restored.yaml': 'restored'
+    })
 
     const { importLocalBackup } = await import('./backup')
-    mocks.openPaths = [craftedPath]
-    await expect(importLocalBackup()).rejects.toThrow(/Unexpected backup archive entry/)
-    expect(existsSync(join(mocks.root, 'sing-box.json'))).toBe(false)
+    await expect(importLocalBackup()).resolves.toBe(true)
+
+    expect(mocks.getAppConfig).toHaveBeenCalledWith(true)
+    expect(mocks.getControledMihomoConfig).toHaveBeenCalledWith(true)
+    expect(mocks.getProfileConfig).toHaveBeenCalledWith(true)
+    expect(mocks.getOverrideConfig).toHaveBeenCalledWith(true)
+    expect(mocks.restartCore).toHaveBeenCalledOnce()
+    expect(mocks.appCache).toBe('restored')
+    expect(readFileSync(join(mocks.root, 'config.yaml'), 'utf8')).toContain('restored')
+    expect(readFileSync(join(mocks.root, 'profiles', 'restored.yaml'), 'utf8')).toBe('restored')
+    expect(() => readFileSync(join(mocks.root, 'profiles', 'old.yaml'))).toThrow()
+  })
+
+  it('rolls disk and caches back when the restored core cannot start', async () => {
+    mocks.selectedBackup = writeBackup({
+      'config.yaml': 'marker: restored\n',
+      'profiles/restored.yaml': 'restored'
+    })
+    mocks.restartCore
+      .mockRejectedValueOnce(new Error('restored core rejected config'))
+      .mockResolvedValueOnce(undefined)
+
+    const { importLocalBackup } = await import('./backup')
+    await expect(importLocalBackup()).rejects.toThrow('restored core rejected config')
+
+    expect(readFileSync(join(mocks.root, 'config.yaml'), 'utf8')).toContain('old')
+    expect(readFileSync(join(mocks.root, 'profiles', 'old.yaml'), 'utf8')).toBe('old')
+    expect(() => readFileSync(join(mocks.root, 'profiles', 'restored.yaml'))).toThrow()
+    expect(mocks.appCache).toBe('old')
+    expect(mocks.getAppConfig).toHaveBeenCalledTimes(2)
+    expect(mocks.restartCore).toHaveBeenCalledTimes(2)
+  })
+
+  it('rolls back before starting a core when restored cache validation fails', async () => {
+    mocks.selectedBackup = writeBackup({
+      'config.yaml': 'marker: restored\n',
+      'profiles.yaml': 'current: restored\nitems: []\n'
+    })
+    mocks.getProfileConfig
+      .mockRejectedValueOnce(new Error('restored profile config is invalid'))
+      .mockResolvedValueOnce({ items: [] })
+
+    const { importLocalBackup } = await import('./backup')
+    await expect(importLocalBackup()).rejects.toThrow('restored profile config is invalid')
+
+    expect(readFileSync(join(mocks.root, 'config.yaml'), 'utf8')).toContain('old')
+    expect(mocks.appCache).toBe('old')
+    expect(mocks.getAppConfig).toHaveBeenCalledTimes(2)
+    expect(mocks.restartCore).toHaveBeenCalledOnce()
+  })
+
+  it('rejects unsupported archive entries before changing live data', async () => {
+    mocks.selectedBackup = writeBackup({
+      'config.yaml': 'marker: restored\n',
+      'unexpected.txt': 'not managed by backup restore'
+    })
+
+    const { importLocalBackup } = await import('./backup')
+    await expect(importLocalBackup()).rejects.toThrow('Unsupported backup entry')
+
+    expect(readFileSync(join(mocks.root, 'config.yaml'), 'utf8')).toContain('old')
+    expect(mocks.getAppConfig).not.toHaveBeenCalled()
+    expect(mocks.restartCore).not.toHaveBeenCalled()
+  })
+
+  it('rejects descendants below entries that must be regular files', async () => {
+    mocks.selectedBackup = writeBackup({
+      'config.yaml/child': 'not a config file'
+    })
+
+    const { importLocalBackup } = await import('./backup')
+    await expect(importLocalBackup()).rejects.toThrow('Unsafe backup entry')
+    expect(mocks.getAppConfig).not.toHaveBeenCalled()
+    expect(mocks.restartCore).not.toHaveBeenCalled()
+  })
+
+  it('omits all sensitive profile storage from remote backup archives', async () => {
+    writeFileSync(
+      join(mocks.root, 'profiles.yaml'),
+      [
+        'current: secret-profile',
+        'items:',
+        '  - id: secret-profile',
+        '    url: https://subscription.example/path?token=query-secret',
+        '    authToken: bearer-secret',
+        '    ageSecretKey: AGE-SECRET-KEY-1TEST'
+      ].join('\n')
+    )
+    writeFileSync(
+      join(mocks.root, 'profiles', 'secret-profile.yaml'),
+      'proxies:\n  - name: private\n    password: node-password\n'
+    )
+
+    const { createBackupZip } = await import('./backup')
+    const zip = createBackupZip({ omitAppConfigSecrets: true })
+    const config = parse(zip.getEntry('config.yaml')?.getData().toString('utf8') || '') as Record<
+      string,
+      unknown
+    >
+    const metadata = JSON.parse(
+      zip.getEntry('backup-metadata.json')?.getData().toString('utf8') || '{}'
+    ) as { omittedAppConfigKeys?: string[]; omittedBackupEntries?: string[] }
+
+    expect(config.webdavPassword).toBeUndefined()
+    expect(config.githubToken).toBeUndefined()
+    expect(zip.getEntry('profiles.yaml')).toBeNull()
+    expect(zip.getEntries().some((entry) => entry.entryName.startsWith('profiles/'))).toBe(false)
+    expect(zip.getEntries().some((entry) => entry.entryName.startsWith('substore/'))).toBe(false)
+    expect(metadata.omittedAppConfigKeys).toEqual(
+      expect.arrayContaining(['webdavPassword', 'githubToken', 'gistAgeSecretKey'])
+    )
+    expect(metadata.omittedBackupEntries).toEqual(['profiles.yaml', 'profiles', 'substore'])
+  })
+
+  it('preserves current local secrets when restoring a redacted remote backup', async () => {
+    mocks.selectedBackup = writeBackup({
+      'backup-metadata.json': JSON.stringify({
+        version: 1,
+        omittedAppConfigKeys: ['webdavPassword', 'githubToken'],
+        omittedBackupEntries: ['profiles.yaml', 'profiles', 'substore']
+      }),
+      'config.yaml': 'marker: restored\n',
+      'profiles.yaml':
+        'current: remote\nitems:\n  - id: remote\n    authToken: leaked-remote-token\n',
+      'profiles/remote.yaml': 'proxies:\n  - password: leaked-remote-password\n',
+      'substore/cache.yaml': 'url: https://remote.example/?token=leaked\n'
+    })
+
+    const { importLocalBackup } = await import('./backup')
+    await expect(importLocalBackup()).resolves.toBe(true)
+
+    const restored = parse(readFileSync(join(mocks.root, 'config.yaml'), 'utf8')) as Record<
+      string,
+      unknown
+    >
+    expect(restored.marker).toBe('restored')
+    expect(restored.webdavPassword).toBe('current-secret')
+    expect(restored.githubToken).toBe('current-token')
+    expect(readFileSync(join(mocks.root, 'profiles.yaml'), 'utf8')).toContain('current: old')
+    expect(readFileSync(join(mocks.root, 'profiles', 'old.yaml'), 'utf8')).toBe('old')
+    expect(() => readFileSync(join(mocks.root, 'profiles', 'remote.yaml'))).toThrow()
+    expect(readFileSync(join(mocks.root, 'substore', 'cache.yaml'), 'utf8')).toContain('token=old')
+  })
+
+  it('holds concurrent profile writes until a failed restore has fully rolled back', async () => {
+    mocks.selectedBackup = writeBackup({
+      'config.yaml': 'marker: restored\n',
+      'profiles.yaml': 'current: restored\nitems: []\n',
+      'profiles/restored.yaml': 'restored'
+    })
+
+    let rejectRestoredCore!: (error: Error) => void
+    const restoredCore = new Promise<void>((_, reject) => {
+      rejectRestoredCore = reject
+    })
+    mocks.restartCore.mockReturnValueOnce(restoredCore).mockResolvedValueOnce(undefined)
+
+    const { importLocalBackup } = await import('./backup')
+    const { runProfileStorageTransaction } = await import('../config/profileStorageTransaction')
+    const restore = importLocalBackup()
+
+    await vi.waitFor(() => expect(mocks.restartCore).toHaveBeenCalledTimes(1))
+
+    let concurrentWriteStarted = false
+    const concurrentWrite = runProfileStorageTransaction(async () => {
+      concurrentWriteStarted = true
+      writeFileSync(join(mocks.root, 'profiles.yaml'), 'current: concurrent\nitems: []\n')
+      writeFileSync(join(mocks.root, 'profiles', 'concurrent.yaml'), 'concurrent')
+    })
+
+    await Promise.resolve()
+    expect(concurrentWriteStarted).toBe(false)
+
+    rejectRestoredCore(new Error('restored core rejected config'))
+    await expect(restore).rejects.toThrow('restored core rejected config')
+    await concurrentWrite
+
+    expect(readFileSync(join(mocks.root, 'profiles.yaml'), 'utf8')).toContain('current: concurrent')
+    expect(readFileSync(join(mocks.root, 'profiles', 'concurrent.yaml'), 'utf8')).toBe('concurrent')
+    expect(() => readFileSync(join(mocks.root, 'profiles', 'restored.yaml'))).toThrow()
+  })
+
+  it('rejects WebDAV path traversal filenames', async () => {
+    const { assertWebdavBackupFilename } = await import('./backup')
+    expect(assertWebdavBackupFilename('aikobox-backup-2026-07-27.zip')).toBe(
+      'aikobox-backup-2026-07-27.zip'
+    )
+    expect(() => assertWebdavBackupFilename('../outside.zip')).toThrow(
+      'Invalid WebDAV backup filename'
+    )
+    expect(() => assertWebdavBackupFilename('folder/backup.zip')).toThrow(
+      'Invalid WebDAV backup filename'
+    )
+    expect(() => assertWebdavBackupFilename('backup%2foutside.zip')).toThrow(
+      'Invalid WebDAV backup filename'
+    )
+  })
+})
+
+describe('bounded WebDAV backup download', () => {
+  it('stops reading as soon as the configured limit is exceeded', async () => {
+    const { downloadBoundedBuffer } = await import('./backup')
+    const stream = Readable.from([Buffer.alloc(4), Buffer.alloc(5)])
+    await expect(downloadBoundedBuffer(stream, 8)).rejects.toThrow('Backup archive exceeds 64 MiB')
+  })
+
+  it('returns the complete buffer when it remains within the limit', async () => {
+    const { downloadBoundedBuffer } = await import('./backup')
+    const stream = Readable.from([Buffer.from('safe'), Buffer.from('-backup')])
+    await expect(downloadBoundedBuffer(stream, 32)).resolves.toEqual(Buffer.from('safe-backup'))
   })
 })

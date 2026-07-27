@@ -4,5 +4,8 @@
 
 {$DOMAIN} {
 	encode gzip
-	reverse_proxy gateway:8080
+	reverse_proxy gateway:8080 {
+		# Replace, rather than append to, any client-supplied forwarding chain.
+		header_up X-Forwarded-For {remote_host}
+	}
 }

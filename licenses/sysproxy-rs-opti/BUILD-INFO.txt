@@ -1,0 +1,28 @@
+AikoBox sysproxy-rs-opti Windows x64 reproducible build
+
+Upstream: https://github.com/mihomo-party-org/sysproxy-rs-opti
+Tag: v0.1.0
+Commit: ce9463d95ed5839a43c6a0d7cccf3b3fb892de3a
+Crate version: 0.5.1
+Target: x86_64-pc-windows-msvc
+Rust: rustc 1.97.1
+Cargo: cargo 1.97.1
+SOURCE_DATE_EPOCH: 1780791864
+RUSTFLAGS: -C link-arg=/Brepro -C debuginfo=0 -C codegen-units=1 --remap-path-prefix=<SOURCE>=/usr/src/sysproxy-rs-opti --remap-path-prefix=<VENDOR>=/usr/src/cargo-vendor
+Command: cargo +1.97.1 build --release --locked --offline --target x86_64-pc-windows-msvc
+Linker reproducibility flag: /Brepro
+Path reproducibility: replace <SOURCE> and <VENDOR> in RUSTFLAGS with the absolute
+paths to the extracted upstream and vendor directories before invoking Cargo.
+Default features: iptools,napi-binding
+Production Rust dependencies: 48
+Complete Cargo.lock vendor packages: 126
+Binary: sysproxy.win32-x64-msvc.node
+Binary size: 583680
+Binary SHA-256: 646d39126e25aa6d1d2b85741bc1994ad83d9470fbaccd021692d897686fd99a
+
+The binary was built twice in independent CARGO_TARGET_DIR directories and the two
+outputs were byte-identical. The corresponding-source archive contains the exact
+upstream source, generated Cargo.lock, every locked crate source, registry checksums
+and an offline Cargo source replacement config. The license archive contains every
+legal file found in each statically linked production crate. The verifier fails closed
+on missing dependencies, legal files, checksums, archive entries or binary identity.

@@ -27,6 +27,11 @@ interface ExitCleanupAttempt {
 let startExitCleanup: (() => ExitCleanupAttempt) | null = null
 let saveWindowStateBeforeExit: () => void = () => {}
 let finishBlockedWindowsSessionEnd: ((attempt: ExitCleanupAttempt) => void) | null = null
+let exitApprovedForWindowClose = false
+
+export function isExitApprovedForWindowClose(): boolean {
+  return exitApprovedForWindowClose
+}
 
 /**
  * Avoid a lifecycle -> window -> lifecycle import cycle while still keeping
@@ -125,7 +130,7 @@ function isWindowsElevatedSync(): boolean {
 
 export function setupAppLifecycle(): void {
   let sysProxyDisabled = false
-  let exitApproved = false
+  exitApprovedForWindowClose = false
   let activeCleanup: ExitCleanupAttempt | null = null
   let blockedSessionContinuation: ExitCleanupAttempt | null = null
   let beforeQuitContinuationPending = false
@@ -179,8 +184,8 @@ export function setupAppLifecycle(): void {
       if (!sysProxyDisabled) return false
 
       cleanupCoreWatcher()
-      await withTimeout(stopCore(), 1200)
-      return true
+      const coreStopped = await withTimeout(stopCore(), 1200)
+      return coreStopped
     })().finally(() => {
       if (activeCleanup === attempt && !sysProxyDisabled) {
         activeCleanup = null
@@ -200,7 +205,7 @@ export function setupAppLifecycle(): void {
     void attempt.completion.then((safeToExit) => {
       if (blockedSessionContinuation === attempt) blockedSessionContinuation = null
       if (!safeToExit) return
-      exitApproved = true
+      exitApprovedForWindowClose = true
       app.quit()
     })
   }
@@ -210,14 +215,14 @@ export function setupAppLifecycle(): void {
   })
 
   app.on('before-quit', async (e) => {
-    if (exitApproved) return
+    if (exitApprovedForWindowClose) return
     e.preventDefault()
     if (beforeQuitContinuationPending) return
     if (!startExitCleanup) return
     beforeQuitContinuationPending = true
     const safeToExit = await startExitCleanup().completion
     if (safeToExit) {
-      exitApproved = true
+      exitApprovedForWindowClose = true
       app.quit()
       return
     }
@@ -237,7 +242,7 @@ export function setupAppLifecycle(): void {
     if (!startExitCleanup) return
     const safeToExit = await startExitCleanup().completion
     if (safeToExit) {
-      exitApproved = true
+      exitApprovedForWindowClose = true
       app.exit()
     }
   })

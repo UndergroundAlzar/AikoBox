@@ -70,7 +70,10 @@ describe('offline subscription compatibility corpus', () => {
       'vless',
       'hysteria2',
       'tuic',
-      'shadowtls'
+      'shadowtls',
+      'shadowsocks',
+      'http',
+      'http'
     ])
     expect(convertedByTag.get(proxies[3].name)).toMatchObject({
       type: 'vmess',

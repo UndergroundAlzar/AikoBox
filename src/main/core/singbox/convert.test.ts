@@ -328,6 +328,80 @@ describe('dns', () => {
     )
     expect(warnings.join('\n')).not.toMatch(/hosts mapping/)
   })
+
+  it('maps a nameserver detour and h3 option, and rejects unknown detours', () => {
+    const proxy = {
+      name: 'p1',
+      type: 'ss',
+      server: 'proxy.example',
+      port: 8388,
+      cipher: 'aes-128-gcm',
+      password: 'secret'
+    }
+    const { config, errors } = convertClashToSingbox(
+      base({
+        proxies: [proxy],
+        'proxy-groups': [{ name: 'Proxy', type: 'select', proxies: ['p1'] }],
+        dns: {
+          enable: true,
+          nameserver: [
+            'https://dns.google/dns-query#Proxy&h3=true',
+            'https://cloudflare-dns.com/dns-query#h3=true'
+          ]
+        }
+      })
+    )
+    const servers = (config.dns as Dict).servers as Dict[]
+    expect(servers.find((server) => server.server === 'dns.google')).toMatchObject({
+      type: 'h3',
+      detour: 'Proxy'
+    })
+    expect(servers.find((server) => server.server === 'cloudflare-dns.com')).toMatchObject({
+      type: 'h3'
+    })
+    expect(servers.find((server) => server.server === 'cloudflare-dns.com')?.detour).toBeUndefined()
+    expect(errors).toEqual([])
+
+    const invalid = convertClashToSingbox(
+      base({
+        proxies: [proxy],
+        dns: {
+          enable: true,
+          nameserver: ['https://dns.google/dns-query#Missing']
+        }
+      })
+    )
+    expect(invalid.errors.join('\n')).toMatch(/unknown detour "Missing"/)
+    expect(
+      ((invalid.config.dns as Dict).servers as Dict[]).find(
+        (server) => server.server === 'dns.google'
+      )
+    ).toBeUndefined()
+  })
+
+  it('keeps fake-ip address rules ahead of nameserver-policy rules', () => {
+    const { config, errors } = convertClashToSingbox(
+      base({
+        dns: {
+          enable: true,
+          ipv6: false,
+          'enhanced-mode': 'fake-ip',
+          nameserver: ['1.1.1.1'],
+          'nameserver-policy': {
+            'example.com': '8.8.8.8'
+          }
+        }
+      })
+    )
+    const rules = (config.dns as Dict).rules as Dict[]
+    const fakeIpIndex = rules.findIndex((rule) => rule.server === 'dns-fakeip')
+    const policyIndex = rules.findIndex((rule) =>
+      (rule.domain as string[] | undefined)?.includes('example.com')
+    )
+    expect(fakeIpIndex).toBeGreaterThanOrEqual(0)
+    expect(policyIndex).toBeGreaterThan(fakeIpIndex)
+    expect(errors).toEqual([])
+  })
 })
 
 describe('proxies', () => {
@@ -641,6 +715,92 @@ describe('proxies', () => {
     expect(outbound(config, 'GLOBAL').outbounds as string[]).toContain('wg1')
   })
 
+  it('maps every WireGuard peer and rejects empty peer arrays', () => {
+    const { config, errors } = convertClashToSingbox(
+      base({
+        proxies: [
+          {
+            name: 'wg-multi',
+            type: 'wireguard',
+            ip: '172.16.0.2/32',
+            ipv6: 'fd00::2/128',
+            'private-key': 'private',
+            peers: [
+              {
+                server: '192.0.2.1',
+                port: 51820,
+                'public-key': 'public-1',
+                'allowed-ips': ['0.0.0.0/1'],
+                reserved: [1, 2, 3],
+                'persistent-keepalive': 25
+              },
+              {
+                server: '2001:db8::1',
+                port: 51821,
+                'public-key': 'public-2',
+                'pre-shared-key': 'shared',
+                'allowed-ips': ['128.0.0.0/1', '::/0'],
+                reserved: 'U4An'
+              }
+            ]
+          }
+        ]
+      })
+    )
+    const peers = endpoint(config, 'wg-multi').peers as Dict[]
+    expect(peers).toHaveLength(2)
+    expect(peers[0]).toMatchObject({
+      address: '192.0.2.1',
+      port: 51820,
+      public_key: 'public-1',
+      allowed_ips: ['0.0.0.0/1'],
+      reserved: [1, 2, 3],
+      persistent_keepalive_interval: 25
+    })
+    expect(peers[1]).toMatchObject({
+      address: '2001:db8::1',
+      port: 51821,
+      public_key: 'public-2',
+      pre_shared_key: 'shared',
+      allowed_ips: ['128.0.0.0/1', '::/0'],
+      reserved: [83, 128, 39]
+    })
+    expect(errors).toEqual([])
+
+    const invalid = convertClashToSingbox(
+      base({
+        proxies: [
+          {
+            name: 'wg-empty',
+            type: 'wireguard',
+            ip: '172.16.0.2',
+            'private-key': 'private',
+            peers: []
+          }
+        ]
+      })
+    )
+    expect(invalid.errors.join('\n')).toMatch(/wireguard peers must not be empty/)
+    expect((invalid.config.endpoints as Dict[] | undefined) || []).toEqual([])
+
+    const invalidPeer = convertClashToSingbox(
+      base({
+        proxies: [
+          {
+            name: 'wg-invalid-peer',
+            type: 'wireguard',
+            ip: '172.16.0.2',
+            'private-key': 'private',
+            peers: [{}]
+          }
+        ]
+      })
+    )
+    expect(invalidPeer.errors.join('\n')).toMatch(
+      /peer 1 requires server, valid port, and public-key/
+    )
+  })
+
   it('maps http and socks5', () => {
     const { config } = convertClashToSingbox(
       base({
@@ -831,7 +991,7 @@ describe('proxy groups', () => {
     const tags = (config.outbounds as Dict[]).map((o) => o.tag)
     expect(tags.filter((tag) => tag === 'Auto')).toEqual(['Auto'])
     expect(outbound(config, 'Auto').type).toBe('shadowsocks')
-    expect(errors).toContain('group "Auto": name collides with a proxy node')
+    expect(errors.join('\n')).toMatch(/group "Auto".*conflicts.*"Auto"/)
   })
 
   it('refuses a group that shadows the built-in direct outbound', () => {
@@ -841,7 +1001,7 @@ describe('proxy groups', () => {
     const tags = (config.outbounds as Dict[]).map((o) => o.tag)
     expect(tags.filter((tag) => tag === 'direct')).toEqual(['direct'])
     expect(outbound(config, 'direct').type).toBe('direct')
-    expect(errors).toContain('group "direct": name collides with the built-in direct outbound')
+    expect(errors.join('\n')).toMatch(/group "direct".*conflicts.*"direct"/)
   })
 
   it('still emits groups whose name only collides with a skipped group', () => {
@@ -856,6 +1016,26 @@ describe('proxy groups', () => {
     )
     expect(outbound(config, 'Chain').type).toBe('selector')
     expect(errors).toEqual([])
+  })
+
+  it('rejects group tags that collide with nodes or built-in outbounds', () => {
+    const { config, errors } = convertClashToSingbox(
+      base({
+        proxies,
+        'proxy-groups': [
+          { name: 'p1', type: 'select', proxies: ['p2'] },
+          { name: 'DiReCt', type: 'select', proxies: ['p1'] },
+          { name: 'global', type: 'select', proxies: ['p1'] }
+        ]
+      })
+    )
+    expect(errors.join('\n')).toMatch(/group "p1".*conflicts.*"p1"/)
+    expect(errors.join('\n')).toMatch(/group "DiReCt".*conflicts.*"direct"/)
+    expect(errors.join('\n')).toMatch(/group "global".*conflicts.*"GLOBAL"/)
+    const tags = (config.outbounds as Dict[]).map((item) => item.tag)
+    expect(tags.filter((tag) => tag === 'p1')).toHaveLength(1)
+    expect(tags).not.toContain('DiReCt')
+    expect(tags).not.toContain('global')
   })
 
   it('rejects provider-only profiles instead of producing a direct-only config', () => {
@@ -920,6 +1100,77 @@ describe('rules', () => {
     expect((config.route as Dict).final).toBe('p1')
   })
 
+  it('resolves domain destinations before destination IP rules while preserving no-resolve order', () => {
+    const { config, errors } = convertClashToSingbox(
+      base({
+        proxies,
+        rules: [
+          'DOMAIN,example.com,p1',
+          'IP-CIDR,192.0.2.0/24,DIRECT,no-resolve',
+          'GEOIP,CN,DIRECT',
+          'IP-CIDR,10.0.0.0/8,DIRECT',
+          'MATCH,p1'
+        ]
+      })
+    )
+    const rules = routeRules(config)
+    const domainIndex = rules.findIndex((rule) =>
+      (rule.domain as string[] | undefined)?.includes('example.com')
+    )
+    const noResolveIndex = rules.findIndex((rule) =>
+      (rule.ip_cidr as string[] | undefined)?.includes('192.0.2.0/24')
+    )
+    const resolveIndexes = rules
+      .map((rule, index) => (rule.action === 'resolve' ? index : -1))
+      .filter((index) => index >= 0)
+    const geoipIndex = rules.findIndex((rule) =>
+      (rule.rule_set as string[] | undefined)?.includes('geoip-cn')
+    )
+    const laterIpIndex = rules.findIndex((rule) =>
+      (rule.ip_cidr as string[] | undefined)?.includes('10.0.0.0/8')
+    )
+
+    expect(resolveIndexes).toHaveLength(1)
+    expect(domainIndex).toBeLessThan(noResolveIndex)
+    expect(noResolveIndex).toBeLessThan(resolveIndexes[0])
+    expect(resolveIndexes[0]).toBeLessThan(geoipIndex)
+    expect(geoipIndex).toBeLessThan(laterIpIndex)
+    expect(errors).toEqual([])
+  })
+
+  it('preserves commas inside rule payloads and logical sub-rules', () => {
+    const { config, errors, warnings } = convertClashToSingbox(
+      base({
+        proxies,
+        rules: [
+          'DOMAIN-REGEX,^foo{1,3}\\.example$,p1',
+          'OR,((DOMAIN-REGEX,^bar{2,4}\\.example$),(DOMAIN,b.example)),p1',
+          'MATCH,DIRECT'
+        ]
+      })
+    )
+    const rules = routeRules(config)
+    expect(
+      rules.find((rule) =>
+        (rule.domain_regex as string[] | undefined)?.includes('^foo{1,3}\\.example$')
+      )
+    ).toMatchObject({ outbound: 'p1' })
+    const logical = rules.find((rule) => rule.type === 'logical' && rule.mode === 'or') as Dict
+    expect((logical.rules as Dict[])[0].domain_regex).toEqual(['^bar{2,4}\\.example$'])
+    expect(errors).toEqual([])
+    expect(warnings).toEqual([])
+  })
+
+  it('does not resolve for source-only IP rules', () => {
+    const { config } = convertClashToSingbox(
+      base({
+        proxies,
+        rules: ['SRC-IP-CIDR,192.168.0.0/16,DIRECT', 'SRC-GEOIP,private,DIRECT', 'MATCH,p1']
+      })
+    )
+    expect(routeRules(config).some((rule) => rule.action === 'resolve')).toBe(false)
+  })
+
   it('maps Windows wildcard/regex process rules and source GeoIP', () => {
     const { config, errors } = convertClashToSingbox(
       base({
@@ -939,6 +1190,37 @@ describe('rules', () => {
     )
     expect(rules.some((rule) => Array.isArray(rule.process_path_regex))).toBe(true)
     expect(rules.some((rule) => rule.source_ip_is_private === true)).toBe(true)
+    expect(errors).toEqual([])
+  })
+
+  it('applies PROCESS-NAME-REGEX to the basename with mihomo matching semantics', () => {
+    const { config, errors } = convertClashToSingbox(
+      base({
+        proxies,
+        rules: [
+          'PROCESS-NAME-REGEX,chrome,p1',
+          'PROCESS-NAME-REGEX,^chrome,p1',
+          'PROCESS-NAME-REGEX,chrome\\.exe$,p1',
+          'PROCESS-NAME-REGEX,.*telegram.*,p1',
+          'MATCH,DIRECT'
+        ]
+      })
+    )
+    const patterns = routeRules(config)
+      .filter((rule) => Array.isArray(rule.process_path_regex))
+      .map((rule) => (rule.process_path_regex as string[])[0])
+    const [containsChrome, startsWithChrome, exactChrome, containsTelegram] = patterns.map(
+      (pattern) => new RegExp(pattern.replace(/^\(\?i\)/, ''), 'i')
+    )
+
+    expect(containsChrome.test('C:\\Apps\\Chrome.EXE')).toBe(true)
+    expect(containsChrome.test('C:\\chrome\\helper.exe')).toBe(false)
+    expect(startsWithChrome.test('C:\\Apps\\chrome-helper.exe')).toBe(true)
+    expect(startsWithChrome.test('C:\\Apps\\mychrome.exe')).toBe(false)
+    expect(exactChrome.test('C:\\Apps\\chrome.exe')).toBe(true)
+    expect(exactChrome.test('C:\\Apps\\chrome.exe.old')).toBe(false)
+    expect(containsTelegram.test('/opt/telegram/worker')).toBe(false)
+    expect(containsTelegram.test('/opt/apps/telegram-desktop')).toBe(true)
     expect(errors).toEqual([])
   })
 
@@ -1010,11 +1292,7 @@ describe('rules', () => {
     expect((config.route as Dict).final).toBe('direct')
   })
 
-  it('never emits a routing-time resolve action', () => {
-    // sing-box treats a failed `{action:"resolve"}` as fatal for the connection
-    // (route/route.go:537-541), unlike Clash, which just skips the IP rule. With
-    // the shipped DoH defaults an unreachable resolver would then drop every
-    // connection to a domain, so destination-IP rules stay unresolved instead.
+  it('resolves domain destinations before destination-IP rules that allow resolution', () => {
     const { config } = convertClashToSingbox(
       base({
         proxies,
@@ -1027,7 +1305,7 @@ describe('rules', () => {
         ]
       })
     )
-    expect(routeRules(config).some((r) => r.action === 'resolve')).toBe(false)
+    expect(routeRules(config).some((r) => r.action === 'resolve')).toBe(true)
   })
 
   it('peels a trailing no-resolve option off a rule that still has a target', () => {
@@ -1149,5 +1427,23 @@ describe('clash mode routing', () => {
     const rules = routeRules(config)
     expect(rules[0]).toEqual({ action: 'sniff' })
     expect(rules[1]).toEqual({ protocol: 'dns', action: 'hijack-dns' })
+  })
+
+  it('hijacks destination port 53 when DNS is enabled without sniffing', () => {
+    const { config, errors } = convertClashToSingbox(
+      base({
+        tun: { enable: true },
+        sniffer: { enable: false },
+        dns: { enable: true, nameserver: ['223.5.5.5'] }
+      })
+    )
+    const rules = routeRules(config)
+    expect(rules[0]).toEqual({
+      network: ['tcp', 'udp'],
+      port: [53],
+      action: 'hijack-dns'
+    })
+    expect(rules.some((rule) => rule.action === 'sniff')).toBe(false)
+    expect(errors).toEqual([])
   })
 })

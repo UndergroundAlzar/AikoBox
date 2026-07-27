@@ -12,7 +12,8 @@ import {
   isRecognizedRootLicenseFileName,
   parseGoBuildinfoModules,
   readSfntNameMetadata,
-  resolveEvidenceFile
+  resolveEvidenceFile,
+  verifyPinnedEvidenceLock
 } from './audit-licenses.mjs'
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -62,24 +63,72 @@ function createSfntNameFixture(copyright, versionRecord) {
   return Buffer.concat([sfnt, nameTable])
 }
 
-test('offline audit covers dependencies and explicitly tracked resource blockers', () => {
-  const result = runAudit('--allow-known-blockers')
+test('offline audit mechanically verifies every runtime resource with zero blockers', () => {
+  const result = runAudit()
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
   assert.match(result.stdout, /production dependency versions use reviewed license expressions/)
   assert.match(result.stdout, /8 exact production package evidence records passed/)
+  assert.match(
+    result.stdout,
+    /Machine-verified native redistribution evidence passed: singBox, sysproxy/
+  )
+  assert.match(result.stdout, /Every locked runtime resource has verified redistribution evidence/)
   assert.doesNotMatch(result.stderr, /Production packages without reviewed license evidence/)
-  assert.match(result.stderr, /\[BLOCKED\].*singBox.*sysproxy/)
-  assert.doesNotMatch(result.stderr, /\[BLOCKED\].*notoColorEmoji/)
+  assert.doesNotMatch(result.stdout + result.stderr, /\[BLOCKED\]|\[FATAL\]/)
   assert.doesNotMatch(
     result.stdout + result.stderr,
     /sevenZip|7za\.exe|enableLoopback|trafficMonitor|TrafficMonitor/
   )
 })
 
-test('release-gate mode fails closed while redistribution evidence is unresolved', () => {
-  const result = runAudit()
-  assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
-  assert.match(result.stderr, /Runtime resource licensing is unresolved for: singBox, sysproxy/)
+test('legacy blocker allowance does not change the verified strict result', () => {
+  const strict = runAudit()
+  const legacyOption = runAudit('--allow-known-blockers')
+  assert.equal(strict.status, 0, `${strict.stdout}\n${strict.stderr}`)
+  assert.equal(legacyOption.status, 0, `${legacyOption.stdout}\n${legacyOption.stderr}`)
+  assert.match(strict.stdout, /Machine-verified native redistribution evidence passed/)
+  assert.doesNotMatch(legacyOption.stdout + legacyOption.stderr, /\[BLOCKED\]|\[FATAL\]/)
+})
+
+test('release workflow cannot bypass blockers and publishes exact native evidence sets', () => {
+  const workflow = fs.readFileSync(
+    path.join(repositoryRoot, '.github', 'workflows', 'release.yml'),
+    'utf8'
+  )
+  assert.doesNotMatch(workflow, /--allow-known-blockers/)
+  assert.match(workflow, /Policy: zero unresolved redistribution blockers required/)
+  assert.match(workflow, /license-android-libbox-release\.mjs/)
+  for (const suffix of [
+    'corresponding-source.tar.gz',
+    'licenses.tar.gz',
+    'COVERAGE.json',
+    'NOTICE.txt',
+    'SHA256SUMS.txt'
+  ]) {
+    assert.ok(workflow.includes(`aikobox-libbox-1.13.14-android-arm64-${suffix}`))
+  }
+  for (const suffix of [
+    'corresponding-source.tar.gz',
+    'licenses.tar.gz',
+    'COVERAGE.json',
+    'NOTICE.txt',
+    'SHA256SUMS.txt'
+  ]) {
+    assert.ok(workflow.includes(`aikobox-sing-box-1.13.14-windows-amd64-${suffix}`))
+  }
+  for (const suffix of [
+    'corresponding-source.tar.gz',
+    'license-notices.tar.gz',
+    'EVIDENCE.json',
+    'NOTICE.txt',
+    'SHA256SUMS.txt'
+  ]) {
+    assert.ok(workflow.includes(`aikobox-sysproxy-rs-opti-v0.1.0-windows-x64-${suffix}`))
+  }
+  assert.match(workflow, /license-windows-sing-box-release\.mjs/)
+  assert.match(workflow, /verify:license-sysproxy/)
+  assert.match(workflow, /Compare-Object \$expectedAssetNames \$actualAssetNames/)
+  assert.doesNotMatch(workflow, /Expected exactly nine release assets/)
 })
 
 test('eight exact npm package evidence cases close mechanically and enter the package gate', () => {
@@ -212,7 +261,7 @@ test('owned byte-length override is frozen, licensed, and compatibility-tested',
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
 })
 
-test('blocked native resources retain pinned partial evidence without weakening the gate', () => {
+test('native resources use exact VERIFIED models and pinned machine evidence', () => {
   const lock = JSON.parse(
     fs.readFileSync(path.join(repositoryRoot, 'scripts', 'resources-lock.json'), 'utf8')
   )
@@ -225,21 +274,22 @@ test('blocked native resources retain pinned partial evidence without weakening 
     lock.resources.singBox.archiveSha256,
     'f580782c6dd10f7691c66cea1d7c421813c5fbf7e305d1ee7ce0c3a40d196341'
   )
-  for (const name of ['singBox', 'sysproxy']) {
-    const resource = lock.resources[name]
-    const item = review.resources[name]
-    assert.equal(item.status, 'blocked')
-    assert.equal(item.partialEvidence.release.tag, resource.releaseTag)
-    assert.equal(item.partialEvidence.release.tagCommit, resource.releaseTagCommit)
-    assert.equal(item.partialEvidence.licenseFiles.length, 1)
-    const licenseFile = item.partialEvidence.licenseFiles[0]
-    const contents = fs.readFileSync(path.join(repositoryRoot, ...licenseFile.path.split('/')))
-    assert.equal(contents.length, licenseFile.size)
-    assert.equal(createHash('sha256').update(contents).digest('hex'), licenseFile.sha256)
-    assert.equal(licenseFile.sha256, licenseFile.upstreamSha256)
-  }
-
-  const singBox = review.resources.singBox.partialEvidence
+  const singBox = review.resources.singBox
+  assert.equal(singBox.status, 'verified')
+  assert.equal(singBox.verificationModel, 'windows-sing-box-release-v1')
+  assert.equal(singBox.release.tag, lock.resources.singBox.releaseTag)
+  assert.equal(singBox.release.tagCommit, lock.resources.singBox.releaseTagCommit)
+  assert.equal(singBox.licenseFiles.length, 1)
+  const singBoxLicense = singBox.licenseFiles[0]
+  const singBoxLicenseContents = fs.readFileSync(
+    path.join(repositoryRoot, ...singBoxLicense.path.split('/'))
+  )
+  assert.equal(singBoxLicenseContents.length, singBoxLicense.size)
+  assert.equal(
+    createHash('sha256').update(singBoxLicenseContents).digest('hex'),
+    singBoxLicense.sha256
+  )
+  assert.equal(singBoxLicense.sha256, singBoxLicense.upstreamSha256)
   assert.equal(singBox.sourceIdentityFiles.length, 2)
   assert.deepEqual(singBox.sourceIdentityFiles.map((entry) => entry.kind).sort(), [
     'go.mod',
@@ -267,23 +317,57 @@ test('blocked native resources retain pinned partial evidence without weakening 
   assert.equal(parsed.goVersion, 'go1.26.4')
   assert.equal(parsed.mainModule, 'github.com/sagernet/sing-box')
 
-  const sysproxy = review.resources.sysproxy.partialEvidence
-  assert.equal(sysproxy.sourceIdentityFiles.length, 2)
-  assert.deepEqual(sysproxy.sourceIdentityFiles.map((entry) => entry.kind).sort(), [
-    'Cargo.toml',
-    'package.json'
+  const sysproxy = review.resources.sysproxy
+  assert.equal(sysproxy.status, 'verified')
+  assert.equal(sysproxy.verificationModel, 'sysproxy-evidence-lock-v1')
+  assert.equal(sysproxy.release.tag, lock.resources.sysproxy.releaseTag)
+  assert.equal(sysproxy.release.tagCommit, lock.resources.sysproxy.releaseTagCommit)
+  const evidenceLockContents = fs.readFileSync(
+    path.join(repositoryRoot, ...sysproxy.evidenceLock.path.split('/'))
+  )
+  const evidenceLock = verifyPinnedEvidenceLock(
+    evidenceLockContents,
+    sysproxy.evidenceLock,
+    'test sysproxy evidence lock'
+  )
+  assert.equal(evidenceLock.dependencyCount, 48)
+  assert.equal(evidenceLock.vendorPackageCount, 126)
+  assert.deepEqual(Object.keys(evidenceLock.files).sort(), [
+    'binary',
+    'buildInfo',
+    'cargoLock',
+    'correspondingSource',
+    'inventory',
+    'licenseNotices',
+    'notice',
+    'vendorInventory'
   ])
-  for (const identity of sysproxy.sourceIdentityFiles) {
-    const contents = fs.readFileSync(path.join(repositoryRoot, ...identity.path.split('/')))
-    assert.equal(contents.length, identity.size)
-    assert.equal(createHash('sha256').update(contents).digest('hex'), identity.sha256)
-    assert.match(identity.sourceUrl, /\/ce9463d95ed5839a43c6a0d7cccf3b3fb892de3a\//)
-  }
-  assert.match(
-    fs
-      .readFileSync(path.join(repositoryRoot, ...sysproxy.sourceIdentityFiles[0].path.split('/')))
-      .toString('utf8'),
-    /name = "sysproxy"|"name": "sysproxy"/
+  assert.equal(evidenceLock.files.binary.sha256, lock.resources.sysproxy.sha256)
+  assert.equal(evidenceLock.files.binary.size, lock.resources.sysproxy.size)
+})
+
+test('tampered evidence-lock bytes or reviewed hash fail closed', () => {
+  const review = JSON.parse(
+    fs.readFileSync(path.join(repositoryRoot, 'scripts', 'third-party-review.json'), 'utf8')
+  )
+  const pinned = review.resources.sysproxy.evidenceLock
+  const contents = fs.readFileSync(path.join(repositoryRoot, ...pinned.path.split('/')))
+  assert.doesNotThrow(() => verifyPinnedEvidenceLock(contents, pinned, 'control evidence lock'))
+
+  const tamperedContents = Buffer.from(contents)
+  tamperedContents[Math.floor(tamperedContents.length / 2)] ^= 0x01
+  assert.throws(
+    () => verifyPinnedEvidenceLock(tamperedContents, pinned, 'tampered evidence lock'),
+    /size or SHA-256 differs/
+  )
+  assert.throws(
+    () =>
+      verifyPinnedEvidenceLock(
+        contents,
+        { ...pinned, sha256: '0'.repeat(64) },
+        'wrong reviewed hash'
+      ),
+    /size or SHA-256 differs/
   )
 })
 
